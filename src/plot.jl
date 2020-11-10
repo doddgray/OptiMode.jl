@@ -105,7 +105,7 @@ function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outl
 	)
 end
 
-function plot_ε(ε1,g::MaxwellData; outlines=false, cmap=cgrad(:cherry))
+function plot_ε(ε1,g::MaxwellGrid; outlines=false, cmap=cgrad(:cherry))
 	plot_ε(ε1,g.x,g.y,outlines=outlines,cmap=cmap)
 end
 
@@ -114,6 +114,6 @@ function plot_ε(shapes::AbstractVector{GeometryPrimitives.Shape{2,4,D}},Δx=6.,
 	plot_ε(εₛ(shapes,g),g.x,g.y,outlines=outlines,cmap=cmap)
 end
 
-function plot_ε(shapes::AbstractVector{GeometryPrimitives.Shape{2,4,D}},g::MaxwellData; outlines=false, cmap=cgrad(:cherry)) where D
+function plot_ε(shapes::AbstractVector{GeometryPrimitives.Shape{2,4,D}},g::MaxwellGrid; outlines=false, cmap=cgrad(:cherry)) where D
 	plot_ε(εₛ(shapes,g),g.x,g.y,outlines=outlines,cmap=cmap)
 end

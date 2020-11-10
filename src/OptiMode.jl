@@ -46,8 +46,8 @@ include("plot.jl")
 function ε_tensor(n::Float64)
     n² = n^2 
     ε = SHM3( [	n²      0. 	    0. 
-                                    0. 	    n² 	    0. 
-                                    0. 	    0. 	    n²  ]
+                0. 	    n² 	    0. 
+                0. 	    0. 	    n²  ]
     )
 end
 
@@ -127,18 +127,18 @@ function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_
     return [b_core,b_subs]
 end
 
-function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D;Δx=6.,Δy=4.,Nx=64,Ny=64)::Array{SHM3,2} 
+function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D;Δx=6.,Δy=4.,Nx=64,Ny=64)::Array{SHM3,3} 
     g = MaxwellGrid(Δx,Δy,Nx,Ny)
     tree = KDTree(shapes)
     return Float64[ isnothing(findfirst([xx,yy],tree)) ? εᵥ[i,j] : findfirst([xx,yy],tree).data[i,j] for xx=g.x,yy=g.y,i=1:3,j=1:3 ]
 end
 
-function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellData)::Array{SHM3,2} 
+function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellData)::Array{SHM3,3} 
     tree = KDTree(shapes)
     return Float64[ isnothing(findfirst([xx,yy],tree)) ? εᵥ[i,j] : findfirst([xx,yy],tree).data[i,j] for xx=g.x,yy=g.y,i=1:3,j=1:3 ]
 end
 
-function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D, x::AbstractVector{Float64}, y::AbstractVector{Float64})::Array{SHM3,2} 
+function ε_init(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D, x::AbstractVector{Float64}, y::AbstractVector{Float64})::Array{SHM3,3} 
     tree = KDTree(shapes)
     return Float64[ isnothing(findfirst([xx,yy],tree)) ? εᵥ[i,j] : findfirst([xx,yy],tree).data[i,j] for xx=x,yy=y,i=1:3,j=1:3 ]
 end
@@ -179,7 +179,7 @@ function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4
     end
 end
 
-function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,Δx=6.,Δy=4.,Nx=64,Ny=64)::Array{SHM3,2}
+function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,Δx=6.,Δy=4.,Nx=64,Ny=64)::Array{SHM3,3}
     g=MaxwellGrid(Δx,Δy,Nx,Ny)
     tree = KDTree(shapes)
     ε_sm = zeros(Float64,g.Nx,g.Ny,3,3)
@@ -189,15 +189,15 @@ function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4
     return ε_sm
 end
 
-function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)::Array{SHM3,2} 
+function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)::Array{SHM3,3} 
     tree = KDTree(shapes)
-    ε_sm = [εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy) for i=1:g.Nx,j=1:g.Ny]
+    ε_sm = copy(reshape(  [εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy) for i=1:g.Nx,j=1:g.Ny] , (g.Nx,g.Ny,1)) )
 end
 
 # function εₛ⁻¹(shapes::AbstractVector{T},g::MaxwellGrid) where T <: GeometryPrimitives.Shape{2,4,D} where D
-function εₛ⁻¹(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)::Array{SHM3,2} 
+function εₛ⁻¹(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)::Array{SHM3,3} 
     tree = KDTree(shapes)
-    ε_sm_inv = [SHM3(inv(εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy))) for i=1:g.Nx,j=1:g.Ny]
+    ε_sm_inv = copy(reshape( [SHM3(inv(εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy))) for i=1:g.Nx,j=1:g.Ny], (g.Nx,g.Ny,1)) )
 end
 
 function εₘₐₓ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D) 
@@ -206,6 +206,6 @@ end
 
 
 ## More includes ##
-include("solve.jl").
+include("solve.jl")
 
 end
