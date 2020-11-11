@@ -3,7 +3,7 @@ using Plots.PlotMeasures
 # using Plots.grid
 using Plots
 
-export plot_ε
+export plot_ε, compare_fields
 
 
 # shape plotting functions 
@@ -116,4 +116,33 @@ end
 
 function plot_ε(shapes::AbstractVector{GeometryPrimitives.Shape{2,4,D}},g::MaxwellGrid; outlines=false, cmap=cgrad(:cherry)) where D
 	plot_ε(εₛ(shapes,g),g.x,g.y,outlines=outlines,cmap=cmap)
+end
+
+# Modesolver result plotting functions
+
+function compare_fields(f_mpb,f,xlim,ylim)
+    hm_f_mpb_real = [ heatmap(x_mpb,y_mpb,[real(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
+    hm_f_mpb_imag = [ heatmap(x_mpb,y_mpb,[imag(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
+    
+    hm_f_real = [ heatmap(x_mpb,y_mpb,[real(f[ix,i,j]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
+    hm_f_imag = [ heatmap(x_mpb,y_mpb,[imag(f[ix,i,j]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
+    
+    hm_f_ratio_real = [ heatmap(x_mpb,y_mpb,[real(f[ix,i,j])/real(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
+    hm_f_ratio_imag = [ heatmap(x_mpb,y_mpb,[imag(f[ix,i,j])/imag(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
+    
+    l = @layout [   a   b   c 
+                    d   e   f
+                    g   h   i
+                    k   l   m    
+                    n   o   p
+                    q   r   s    ]
+    plot(hm_f_mpb_real...,
+        hm_f_mpb_imag...,
+        hm_f_real...,
+        hm_f_imag...,
+        hm_f_ratio_real...,
+        hm_f_ratio_imag...,
+        layout=l,
+        size = (1300,1300),
+    ) 
 end

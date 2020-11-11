@@ -1,7 +1,7 @@
 # using GeometryPrimitives: orthoaxes
-export MaxwellGrid, MaxwellData, KVec, kpG # t2c, c2t, kcross_c2t, kcross_t2c, ucross_t2c, d_from_H, e_from_d, h_from_H, H_from_e, flatten, unflatten, M!, M̂ₖ! , M̂ₖ, ∂ₖM̂ₖ, e_from_H, d_from_e, H_from_d, P!, P̂ₖ!, P̂ₖ
+export MaxwellGrid, MaxwellData, KVec, kpG, t2c, c2t, kcross_c2t, kcross_t2c, zcross_t2c, kcrossinv_c2t, kcrossinv_t2c, ε⁻¹_dot, ε_dot_approx, M, M̂, P, P̂, Mₖ, M̂ₖ, t2c!, c2t!, kcross_c2t!, kcross_t2c!, zcross_t2c!, kcrossinv_c2t!, kcrossinv_t2c!, ε⁻¹_dot!, ε_dot_approx!, M!, M̂!, P!, P̂!
 
-twopi = 1.                  # still not sure whether to include factors of 2π, for now use this global to control all instances
+# twopi = 1.                  # still not sure whether to include factors of 2π, for now use this global to control all instances
 
 function k_mn(k::SArray{Tuple{3},Float64,1,3})
     mag = sqrt(k[1]^2 + k[2]^2 + k[3]^2)
@@ -481,81 +481,7 @@ function P̂!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)
     return LinearMap{ComplexF64}(fp!,(2*ds.Nx*ds.Ny*ds.Nz),ishermitian=true,ismutating=true)
 end
 
-#################################
-#
-#   move to solve
-#
-###################################
 
-function solve_ω(k::SVector{3},ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-7)
-    ds = MaxwellData(k,g)
-    res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
-    H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
-    ω =  √(real(res.λ[eigind]))                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3] 
-    # ωₖ =   real( ( H' * M̂ₖ(ε⁻¹,ds) * H )[1]) / ω       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    ωₖ =   real( ( H[:,eigind]' * M̂ₖ(ε⁻¹,ds) * H[:,eigind] )[1]) / ω       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    return H, ω, ωₖ
-end
-
-"""
-modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x)) as input to solve f(x) = 0
-"""
-function _solve_Δω²(k,ωₜ,ε⁻¹::Array{SHM3,3},ds::MaxwellData;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-    ds.k = SVector(0.,0.,k)
-    ds.kpG .= kpG(SVector(0.,0.,k),ds.grid)
-    # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,ds.H⃗;P=P̂(ε⁻¹,ds),maxiter,tol)
-    res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
-    H =  res.X #[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
-    ω² =  (real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3] 
-    Δω² = ω² - ωₜ^2
-    ω²ₖ =   2 * real( ( H[:,eigind]' * M̂ₖ(ε⁻¹,ds) * H[:,eigind] )[1])       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    ds.H⃗ .= H
-    ds.ω² = ω²
-    ds.ω²ₖ = ω²ₖ
-    return Δω² , Δω² / ω²ₖ
-end
-
-function solve_k(ω::Float64,k₀::Float64,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-    ds = MaxwellData(k₀,g)
-    kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), k₀, Roots.Newton())
-    ds.ω = √ds.ω²
-    ds.ωₖ = ds.ω²ₖ / ( 2 * ds.ω )
-    return kz, ds
-end
-
-function solve_k(ω::Float64,ε⁻¹::Array{SHM3,3},ds::MaxwellData;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-    kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k[3], Roots.Newton())
-    ds.ω = √ds.ω²
-    ds.ωₖ = ds.ω²ₖ / ( 2 * ds.ω )
-    return kz
-end
-
-function compare_fields(f_mpb,f,xlim,ylim)
-    hm_f_mpb_real = [ heatmap(x_mpb,y_mpb,[real(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
-    hm_f_mpb_imag = [ heatmap(x_mpb,y_mpb,[imag(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
-    
-    hm_f_real = [ heatmap(x_mpb,y_mpb,[real(f[ix,i,j]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
-    hm_f_imag = [ heatmap(x_mpb,y_mpb,[imag(f[ix,i,j]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
-    
-    hm_f_ratio_real = [ heatmap(x_mpb,y_mpb,[real(f[ix,i,j])/real(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:RdBu),xlim=xlim,ylim=ylim) for ix=1:3]
-    hm_f_ratio_imag = [ heatmap(x_mpb,y_mpb,[imag(f[ix,i,j])/imag(f_mpb[i,j][ix]) for i=1:nx_mpb,j=1:ny_mpb]',aspect_ratio=:equal,c=cgrad(:viridis),xlim=xlim,ylim=ylim) for ix=1:3]
-    
-    l = @layout [   a   b   c 
-                    d   e   f
-                    g   h   i
-                    k   l   m    
-                    n   o   p
-                    q   r   s    ]
-    plot(hm_f_mpb_real...,
-        hm_f_mpb_imag...,
-        hm_f_real...,
-        hm_f_imag...,
-        hm_f_ratio_real...,
-        hm_f_ratio_imag...,
-        layout=l,
-        size = (1300,1300),
-    ) 
-end
 
 #########################
 #
