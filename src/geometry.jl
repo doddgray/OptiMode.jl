@@ -15,7 +15,7 @@ function test_shapes(p::Float64)
         p,						# r: "radii" (half span of each axis)
         ε₂,						# data: any type, data associated with circle shape
         )
-    
+
     t = regpoly(				# triangle::Polygon using regpoly factory method
         3,						# k: number of vertices
         0.8,					# r: distance from center to vertices
@@ -27,33 +27,36 @@ function test_shapes(p::Float64)
     return [ t, s, b ]
 end
 
-function ridge_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,g::MaxwellGrid)::Array{GeometryPrimitives.Shape{2,4,SHM3},1}
-    t_subs = (g.Δy -t_core - edge_gap )/2.
-    c_subs_y = -g.Δy/2. + edge_gap/2. + t_subs/2.
+function ridge_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)
     ε_subs = ε_tensor(n_subs)
-    ax1,ax2 = GeometryPrimitives.normalize.(([1.,0.], [0.,1.]))
+    # ax1,ax2 = GeometryPrimitives.normalize.(([1.,0.], [0.,1.]))
+    ax = [      1.     0.
+                0.     1.      ]
     b_core = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
                     [0.  ,   0.  ],			# c: center
                     [w  ,   t_core      ],			# r: "radii" (half span of each axis)
-                    [ax1 ax2],	    		        # axes: box axes
+                    ax,	    		        # axes: box axes
                     ε_core,					        # data: any type, data associated with box shape
                 )
     b_subs = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_subs_y],            	# c: center
-                    [g.Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
-                    [ax1 ax2],	    		        # axes: box axes
+                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        # axes: box axes
                     ε_subs,					        # data: any type, data associated with box shape
                 )
     return [b_core,b_subs]
 end
 
-function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,g::MaxwellGrid)::Array{GeometryPrimitives.Shape{2,4,SHM3},1}
-    t_subs = (g.Δy -t_core - edge_gap )/2.
-    c_subs_y = -g.Δy/2. + edge_gap/2. + t_subs/2.
+function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)
     ε_subs = ε_tensor(n_subs)
-    ax1,ax2 = GeometryPrimitives.normalize.(([1.,0.], [0.,1.]))
+    ax = [      1.     0.
+                0.     1.      ]
     b_core = GeometryPrimitives.Sphere(					# Instantiate N-D sphere, here N=2 (circle)
                     SVector(0.,t_core),			# c: center
                     w,						# r: "radii" (half span of each axis)
@@ -61,8 +64,8 @@ function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_
                 )
     b_subs = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_subs_y],            	# c: center
-                    [g.Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
-                    [ax1 ax2],	    		        # axes: box axes
+                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        # axes: box axes
                     ε_subs,					        # data: any type, data associated with box shape
                 )
     return [b_core,b_subs]

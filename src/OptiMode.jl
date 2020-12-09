@@ -10,8 +10,8 @@ module OptiMode
 
 ## Imports ##
 using Plots: plot, heatmap, plot!, heatmap!
-using MaxwellFDM: kottke_avg_param
-using LinearAlgebra, FFTW, LinearMaps, StaticArrays, GeometryPrimitives, Roots
+# using MaxwellFDM: kottke_avg_param
+using LinearAlgebra, FFTW, LinearMaps, StaticArrays, GeometryPrimitives, Roots, ChainRulesCore, Zygote, ForwardDiff, Tullio
 
 ## Exports ##
 export plot_ε, test_shapes, ridge_wg, circ_wg, plot, heatmap, SHM3
@@ -31,7 +31,7 @@ include("plot.jl")
 include("epsilon.jl")
 include("geometry.jl")
 include("solve.jl")
-# include("grads.jl")
+include("grads.jl")
 # include("optimize.jl")
 
 

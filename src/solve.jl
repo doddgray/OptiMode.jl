@@ -1,97 +1,187 @@
 using  IterativeSolvers, Roots # , KrylovKit
-export solve_ω, _solve_Δω², solve_k
+export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess
 
 
-function solve_ω(k::SVector{3},ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-    ds = MaxwellData(k,g)
-    res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
+##############  (ε⁻¹, k) --> (H, ω) methods ###################
+
+function solve_ω(k::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+	# Δk = k - ds.k
+	ds.k = k
+	ds.kpg_mag, ds.mn = calc_kpg(k,ds.Δx,ds.Δy,ds.Δz,ds.Nx,ds.Ny,ds.Nz)
+    # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
+    res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
     H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
-    ω =  √(real(res.λ[eigind]))                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3] 
-    # ωₖ =   real( ( H' * M̂ₖ(ε⁻¹,ds) * H )[1]) / ω       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    ωₖ =   real( ( H[:,eigind]' * M̂ₖ(ε⁻¹,ds) * H[:,eigind] )[1]) / ω       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    return H, ω, ωₖ
+    ω =  √(real(res.λ[eigind]))                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3]
+	ds.H⃗ .= H
+    ds.ω² = ω^2; ds.ω = ω;
+    # ds.ω²ₖ = 2 * H_Mₖ_H(Ha,ε⁻¹,kpg_mn,kpg_mag,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+    return H, ω #, ωₖ
 end
+# @btime: solve_ω(1.5,$ε⁻¹_mpb;ds=$ds)
+# 536.372 ms (17591 allocations: 125.75 MiB)
+
+function solve_ω(k::Array{<:Real},ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	outs = [solve_ω(kk,ε⁻¹,ds;neigs,eigind,maxiter,tol) for kk in k]
+    ( [o[1] for o in outs], [o[2] for o in outs] )
+end
+
+function solve_ω(k,ε⁻¹::Array{Float64,5},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_ω(k,ε⁻¹,MaxwellData(first(k),g);neigs,eigind,maxiter,tol)
+end
+# @btime:
+# 498.442 ms (13823 allocations: 100.19 MiB)
+
+function solve_ω(k,ε⁻¹::AbstractArray,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_ω(k,ε⁻¹,MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
+end
+
+##############  (ε⁻¹, ω) --> (H, k) methods ###################
 
 """
 modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x)) as input to solve f(x) = 0
 """
-function _solve_Δω²(k,ωₜ,ε⁻¹::Array{SHM3,3},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-    ds.k = SVector(0.,0.,k)
-    ds.kpG .= kpG(SVector(0.,0.,k),ds.grid)
-    # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,ds.H⃗;P=P̂(ε⁻¹,ds),maxiter,tol)
+function _solve_Δω²(k,ωₜ,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    ds.k = k
+	ds.kpg_mag, ds.mn = calc_kpg(k,ds.Δx,ds.Δy,ds.Δz,ds.Nx,ds.Ny,ds.Nz)
     res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
-    H =  res.X #[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
-    ω² =  (real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3] 
-    Δω² = ω² - ωₜ^2
-    ω²ₖ =   2 * real( ( H[:,eigind]' * M̂ₖ(ε⁻¹,ds) * H[:,eigind] )[1])       # ωₖ/∂kz = group velocity = c / ng, c = 1 here
-    ds.H⃗ .= H
-    ds.ω² = ω²
-    ds.ω²ₖ = ω²ₖ
-    return Δω² , Δω² / ω²ₖ
-end
-
-function solve_k(ω::Float64,k₀::Float64,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-    ds = MaxwellData(k₀,g)
-    kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), k₀, Roots.Newton())
-    ds.ω = √ds.ω²
-    ds.ωₖ = ds.ω²ₖ / ( 2 * ds.ω )
-    return kz, ds
-end
-
-function solve_k(ω::Float64,ε⁻¹::Array{SHM3,3},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-    kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k[3], Roots.Newton())
-    ds.ω = √ds.ω²
-    ds.ωₖ = ds.ω²ₖ / ( 2 * ds.ω )
-    return kz
+    ds.H⃗ .=  res.X #[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
+    ds.ω² =  (real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3]
+    Δω² = ds.ω² - ωₜ^2
+    # ω²ₖ =   2 * real( ( H[:,eigind]' * M̂ₖ(ε⁻¹,ds) * H[:,eigind] )[1])  # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+	# Ha = reshape(H,(2,size(ε⁻¹)[end-2:end]...))
+	ds.ω²ₖ = 2 * H_Mₖ_H(ds.H⃗,ε⁻¹,ds.kpg_mag,ds.mn) #,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+    return Δω² , Δω² / ds.ω²ₖ
 end
 
 
+"""
+Routines to shield expensive initialization calculations from memory-intensive reverse-mode AD
+"""
+k_guess(ω,ε⁻¹::Array{Float64,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
+k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
+make_MG(Δx,Δy,Δz,Nx,Ny,Nz) = (g = Zygote.@ignore (MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)); g)::MaxwellGrid
+make_MD(k,g::MaxwellGrid) = (ds = Zygote.@ignore (MaxwellData(k,g)); ds)::MaxwellData
+make_KDTree(shapes::Vector{<:Shape}) = (tree = Zygote.@ignore (KDTree(shapes)); tree)::KDTree
+function make_εₛ⁻¹(shapes::Vector{<:Shape},g::MaxwellGrid)::Array{Float64,5}
+    tree = make_KDTree(shapes)
+    ebuf = Zygote.Buffer(Array{Float64}([1.0 2.0]),3,3,g.Nx,g.Ny,1)
+    for i=1:g.Nx,j=1:g.Ny,kk=1:g.Nz
+        ebuf[:,:,i,j,kk] = inv(εₛ(shapes,Zygote.dropgrad(tree),g.x[i],g.y[j],Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy)))
+    end
+    return real(copy(ebuf))
+end
 
-# function solve_ω(k,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-#     ds = MaxwellData(k,g)
-#     res = IterativeSolvers.lobpcg(M̂ₖ(ε⁻¹,ds),false,neigs;maxiter,tol,P=P̂ₖ(SHM3.(inv.(ε⁻¹)),ds))
-#     Hₖ = evecs=res.X[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
-#     ωₖ = 2π * √(real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3] 
-#     ∂ₖωₖ = (2π)^2 * real((Hₖ' * ∂ₖM̂ₖ(ε⁻¹,ds) * Hₖ)[1]) / ωₖ    # ∂ωₖ/∂kz = group velocity = c / ng, c = 1 here
-#     return Hₖ, ωₖ, ∂ₖωₖ
+
+# function solve_k(ω,ε⁻¹;Δx=6.0,Δy=4.0,Δz=1.0,k_guess=ω*sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+function solve_k(ω::Number,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k, Roots.Newton())
+    return ( copy(ds.H⃗), kz ) # maybe copy(ds.H⃗) instead?
+end
+
+function solve_k(ω::Vector{<:Number},ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    outs = [solve_k(om,ε⁻¹,ds;neigs,eigind,maxiter,tol) for om in ω]
+    ( [o[1] for o in outs], [o[2] for o in outs] )
+end
+
+function solve_k(ω::Number,ε⁻¹::Array{Float64,5},g::MaxwellGrid;kguess=k_guess(ω,ε⁻¹),neigs=1,eigind=1,maxiter=1000,tol=1e-6)
+	solve_k(ω,ε⁻¹,make_MD(kguess,g);neigs,eigind,maxiter,tol)
+end
+
+function solve_k(ω::Number,ε⁻¹::Array{Float64,5},Δx,Δy,Δz;kguess=k_guess(ω,ε⁻¹),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g = make_MG(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...) #MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...)
+	ds = make_MD(kguess,g) 			# MaxwellData(kguess,g)
+    solve_k(ω,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+end
+
+function solve_k(ω::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_k(ω,make_εₛ⁻¹(shapes,ds.grid)::Array{Float64,5},ds;neigs,eigind,maxiter,tol)
+end
+
+function solve_k(ω::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},g::MaxwellGrid;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_k(ω,shapes,make_MD(kguess,g)::MaxwellData;neigs,eigind,maxiter,tol)
+end
+
+# function solve_k(ω::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	g = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+#     solve_k(ω,shapes,g;kguess,neigs,eigind,maxiter,tol)
 # end
 
-# function solve_ω!(k,ε⁻¹::Array{SHM3,3},g::MaxwellGrid,Hw::Array{SVector{3,ComplexF64}};neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-#     ds = MaxwellData(k,g)
-#     res = IterativeSolvers.lobpcg(M̂ₖ!(ε⁻¹,ds,Hw),false,neigs;maxiter,tol,P=P̂ₖ!(SHM3.(inv.(ε⁻¹)),ds,Hw))
-#     Hₖ = evecs=res.X[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
-#     ωₖ = 2π * √(real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3] 
-#     ∂ₖωₖ = (2π)^2 * real((Hₖ' * ∂ₖM̂ₖ(ε⁻¹,ds) * Hₖ)[1]) / ωₖ    # ∂ωₖ/∂kz = group velocity = c / ng, c = 1 here
-#     return Hₖ, ωₖ, ∂ₖωₖ
+function solve_k(ω::Number,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ds::MaxwellData = make_MD(kguess,g)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+    # solve_k(ω,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+	kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k, Roots.Newton())
+	return ( copy(ds.H⃗), kz )
+end
+
+function solve_k(ω::Vector{<:Number},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ds::MaxwellData = make_MD(kguess,g)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+    outs = [solve_k(om,ε⁻¹,ds;neigs,eigind,maxiter,tol) for om in ω]
+	return ( [o[1] for o in outs], [o[2] for o in outs] ) #( copy(ds.H⃗), kz )
+end
+
+
+
+##############  (ε⁻¹, ω) --> (n, ng) methods ###################
+
+function solve_n(ω::Number,ε⁻¹::AbstractArray,ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	k = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k, Roots.Newton())
+	( k / ω , 2ω / ds.ω²ₖ ) # = ( n , ng )
+end
+
+function solve_n(ω::Array{<:Real,1},ε⁻¹::AbstractArray,ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    outs = [solve_n(om,ε⁻¹,ds;neigs,eigind,maxiter,tol) for om in ω]
+    ( [o[1] for o in outs], [o[2] for o in outs] )
+end
+
+function solve_n(ω,ε⁻¹::Array{Float64,5},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	k_guess = first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3]))
+	solve_n(ω,ε⁻¹,MaxwellData(k_guess,g);neigs,eigind,maxiter,tol)
+end
+# @btime:
+# 498.442 ms (13823 allocations: 100.19 MiB)
+
+# function solve_n(ω,ε⁻¹::AbstractArray,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+#     solve_n(ω,ε⁻¹,MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
 # end
 
+function solve_n(ω::Array{<:Real},ε⁻¹::Array{<:Real,5},Δx::T,Δy::T,Δz::T) where T<:Real
+	H,k = solve_k(ω, ε⁻¹,Δx,Δy,Δz)
+	( k ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(k[i],Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...)...) for i=1:length(ω) ] ) # = (n, ng)
+end
 
-# """
-# modified solve_ω version for Newton solver, which wants a fn. x -> f(x), f(x)/f'(x) 
-# """
-# function _solve_Δω(k,ω,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-#     ds = MaxwellData(k,g)
-#     res = IterativeSolvers.lobpcg(M̂ₖ(ε⁻¹,ds),false,neigs;P=P̂ₖ(SHM3.(inv.(ε⁻¹)),ds),maxiter,tol)
-#     Hₖ = evecs=res.X[:,eigind]                      # eigenmode wavefn. magnetic fields in transverse pol. basis
-#     ωₖ = 2π * √(real(res.λ[eigind]))                # eigenmode temporal freq.,  neff = kz / ωₖ, kz = k[3] 
-#     ∂ₖωₖ = (2π)^2 * real((Hₖ' * ∂ₖM̂ₖ(ε⁻¹,ds) * Hₖ)[1]) / ωₖ    # ∂ωₖ/∂kz = group velocity = c / ng, c = 1 here
-#     return ωₖ - ω , (ωₖ - ω) / ∂ₖωₖ
+function solve_n(ω::Number,ε⁻¹,Δx,Δy,Δz)
+	H,kz = solve_k(ω, ε⁻¹,Δx,Δy,Δz)
+	ng = ω / H_Mₖ_H(H,ε⁻¹,calc_kpg(kz,Δx,Δy,Δz,size(ε⁻¹)[end-2:end])...)
+	( kz/ω, ng )
+end
+
+# function solve_n(ω::Array{<:Real},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	H,k = solve_k(ω,shapes,Δx,Δy,Δz,Nx,Ny,Nz;kguess,neigs,eigind,maxiter,tol)
+# 	( k ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(k[i],Δx,Δy,Δz,Nx,Ny,Nz)...) for i=1:length(ω) ] ) # = (n, ng)
 # end
 
-# # ε::Array{SArray{Tuple{3,3},Float64,2,9},3}
-# function solve_k(ω::Float64,k₀::Float64,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-#     return Roots.find_zero(k -> _solve_Δω(k,ω,ε⁻¹,g;neigs,eigind,maxiter,tol), k₀, Roots.Newton())
+# function solve_n(ω::Number,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	H,k = solve_k(ω,shapes,Δx,Δy,Δz,Nx,Ny,Nz;kguess,neigs,eigind,maxiter,tol)
+# 	ng = ω / H_Mₖ_H(H,ε⁻¹,calc_kpg(k,Δx,Δy,Δz,Nx,Ny,Nz)...)
+# 	( k/ω, ng )
 # end
 
-# # ::Array{SArray{Tuple{3,3},Complex{Float64},2,9},3}
-# function solve_k(ω::Float64,ε⁻¹::Array{SHM3,3},g::MaxwellGrid;k₀::Float64=ω*√(maximum(reinterpret(Float64,SHM3.(inv.(ε⁻¹))))),neigs=1,eigind=1,maxiter=10000,tol=1e-8)
-#     return solve_k(ω,k₀,ε⁻¹,g;neigs,eigind,maxiter,tol)
-# end
+function solve_n(ω::Number,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	H,kz = solve_k(ω,ε⁻¹,Δx,Δy,Δz;kguess,neigs,eigind,maxiter,tol)
+	kpg_mag,kpg_mn = calc_kpg(kz,Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz))
+	ng = ω / H_Mₖ_H(H,ε⁻¹,kpg_mag,kpg_mn)
+	( kz/ω, ng )
+end
 
-# function solve_k(ω::Float64,shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,Δx::Real,Δy::Real,Nx::Int,Ny::Int;k₀::Float64=ω*√εₘₐₓ(shapes),neigs=1,eigind=1,maxiter=10000,tol=1e-8) 
-#     g = MaxwellGrid(Δx,Δy,Nx,Ny)
-#     return solve_k(ω,k₀,εₛ⁻¹(shapes,g),g;neigs,eigind,maxiter,tol)
-# end
-
-
-
+function solve_n(ω::Array{<:Real},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	H,k = solve_k(ω,shapes,Δx,Δy,Δz,Nx,Ny,Nz;kguess,neigs,eigind,maxiter,tol)
+	( k ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(k[i],Δx,Δy,Δz,Nx,Ny,Nz)...) for i=1:length(ω) ] ) # = (n, ng)
+end
