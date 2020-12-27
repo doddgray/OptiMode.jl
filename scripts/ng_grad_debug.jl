@@ -1,17 +1,32 @@
 using Revise
-using OptiMode, BenchmarkTools
+using OptiMode, BenchmarkTools, DataFrames, CSV
 # using LinearAlgebra, LinearMaps, IterativeSolvers, FFTW, ChainRulesCore, ChainRules, Zygote, OptiMode, BenchmarkTools
 include("mpb_example.jl")
 H,kz = solve_k(ω,ε⁻¹,Δx,Δy,Δz)
+ωs = collect(0.5:0.01:0.7)
 Hs,ks = solve_k(ωs,ε⁻¹,Δx,Δy,Δz)
 solve_ω(kz,ε⁻¹,Δx,Δy,Δz)
 
-Hs,ks = solve_k(ωs,ε⁻¹,Δx,Δy,Δz)
+using Tullio
+function edot(e::Array{Float64,4},ε⁻¹::Array{Float64,5},d::Array{Float64,4})
+	@tullio e[a,i,j,k] =  ε⁻¹[a,b,i,j,k] * d[b,i,j,k] fastmath=true
+end
+
+function edotc(e::CuArray{Float32,4},ε⁻¹::CuArray{Float32,5},d::CuArray{Float32,4})
+	@tullio e[a,i,j,k] =  ε⁻¹[a,b,i,j,k] * d[b,i,j,k]
+end
+
+function bench_gpu3!(y, x)
+    numblocks = ceil(Int, length(y)/256)
+    CUDA.@sync begin
+        @cuda threads=256 blocks=numblocks gpu_add3!(y, x)
+    end
+end
 
 g = MaxwellGrid(Δx,Δy,1.0,Nx,Ny,1);
 ds = MaxwellData(kz,g);
 
-ns,ngs = solve_n(ωs,ε⁻¹,Δx,Δy,Δz)
+# ns,ngs = solve_n(ωs,ε⁻¹,Δx,Δy,Δz)
 
 plot(ωs,[ns,ngs],label=["n","ng"])
 

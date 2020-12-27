@@ -1,9 +1,10 @@
 using Revise
-using OptiMode, GeometryPrimitives, ChainRules, Zygote, FiniteDifferences
+using OptiMode,GeometryPrimitives, ChainRules, Zygote, FiniteDifferences, DataFrames, CSV, BenchmarkTools
 using Zygote: @adjoint, ignore, dropgrad #,StaticArrays,FFTW
 ##
 w           =   1.7
 t_core      =   0.7
+θ           =   π/14.
 edge_gap    =   0.5               # μm
 n_core      =   2.4
 n_subs      =   1.4
@@ -11,58 +12,159 @@ n_subs      =   1.4
 Δx          =   6.                    # μm
 Δy          =   4.                    # μm
 Δz          =   1.
-Nx          =   64
-Ny          =   64
+Nx          =   128
+Ny          =   128
 Nz          =   1
 ω           =   1 / λ
 ##
-function test_shapes2(p::Float64)
-    ε₁, ε₂, ε₃ = test_εs(1.42,2.2,2.5)
-    ax = [  1.  0.
-            0.  1.  ]
-    b = Box(					# Instantiate N-D box, here N=2 (rectangle)
-        [0,0],					# c: center
-        [3.0, 3.0],				# r: "radii" (half span of each axis)
-        ax,         			# axes: box axes
-        ε₁,						# data: any type, data associated with box shape
-        )
-
-    s = Sphere(					# Instantiate N-D sphere, here N=2 (circle)
-        [0.,0.],					# c: center
-        p,						# r: "radii" (half span of each axis)
-        ε₂,						# data: any type, data associated with circle shape
-        )
-
-    t = regpoly(				# triangle::Polygon using regpoly factory method
-        3,						# k: number of vertices
-        p, #0.8,					# r: distance from center to vertices
-        π/2,					# θ: angle of first vertex
-        [0,0],					# c: center
-        ε₃,						# data: any type, data associated with triangle
-        )
-
-    return [ t, s, b ]
-end
 using Plots, BenchmarkTools
 g = MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
-s1 = ridge_wg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy)
+s1 = ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy)
 s2 = circ_wg(0.7,0.2,edge_gap,n_core,n_subs,Δx,Δy)
-s3 = test_shapes2(1.05)
-plot_ε(εₛ(s2,g),g.x,g.y)
-# plot_ε(εₛ⁻¹(s,g),g.x,g.y)
+s3 = test_shapes(1.05)
 
-plot_ε(εₛ(s1,g),g.x,g.y)
-plot_ε(εₛ⁻¹(s,g),g.x,g.y)
+tanθ = tan(θ)
+tcore_tanθ = t_core*tanθ
+w_bottom = w + 2*tcore_tanθ
+verts = 0.5.*   [   w     -w     -w_bottom    w_bottom
+                    t_core   t_core    -t_core      -t_core    ]'
+size(verts)
+
+plot_ε(εₛ(s1,g;npix_sm=2),g.x,g.y)
+plot_ε(εₛ(s2,g),g.x,g.y)
+plot_ε(εₛ(s3,g;npix_sm=2),g.x,g.y)
+# plot_ε(εₛ⁻¹(s3,g),g.x,g.y)
+
+esm = εₛ(s5,g)
+minimum(esm[2,1,:,:])
 
 H,k = solve_k(ω,s1::Vector{<:GeometryPrimitives.Shape},g::MaxwellGrid)
+H_ω²,ω² = solve_ω²(k,s1::Vector{<:GeometryPrimitives.Shape},g::MaxwellGrid)
+@show λ_ω² = 1.0 / sqrt(ω²) # check that solve_ω² finds same neff as solve_k
 plot_d⃗(H,k,g)
+plot_d⃗(H_ω²,k,g)
 
+H,ω² = solve_ω²(1.6,s1,g)
+H,ω² = solve_ω²(1.6,s1,Δx,Δy,Δz,Nx,Ny,Nz)
+ds = MaxwellData(1.6,Δx,Δy,Δz,Nx,Ny,Nz)
+epsi = make_εₛ⁻¹(s1,ds.grid)
+solve_ω²(1.6,epsi,ds)
+solve_ω²(1.6,make_εₛ⁻¹(s1,g),g)
+gg = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)
+solve_ω²(1.6,make_εₛ⁻¹(s1,gg),gg)
+solve_nω(1.6,s1,Δx,Δy,Δz,Nx,Ny,Nz)
 
+ks = collect(1.2:0.03:1.8)
+function ngom_rwg(kz,ww,tt_core,eedge_gap,nn_core,nn_subs,Dx,Dy,Dz,nx,ny,nz)
+    solve_nω(kz,ridge_wg(ww,tt_core,eedge_gap,nn_core,nn_subs,dropgrad(Dx),dropgrad(Dy)),dropgrad(Dx),dropgrad(Dy),dropgrad(Dz),dropgrad(nx),dropgrad(ny),dropgrad(nz))
+end
+function ngoms_rwg(kz,ww,tt_core,eedge_gap,nn_core,nn_subs,Dx,Dy,Dz,nx,ny,nz)
+    [solve_nω(kk,ridge_wg(ww,tt_core,eedge_gap,nn_core,nn_subs,dropgrad(Dx),dropgrad(Dy)),dropgrad(Dx),dropgrad(Dy),dropgrad(Dz),dropgrad(nx),dropgrad(ny),dropgrad(nz))[2] for kk in kz]
+end
+ngom_rwg1(kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz) = ngom_rwg(kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1]
+ngom_rwg2(kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz) = ngom_rwg(kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[2]
+ngom_rwg(1.6,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+ngom_rwg2(1.6,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+Zygote.gradient(ngom_rwg2,1.6,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+Zygote.gradient(ngom_rwg2,k,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+ns_k, ngs_k = ngom_rwg(ks,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
 
+#### Manual benchmark of ridge waveguide dispersion modeling @ 128 x 128 x 1 (6μm x 4μm) grid #####
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=2)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 1.099 s (2477656 allocations: 260.41 MiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=5)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 2.674 s (2981906 allocations: 493.96 MiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=10)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 5.590 s (3823588 allocations: 895.45 MiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=15)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 7.024 s (4660434 allocations: 1.22 GiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=20)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 9.324 s (5500140 allocations: 1.59 GiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=25)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 11.875 s (6340834 allocations: 1.98 GiB)
+# @btime ns_k, ngs_k = ngom_rwg($collect(range(1.2,1.8,length=30)),$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz) # 15.313 s (7191928 allocations: 2.46 GiB)
+# Nk_ngom_rwg = [2,5,10,15,20,25,30]
+# t_ngom_rwg = [1.099,2.674,5.590,7.024,9.324,11.875,15.313]
+# mem_ngom_rwg = [0.26041,0.49396,0.89545,1.22,1.59,1.98,2.46]
+# allocs_ngom_rwg = [2477656,2981906,3823588,4660434,5500140,6340834,7191928]
+# plt_t = plot(Nk_ngom_rwg,t_ngom_rwg,label="time (sec)",legend=:bottomright,xlabel="# k values");
+# plt_mem = plot(Nk_ngom_rwg,mem_ngom_rwg,label="memory (GB)",legend=:bottomright,xlabel="# k values");
+# plt_allocs = plot(Nk_ngom_rwg,allocs_ngom_rwg,label="# allocations",legend=:bottomright,xlabel="# k values");
+# sct_t = scatter!(plt_t,Nk_ngom_rwg,t_ngom_rwg,label=nothing); sct_mem = scatter!(plt_mem,Nk_ngom_rwg,mem_ngom_rwg,label=nothing); sct_allocs = scatter!(plt_allocs,Nk_ngom_rwg,allocs_ngom_rwg,label=nothing);
+# plt_ngom_rwg = plot(plt_t,plt_mem,plt_allocs,sct_t,sct_mem,sct_allocs)
 
-using ChainRulesCore
-ChainRulesCore.refresh_rules()
-Zygote.refresh()
+"""
+################################################################################
+#																			   #
+#					check gradients of ridge waveguide solve				   #
+#																			   #
+################################################################################
+"""
+## generate ridge waveguide sweep + grad data
+∂n_k = [gradient(ngom_rwg1,kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for kk in ks]
+∂ng_k = [gradient(ngom_rwg2,kk,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for kk in ks]
+∂n∂k_AD = [dnk[1] for dnk in ∂n_k]
+∂ng∂k_AD = [dngk[1] for dngk in ∂ng_k]
+# @btime n_ng_rwg($ωs,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz)
+# 998.123 ms (2063797 allocations: 482.05 MiB) for 11 frequencies, 64×64 spatial grid
+
+n_ng_w = [ngom_rwg(k,ww,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz) for ww in ws]
+n_ng_t = [ngom_rwg(k,w,tt,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz) for tt in ts]
+n_w = [ nng[1] for nng in n_ng_w]
+ng_w = [ nng[2] for nng in n_ng_w]
+n_t = [ nng[1] for nng in n_ng_t]
+ng_t = [ nng[2] for nng in n_ng_t]
+∂ns_w = [gradient(ngom_rwg1,k,ww,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for ww in ws]
+∂ns_t = [gradient(ngom_rwg1,k,w,tt,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for tt in ts]
+∂ngs_w = [gradient(ngom_rwg2,k,ww,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for ww in ws]
+∂ngs_t = [gradient(ngom_rwg2,k,w,tt,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)[1:6] for tt in ts]
+∂n∂ω_AD = [ dnng[1] for dnng in ∂ns_ω ]
+∂n∂w_AD = [ dnng[2] for dnng in ∂ns_w ]
+∂n∂t_AD = [ dnng[3] for dnng in ∂ns_t ]
+∂ng∂ω_AD = [ dnng[1] for dnng in ∂ngs_ω ]
+∂ng∂w_AD = [ dnng[2] for dnng in ∂ngs_w ]
+∂ng∂t_AD = [ dnng[3] for dnng in ∂ngs_t ]
+∂n_ng∂k_FD(kk) = central_fdm(5, 1)(x->[ngom_rwg(x,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)...],kk)
+∂n_ng∂w_FD(ww) = central_fdm(5, 1)(x->[ngom_rwg(k,x,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)...],ww)
+∂n_ng∂t_FD(tt) = central_fdm(5, 1)(x->[ngom_rwg(k,w,x,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)...],tt)
+∂nng∂k_FD = hcat([∂n_ng∂k_FD(kk) for kk in ks]...)
+∂nng∂t_FD = hcat([∂n_ng∂t_FD(tt) for tt in ts]...)
+∂nng∂w_FD = hcat([∂n_ng∂w_FD(ww) for ww in ws]...)
+∂n∂k_FD = ∂nng∂k_FD[1,:]
+∂ng∂k_FD = ∂nng∂k_FD[2,:]
+∂n∂t_FD = ∂nng∂t_FD[1,:]
+∂ng∂t_FD = ∂nng∂t_FD[2,:]
+∂n∂w_FD = ∂nng∂w_FD[1,:]
+∂ng∂w_FD = ∂nng∂w_FD[2,:]
+
+## plot results
+p_∂n∂k = plot(ks,∂n∂k_FD,marker=:dot,markersize=3,label="∂n∂k,FD")
+plot!(p_∂n∂k,ks,real(∂n∂k_AD),marker=:dot,markersize=3,label="∂n∂k,AD")
+
+p_∂n∂w = plot(ws,∂n∂w_FD,marker=:dot,markersize=3,label="∂n∂w,FD")
+plot!(p_∂n∂w,ws,real(∂n∂w_AD),marker=:dot,markersize=3,label="∂n∂w,AD")
+
+p_∂n∂t = plot(ts,∂n∂t_FD,marker=:dot,markersize=3,label="∂n∂t,FD")
+plot!(p_∂n∂t,ts,real(∂n∂t_AD),marker=:dot,markersize=3,label="∂n∂t,AD")
+
+p_∂ng∂k = plot(ks,∂ng∂k_FD,marker=:dot,markersize=3,label="∂ng∂k,FD")
+plot!(p_∂ng∂k,ks,real(∂ng∂k_AD),marker=:dot,markersize=3,label="∂ng∂k,AD")
+
+p_∂ng∂t = plot(ts,∂ng∂t_FD,marker=:dot,markersize=3,label="∂ng∂t,FD")
+plot!(p_∂ng∂t,ts,∂ng∂t_AD/1e4,marker=:dot,markersize=3,label="∂ng∂t,AD")
+
+p_∂ng∂w = plot(ws,∂ng∂w_FD,marker=:dot,markersize=3,label="∂ng∂w,FD")
+plot!(p_∂ng∂w,ws,∂ng∂w_AD/10,marker=:dot,markersize=3,label="∂ng∂w,AD")
+
+# plot(p_∂n∂k, p_∂ng∂k, p_∂n∂w, p_∂ng∂w, p_∂n∂t, p_∂ng∂t )
+plot(p_∂n∂k, p_∂n∂w, p_∂n∂t, p_∂ng∂k, p_∂ng∂w, p_∂ng∂t )
+##
+n_rwg, ng_rwg = ngom_rwg(ks,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+ω_rwg = ks ./ n_rwg
+λ_rwg = 1.0 ./ ω_rwg
+plot(λ_rwg,ng_rwg)
+scatter!(λ_rwg,ng_rwg)
+plot!(λ_rwg,n_rwg)
+scatter!(λ_rwg,n_rwg)
+
+plot(ks,ngs_rwg)
+# using ChainRulesCore
+# ChainRulesCore.refresh_rules()
+# Zygote.refresh()
 
 ################################################################################
 #                                                                              #
@@ -78,7 +180,7 @@ function solve_rwg(om,ww,tt_core,eedge_gap,nn_core,nn_subs,Dx,Dy,Dz,nx,ny,nz)
 end
 
 using BenchmarkTools
-plot_d⃗(solve_cwg(1/1.55,0.7,0.2,edge_gap,1.7,1.5,Δx,Δy,Δz,Nx,Ny,Nz)...,g)
+# plot_d⃗(solve_cwg(1/1.55,0.7,0.2,edge_gap,1.7,1.5,Δx,Δy,Δz,Nx,Ny,Nz)...,g)
 plot_d⃗(solve_rwg(1/1.55,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)...,g)
 
 
@@ -92,6 +194,228 @@ plot_d⃗(solve_rwg(1/1.55,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
 # 3.232 s (3276403 allocations: 1.16 GiB)   # for 11 ω values, 128 x 96 spatial grid
 # 175.092 ms (456693 allocations: 62.81 MiB) for 1 value, 64×48 spatial grid
 # 1.001 s (2362625 allocations: 322.87 MiB) for 1 value, 128×128 spatial grid
+Ns = Int.(round.((2).^(5:0.2:5.8)))
+outs = Array{Tuple{Float64,Float64}}(undef,length(Ns))
+#ngom_rwg(1.6,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+function plot_bm_single(df::DataFrame)
+    plt = plot(Int.(df.Nsq),
+                    df.time,
+                    xlabel="grid dimension N",
+                    ylabel="time (s)",
+                    labelfontsize=14,
+                    scale=:log10,
+                    )
+    scatter!(plt,Int.(df.Nsq),df.time,label=nothing)
+    savefig(plt,*(path,"time_",name,".png"))
+    savefig(plt,*(path,"time_",name,".pdf"))
+    n_err_norm = (df.n[begin:(end-1)] .- df.n[end]) ./  df.n[end]
+    ng_err_norm = (df.ng[begin:(end-1)] .- df.ng[end]) ./  df.ng[end]
+    plt2 = plot(Int.(df.Nsq[begin:(end-1)]),
+                    n_err_norm,
+                    xlabel="grid dimension N",
+                    label="n",
+                    labelfontsize=14,
+                    xscale=:log10,
+                    )
+    scatter!(plt2,Int.(df.Nsq[begin:(end-1)]),n_err_norm,label=nothing)
+    plot!(plt2,
+            Int.(df.Nsq[begin:(end-1)]),
+            ng_err_norm,
+            xlabel="grid dimension N",
+            label="ng",
+            labelfontsize=14,
+            xscale=:log10,
+            )
+    scatter!(plt2,Int.(df.Nsq[begin:(end-1)]),ng_err_norm,label=nothing)
+    savefig(plt2,*(path,"convrg_",name,".png"))
+    savefig(plt2,*(path,"convrg_",name,".pdf"))
+    plt3 = plot(Int.(df.Nsq[begin:(end-1)]),
+                    abs.(n_err_norm),
+                    xlabel="grid dimension N",
+                    label="n",
+                    labelfontsize=14,
+                    xscale=:log10,
+                    )
+    scatter!(plt3,Int.(df.Nsq[begin:(end-1)]),abs.(n_err_norm),label=nothing)
+    plot!(plt3,
+            Int.(df.Nsq[begin:(end-1)]),
+            abs.(ng_err_norm),
+            xlabel="grid dimension N",
+            label="ng",
+            labelfontsize=14,
+            scale=:log10,
+            )
+    scatter!(plt3,Int.(df.Nsq[begin:(end-1)]),abs.(ng_err_norm),label=nothing)
+    savefig(plt3,*(path,"absconvrg_",name,".png"))
+    savefig(plt3,*(path,"absconvrg_",name,".pdf"))
+end
+
+plot_bm_single(df)
+
+
+function rwg_ng_single_bm_N(Ns;name="rwg_ng_single_bm_N",path="/home/dodd/github/OptiMode/test/")
+    bm = [ @benchmark(outs[$i] = ngom_rwg(1.6,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Ns[$i],$Ns[$i],1))  for i=1:length(Ns) ]
+    ns = [o[1] for o in outs]
+    ngs = [o[2] for o in outs]
+    # bm = [ @benchmark(ngom_rwg(1.6,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$nn,$nn,1))  for nn=Ns ]
+    df = DataFrame( N = Ns,
+                    Nsq = (Ns.^2),
+                    n = ns,
+                    ng = ngs,
+                    time = (time.(bm).*1e-9),
+                    gctime_frac = (gctime.(bm) ./ time.(bm)),
+                    mem = memory.(bm),
+                    allocs = allocs.(bm),
+                   )
+    CSV.write(*(path,name,".csv"), df)
+    plot_bm_single(df)
+    df
+end
+rwg_ng_single_bm_N(Ns)
+
+
+function plot_bm(df::DataFrame)
+    plt = plot(Int.(df.Nsq),
+                    df.time,
+                    xlabel="grid dimension N",
+                    ylabel="time (s)",
+                    labelfontsize=14,
+                    scale=:log10,
+                    )
+    scatter!(plt,Int.(df.Nsq),df.time,label=nothing)
+    savefig(plt,*(path,"time_",name,".png"))
+    savefig(plt,*(path,"time_",name,".pdf"))
+    n_err_norm = (df.n[begin:(end-1)] .- df.n[end]) ./  df.n[end]
+    ng_err_norm = (df.ng[begin:(end-1)] .- df.ng[end]) ./  df.ng[end]
+    plt2 = plot(Int.(df.Nsq[begin:(end-1)]),
+                    n_err_norm,
+                    xlabel="grid dimension N",
+                    label="n",
+                    labelfontsize=14,
+                    xscale=:log10,
+                    )
+    scatter!(plt2,Int.(df.Nsq[begin:(end-1)]),n_err_norm,label=nothing)
+    plot!(plt2,
+            Int.(df.Nsq[begin:(end-1)]),
+            ng_err_norm,
+            xlabel="grid dimension N",
+            label="ng",
+            labelfontsize=14,
+            xscale=:log10,
+            )
+    scatter!(plt2,Int.(df.Nsq[begin:(end-1)]),ng_err_norm,label=nothing)
+    savefig(plt2,*(path,"convrg_",name,".png"))
+    savefig(plt2,*(path,"convrg_",name,".pdf"))
+    plt3 = plot(Int.(df.Nsq[begin:(end-1)]),
+                    abs.(n_err_norm),
+                    xlabel="grid dimension N",
+                    label="n",
+                    labelfontsize=14,
+                    xscale=:log10,
+                    )
+    scatter!(plt3,Int.(df.Nsq[begin:(end-1)]),abs.(n_err_norm),label=nothing)
+    plot!(plt3,
+            Int.(df.Nsq[begin:(end-1)]),
+            abs.(ng_err_norm),
+            xlabel="grid dimension N",
+            label="ng",
+            labelfontsize=14,
+            scale=:log10,
+            )
+    scatter!(plt3,Int.(df.Nsq[begin:(end-1)]),abs.(ng_err_norm),label=nothing)
+    savefig(plt3,*(path,"absconvrg_",name,".png"))
+    savefig(plt3,*(path,"absconvrg_",name,".pdf"))
+end
+
+Ns = Int.(round.((2).^(5:0.2:5.8)))
+ks = collect(1.2:0.3:1.8)
+outs = Array{Tuple{Vector{Float64},Vector{Float64}}}(undef,length(Ns))
+function rwg_ng_bm_N(ks,Ns;name="rwg_ng_bm_N",path="/home/dodd/github/OptiMode/test/")
+    bm = [ @benchmark(outs[$i] = ngom_rwg($ks,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Ns[$i],$Ns[$i],1))  for i=1:length(Ns) ]
+    ns = [o[1] for o in outs]
+    ngs = [o[2] for o in outs]
+    # bm = [ @benchmark(ngom_rwg(1.6,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$nn,$nn,1))  for nn=Ns ]
+    df = DataFrame( N = Ns,
+                    Nsq = (Ns.^2),
+                    n = ns,
+                    ng = ngs,
+                    time = (time.(bm).*1e-9),
+                    gctime_frac = (gctime.(bm) ./ time.(bm)),
+                    mem = memory.(bm),
+                    allocs = allocs.(bm),
+                   )
+    CSV.write(*(path,name,".csv"), df)
+    # plot_bm_single(df)
+    df
+end
+df = rwg_ng_bm_N(ks,Ns)
+
+
+
+Ns = Int.(round.((2).^(5:0.5:7)))
+ks = collect(1.2:0.03:1.8)
+ngs = Array{Float64}(undef,length(Ns))
+[ @benchmark(ngs[$i] = ngom_rwg(1.6,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Ns[$i],$Ns[$i],1))  for i=1:length(Ns) ]
+
+ngs
+
+name="rwg_ng_single_bm_N"
+path="/home/dodd/github/OptiMode/test/"
+df = CSV.read(*(path,name,".csv"),DataFrame)
+plt = plot(Int.(df.Nsq),
+                df.time,
+                xlabel="grid dimension N",
+                ylabel="time (s)",
+                labelfontsize=14,
+                scale=:log10,
+                )
+scatter!(plt,Int.(df.Nsq),df.time,label=nothing)
+savefig(plt,*(path,name,".png"))
+savefig(plt,*(path,name,".pdf"))
+
+plt2 = plot(Int.(df.Nsq),
+                df.n .- df.n[end],
+                xlabel="grid dimension N",
+                label="n",
+                labelfontsize=14,
+                xscale=:log10,
+                )
+scatter!(plt2,Int.(df.Nsq),df.n .- df.n[end],label=nothing)
+plot!(plt2,
+        Int.(df.Nsq),
+        df.ng .- df.ng[end],
+        xlabel="grid dimension N",
+        label="ng",
+        labelfontsize=14,
+        xscale=:log10,
+        )
+scatter!(plt2,Int.(df.Nsq),df.ng .- df.ng[end],label=nothing)
+
+plot!()
+
+function rwg_bm_N(Ns;name="rwg_bm_N",path="/home/dodd/github/OptiMode/test/")
+    bm = [ @benchmark(solve_rwg(1/1.55,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$nn,$nn,1))  for nn=Ns ]
+    df = DataFrame( N = Ns,
+                    Nsq = (Ns.^2),
+                    time = (time.(bm).*1e-9),
+                    gctime_frac = (gctime.(bm) ./ time.(bm)),
+                    mem = memory.(bm),
+                    allocs = allocs.(bm),
+                   )
+    CSV.write(*(path,name,".csv"), df)
+    plt = plot(Int.(df.Nsq),
+                    df.time,
+                    xlabel="grid dimension N",
+                    ylabel="time (s)",
+                    labelfontsize=14,
+                    scale=:log10,
+                    )
+    scatter!(plt,df.time,label=nothing)
+    savefig(plt,*(path,name,".png"))
+    savefig(plt,*(path,name,".pdf"))
+end
+
+
 
 function ng_rwg(om,ww,tt_core,eedge_gap,nn_core,nn_subs,Dx,Dy,Dz,nx,ny,nz)
     solve_n(om,ridge_wg(ww,tt_core,eedge_gap,nn_core,nn_subs,dropgrad(Dx),dropgrad(Dy)),dropgrad(Dx),dropgrad(Dy),dropgrad(Dz),dropgrad(nx),dropgrad(ny),dropgrad(nz))[2]
@@ -113,6 +437,9 @@ end
 # 198.690 ms (630899 allocations: 75.48 MiB) for 1 frequency, 64×64 spatial grid
 # 956.631 ms (2527945 allocations: 322.88 MiB) for 1 frequency, 128×128 spatial grid
 # 9.661 s (9835867 allocations: 1.23 GiB) for 1 frequency, 256×256 spatial grid
+
+gradient(ng_rwg,0.645,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+gradient(ng_rwg,ωs,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
 
 # @btime gradient(ng_rwg,0.645,$w,$t_core,$edge_gap,$n_core,$n_subs,$Δx,$Δy,$Δz,$Nx,$Ny,$Nz)
 # 476.851 ms (1772737 allocations: 118.51 MiB) for 1 frequency, 32×32 spatial grid
@@ -697,3 +1024,66 @@ x1 = maximum(abs.((inv(b.p) .* b.r') * signmatrix(b)), dims=2)[:,1]
 
 SVector{2,Float64}(maximum(abs.(Array((inv(b.p) .* b.r') * signmatrix(b))), dims=2)[:,1])
 x2 = maximum(abs.( Array((inv(b.p) .* b.r') * signmatrix(b)) ), dims=2)
+
+
+"""
+################################################################################
+#																			   #
+#					check gradients of polygon shape functions				   #
+#																			   #
+################################################################################
+"""
+##
+ε_core = ε_tensor(n_core)
+tanθ = tan(θ)
+tcore_tanθ = t_core*tanθ
+w_bottom = w + 2*tcore_tanθ
+verts = 0.5.*   [   w     -w     -w_bottom    w_bottom
+                    t_core   t_core    -t_core      -t_core    ]'
+s = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
+                verts,			                                            # v: polygon vertices in counter-clockwise order
+                ε_core,					                                    # data: any type, data associated with box shape
+            )
+
+##
+
+x = 0.6:0.003:0.9
+xy = [[xx,0.1] for xx in x]
+spt_n = [surfpt_nearby(xxyy,s) for xxyy in xy]
+sptx = [a[1][1] for a in spt_n]
+spty = [a[1][2] for a in spt_n]
+
+spt_n2 = [surfpt_nearby2(xxyy,s) for xxyy in xy]
+sptx2 = [a[1][1] for a in spt_n2]
+spty2 = [a[1][2] for a in spt_n2]
+
+@assert sptx2 ≈ sptx
+@assert spty2 ≈ spty
+
+sptx_grad = [Zygote.gradient(v->surfpt_nearby2([v,0.1],s)[1][1],a)[1] for a in x]
+spty_grad = [Zygote.gradient(v->surfpt_nearby2([v,0.1],s)[1][2],a)[1] for a in x]
+
+##
+plt = plot(x,sptx,label="sptx")
+plot!(plt,x,spty,label="spty")
+plt_grad = plot(x,sptx_grad,label="sptx_grad")
+plot!(plt_grad,x,spty_grad,label="spty_grad")
+l = @layout [   a
+                b   ]
+plot(plt,plt_grad,layout=l)
+##
+abs.((-)(bounds(s)...))
+
+
+bounds(s)
+
+
+
+
+((-)(bounds(s)...))
+
+##
+
+plot_ε(εₛ(s5,g;npix_sm=2),g.x,g.y)
+esm = εₛ(s5,g)
+minimum(esm[2,1,:,:])

@@ -1,4 +1,4 @@
-
+# export
 
 function test_shapes(p::Float64)
     ε₁, ε₂, ε₃ = test_εs(1.42,2.2,3.5)
@@ -27,27 +27,29 @@ function test_shapes(p::Float64)
     return [ t, s, b ]
 end
 
-function ridge_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
+function ridge_wg(wₜₒₚ::Float64,t_core::Float64,θ::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)
     ε_subs = ε_tensor(n_subs)
-    # ax1,ax2 = GeometryPrimitives.normalize.(([1.,0.], [0.,1.]))
+    tanθ = tan(θ)
+    tcore_tanθ = t_core*tanθ
+    w_bottom = wₜₒₚ + 2*tcore_tanθ
+    verts = 0.5.*   [   wₜₒₚ     -wₜₒₚ     -w_bottom    w_bottom
+                        t_core   t_core    -t_core      -t_core    ]'
+    core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
+                    verts,			                                            # v: polygon vertices in counter-clockwise order
+                    ε_core,					                                    # data: any type, data associated with box shape
+                )
     ax = [      1.     0.
                 0.     1.      ]
-    b_core = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
-                    [0.  ,   0.  ],			# c: center
-                    [w  ,   t_core      ],			# r: "radii" (half span of each axis)
-                    ax,	    		        # axes: box axes
-                    ε_core,					        # data: any type, data associated with box shape
-                )
     b_subs = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_subs_y],            	# c: center
                     [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
                     ax,	    		        # axes: box axes
                     ε_subs,					        # data: any type, data associated with box shape
                 )
-    return [b_core,b_subs]
+    return [core,b_subs]
 end
 
 function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}

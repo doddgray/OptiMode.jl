@@ -11,10 +11,10 @@ module OptiMode
 ## Imports ##
 using Plots: plot, heatmap, plot!, heatmap!
 # using MaxwellFDM: kottke_avg_param
-using LinearAlgebra, FFTW, LinearMaps, StaticArrays, GeometryPrimitives, Roots, ChainRulesCore, Zygote, ForwardDiff, Tullio
+using LinearAlgebra, FFTW, LinearMaps, StaticArrays, StructArrays, GeometryPrimitives, Roots, ChainRulesCore, Zygote, ForwardDiff, Tullio
 
 ## Exports ##
-export plot_ε, test_shapes, ridge_wg, circ_wg, plot, heatmap, SHM3
+export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3
 
 
 

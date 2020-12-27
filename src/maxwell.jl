@@ -38,10 +38,10 @@ MaxwellGrid(Δx::Float64,Δy::Float64,Δz::Float64,Nx::Int,Ny::Int,Nz::Int) = Ma
     [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(Nz,Nz/Δz)], # g⃗
     # (𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz))); inv(𝓕); 𝓕),  # planned FFT operator 𝓕
     # (𝓕! = plan_fft!(randn(ComplexF64, (3,Nx,Ny,Nz))); inv(𝓕!); 𝓕!), # planned in-place FFT operator 𝓕!
-	plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz))),  # planned FFT operator 𝓕
-	plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz))),
-	plan_fft!(randn(ComplexF64, (3,Nx,Ny,Nz))),
-	plan_ifft!(randn(ComplexF64, (3,Nx,Ny,Nz))), # planned in-place FFT operator 𝓕!
+	plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)),  # planned FFT operator 𝓕
+	plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)),
+	plan_fft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)),
+	plan_ifft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)), # planned in-place FFT operator 𝓕!
 )
 
 MaxwellGrid(Δx::Float64,Δy::Float64,Nx::Int,Ny::Int) = MaxwellGrid(
@@ -60,10 +60,10 @@ MaxwellGrid(Δx::Float64,Δy::Float64,Nx::Int,Ny::Int) = MaxwellGrid(
     [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(1,1.0)], # g⃗
     # (𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,1))); inv(𝓕); 𝓕),  # planned FFT operator 𝓕
     # (𝓕! = plan_fft!(randn(ComplexF64, (3,Nx,Ny,1))); inv(𝓕!); 𝓕!), # planned in-place FFT operator 𝓕!
-	plan_fft(randn(ComplexF64, (3,Nx,Ny,1))),  # planned FFT operator 𝓕
-	plan_ifft(randn(ComplexF64, (3,Nx,Ny,1))),
-	plan_fft!(randn(ComplexF64, (3,Nx,Ny,1))),
-	plan_ifft!(randn(ComplexF64, (3,Nx,Ny,1))), # planned in-place FFT operator 𝓕!
+	plan_fft(randn(ComplexF64, (3,Nx,Ny,1)),(2:4)),  # planned FFT operator 𝓕
+	plan_ifft(randn(ComplexF64, (3,Nx,Ny,1)),(2:4)),
+	plan_fft!(randn(ComplexF64, (3,Nx,Ny,1)),(2:4)),
+	plan_ifft!(randn(ComplexF64, (3,Nx,Ny,1)),(2:4)), # planned in-place FFT operator 𝓕!
 )
 
 mutable struct MaxwellData
@@ -458,145 +458,3 @@ end
 P̂!(ε⁻¹::Array{Float64,5},ds::MaxwellData) = LinearMap{ComplexF64}((2*ds.Nx*ds.Ny*ds.Nz),ishermitian=true,ismutating=true) do y::AbstractVector{ComplexF64},x::AbstractVector{ComplexF64}
 	P!(y,x,ε⁻¹,ds)::AbstractArray{ComplexF64,1}
     end
-
-
-# function P̂!(ε⁻¹::Array{Float64,5},ds::MaxwellData)
-#     function fp!(y::AbstractArray{ComplexF64,1},x::AbstractArray{ComplexF64,1})::AbstractArray{ComplexF64,1}
-#         P!(y,x,ε⁻¹,ds)
-#     end
-#     return LinearMap{ComplexF64}(fp!,(2*ds.Nx*ds.Ny*ds.Nz),ishermitian=true,ismutating=true)
-# end
-
-
-
-
-
-
-
-
-
-
-###########################################################################################################################
-
-
-# function zcross_t2c!(Hin::AbstractArray{ComplexF64,4},ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         @inbounds ds.e[1,i,j,k] = -Hin[1,i,j,k] * ds.kpG[i,j,k].m[2] - Hin[2,i,j,k] * ds.kpG[i,j,k].n[2]
-#         @inbounds ds.e[2,i,j,k] =  Hin[1,i,j,k] * ds.kpG[i,j,k].m[1] + Hin[2,i,j,k] * ds.kpG[i,j,k].n[1]
-#     end
-#     return ds.e
-# end
-#
-# function kcross_t2c!(ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         scale = -ds.kpg_mag #-ds.kpG[i,j,k].mag
-#         ds.d[1,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[1] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[1] ) * scale
-#         ds.d[2,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[2] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[2] ) * scale
-#         ds.d[3,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[3] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[3] ) * scale
-#     end
-#     return ds.d
-# end
-#
-# function kcross_c2t!(ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         scale = ds.kpG[i,j,k].mag
-#         at1 = ds.e[1,i,j,k] * ds.kpG[i,j,k].m[1] + ds.e[2,i,j,k] * ds.kpG[i,j,k].m[2] + ds.e[3,i,j,k] * ds.kpG[i,j,k].m[3]
-#         at2 = ds.e[1,i,j,k] * ds.kpG[i,j,k].n[1] + ds.e[2,i,j,k] * ds.kpG[i,j,k].n[2] + ds.e[3,i,j,k] * ds.kpG[i,j,k].n[3]
-#         ds.H[1,i,j,k] =  -at2 * scale
-#         ds.H[2,i,j,k] =  at1 * scale
-#     end
-#     return ds.H
-# end
-#
-# function kcrossinv_t2c!(ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         scale = 1 / ds.kpG[i,j,k].mag
-#         ds.e[1,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[1] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[1] ) * scale
-#         ds.e[2,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[2] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[2] ) * scale
-#         ds.e[3,i,j,k] = ( ds.H[1,i,j,k] * ds.kpG[i,j,k].n[3] - ds.H[2,i,j,k] * ds.kpG[i,j,k].m[3] ) * scale
-#     end
-#     return ds.e
-# end
-#
-# function kcrossinv_c2t!(ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         scale = -1 / ds.kpG[i,j,k].mag
-#         at1 = ds.d[1,i,j,k] * ds.kpG[i,j,k].m[1] + ds.d[2,i,j,k] * ds.kpG[i,j,k].m[2] + ds.d[3,i,j,k] * ds.kpG[i,j,k].m[3]
-#         at2 = ds.d[1,i,j,k] * ds.kpG[i,j,k].n[1] + ds.d[2,i,j,k] * ds.kpG[i,j,k].n[2] + ds.d[3,i,j,k] * ds.kpG[i,j,k].n[3]
-#         ds.H[1,i,j,k] =  -at2 * scale
-#         ds.H[2,i,j,k] =  at1 * scale
-#     end
-#     return ds.H
-# end
-#
-# function ε⁻¹_dot!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         ds.e[1,i,j,k] =  ε⁻¹[i,j,k][1,1]*ds.d[1,i,j,k] + ε⁻¹[i,j,k][2,1]*ds.d[2,i,j,k] + ε⁻¹[i,j,k][3,1]*ds.d[3,i,j,k]
-#         ds.e[2,i,j,k] =  ε⁻¹[i,j,k][1,2]*ds.d[1,i,j,k] + ε⁻¹[i,j,k][2,2]*ds.d[2,i,j,k] + ε⁻¹[i,j,k][3,2]*ds.d[3,i,j,k]
-#         ds.e[3,i,j,k] =  ε⁻¹[i,j,k][1,3]*ds.d[1,i,j,k] + ε⁻¹[i,j,k][2,3]*ds.d[2,i,j,k] + ε⁻¹[i,j,k][3,3]*ds.d[3,i,j,k]
-#         # ds.e[1,i,j,k] =  ε⁻¹[i,j,k][1,1]*Hin[1,i,j,k] + ε⁻¹[i,j,k][1,2]*Hin[2,i,j,k] + ε⁻¹[i,j,k][1,3]*Hin[3,i,j,k]
-#         # ds.e[2,i,j,k] =  ε⁻¹[i,j,k][2,1]*Hin[1,i,j,k] + ε⁻¹[i,j,k][2,2]*Hin[2,i,j,k] + ε⁻¹[i,j,k][2,3]*Hin[3,i,j,k]
-#         # ds.e[3,i,j,k] =  ε⁻¹[i,j,k][3,1]*Hin[1,i,j,k] + ε⁻¹[i,j,k][3,2]*Hin[2,i,j,k] + ε⁻¹[i,j,k][3,3]*Hin[3,i,j,k]
-#     end
-#     return ds.e
-# end
-#
-# function ε_dot_approx!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::AbstractArray{ComplexF64,4}
-#     @inbounds for i=1:ds.Nx,j=1:ds.Ny,k=1:ds.Nz
-#         ε_ave = 3 / tr(ε⁻¹[i,j,k])
-#         ds.d[1,i,j,k] =  ε_ave * ds.e[1,i,j,k]
-#         ds.d[2,i,j,k] =  ε_ave * ds.e[2,i,j,k]
-#         ds.d[3,i,j,k] =  ε_ave * ds.e[3,i,j,k]
-#     end
-#     return ds.d
-# end
-#
-# function M!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::Array{ComplexF64,4}
-#     kcross_t2c!(ds);
-#     # ds.𝓕! * ds.d;
-#     mul!(ds.d,ds.𝓕!,ds.d);
-#     ε⁻¹_dot!(ε⁻¹,ds);
-#     # ds.𝓕⁻¹! * ds.e;
-#     mul!(ds.e,ds.𝓕⁻¹!,ds.e)
-#     kcross_c2t!(ds)
-# end
-#
-# function M!(Hout::AbstractArray{ComplexF64,1},Hin::AbstractArray{ComplexF64,1},ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::Array{ComplexF64,1}
-#     # copyto!(ds.H,reshape(Hin,(2,ds.Nx,ds.Ny,ds.Nz)))
-#     @inbounds ds.H .= reshape(Hin,(2,ds.Nx,ds.Ny,ds.Nz))
-#     M!(ε⁻¹,ds);
-#     # copyto!(Hout,vec(ds.H))
-#     @inbounds Hout .= vec(ds.H)
-# end
-#
-# function M̂!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)
-#     function f!(y::AbstractArray{ComplexF64,1},x::AbstractArray{ComplexF64,1})::AbstractArray{ComplexF64,1}
-#         M!(y,x,ε⁻¹,ds)
-#     end
-#     return LinearMap{ComplexF64}(f!,(2*ds.Nx*ds.Ny*ds.Nz),ishermitian=true,ismutating=true)
-# end
-#
-# function P!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::Array{ComplexF64,4}
-#     kcrossinv_t2c!(ds);
-#     # ds.𝓕⁻¹! * ds.e;
-#     mul!(ds.e,ds.𝓕⁻¹!,ds.e)
-#     ε_dot_approx!(ε⁻¹,ds);
-#     # ds.𝓕! * ds.d;
-#     mul!(ds.d,ds.𝓕!,ds.d);
-#     kcrossinv_c2t!(ds)
-# end
-#
-# function P!(Hout::AbstractArray{ComplexF64,1},Hin::AbstractArray{ComplexF64,1},ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)::Array{ComplexF64,1}
-#     # copyto!(ds.H,reshape(Hin,(2,ds.Nx,ds.Ny,ds.Nz)))
-#     @inbounds ds.H .= reshape(Hin,(2,ds.Nx,ds.Ny,ds.Nz))
-#     P!(ε⁻¹,ds);
-#     # copyto!(Hout,vec(ds.H))
-#     @inbounds Hout .= vec(ds.H)
-# end
-#
-# function P̂!(ε⁻¹::Array{SHermitianCompact{3,Float64,6},3},ds::MaxwellData)
-#     function fp!(y::AbstractArray{ComplexF64,1},x::AbstractArray{ComplexF64,1})::AbstractArray{ComplexF64,1}
-#         P!(y,x,ε⁻¹,ds)
-#     end
-#     return LinearMap{ComplexF64}(fp!,(2*ds.Nx*ds.Ny*ds.Nz),ishermitian=true,ismutating=true)
-# end

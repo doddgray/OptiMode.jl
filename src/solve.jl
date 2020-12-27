@@ -1,8 +1,116 @@
 using  IterativeSolvers, Roots # , KrylovKit
-export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess
+export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², make_εₛ⁻¹, make_MG
 
 
-##############  (ε⁻¹, k) --> (H, ω) methods ###################
+"""
+################################################################################
+#																			   #
+#	Routines to shield expensive initialization calculations from memory-	   #
+#						intensive reverse-mode AD				  			   #
+#																			   #
+################################################################################
+"""
+
+k_guess(ω,ε⁻¹::Array{Float64,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
+k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
+make_MG(Δx,Δy,Δz,Nx,Ny,Nz) = (g = Zygote.@ignore (MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)); g)::MaxwellGrid
+make_MD(k,g::MaxwellGrid) = (ds = Zygote.@ignore (MaxwellData(k,g)); ds)::MaxwellData
+make_KDTree(shapes::Vector{<:Shape}) = (tree = Zygote.@ignore (KDTree(shapes)); tree)::KDTree
+function make_εₛ⁻¹(shapes::Vector{<:Shape},g::MaxwellGrid)::Array{Float64,5}
+    tree = make_KDTree(shapes)
+    ebuf = Zygote.Buffer(Array{Float64}([1.0 2.0]),3,3,g.Nx,g.Ny,1)
+    for i=1:g.Nx,j=1:g.Ny,kk=1:g.Nz
+        ebuf[:,:,i,j,kk] = inv(εₛ(shapes,Zygote.dropgrad(tree),g.x[i],g.y[j],Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy)))
+    end
+    return real(copy(ebuf))
+end
+
+
+"""
+################################################################################
+#																			   #
+#						solve_ω² methods: (ε⁻¹, k) --> (H, ω²)				   #
+#																			   #
+################################################################################
+"""
+
+function solve_ω²(kz::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+	# Δk = k - ds.k
+	ds.k = kz
+	ds.kpg_mag, ds.mn = calc_kpg(kz,ds.Δx,ds.Δy,ds.Δz,ds.Nx,ds.Ny,ds.Nz)
+    # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
+    res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
+    H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
+    ds.ω² =  real(res.λ[eigind])                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3]
+	ds.H⃗ .= H
+	ds.ω = sqrt(ds.ω²)
+    # ds.ω²ₖ = 2 * H_Mₖ_H(Ha,ε⁻¹,kpg_mn,kpg_mag,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+    return (H, ds.ω²) #, ωₖ
+end
+# @btime: solve_ω²(1.5,$ε⁻¹_mpb;ds=$ds)
+# 536.372 ms (17591 allocations: 125.75 MiB)
+
+# function solve_ω²(k::Array{<:Real},ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	outs = [solve_ω²(kk,ε⁻¹,ds;neigs,eigind,maxiter,tol) for kk in k]
+#     ( [o[1] for o in outs], [o[2] for o in outs] )
+# end
+
+function solve_ω²(kz,ε⁻¹::Array{Float64,5},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_ω²(kz,ε⁻¹,MaxwellData(first(kz),g);neigs,eigind,maxiter,tol)
+end
+# @btime:
+# 498.442 ms (13823 allocations: 100.19 MiB)
+
+function solve_ω²(kz,ε⁻¹,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+    solve_ω²(kz,ε⁻¹,MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
+end
+
+# function solve_k(ω::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},g::MaxwellGrid;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+#     solve_k(ω,shapes,make_MD(kguess,g)::MaxwellData;neigs,eigind,maxiter,tol)
+# end
+
+# function solve_k(ω::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	g = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+#     solve_k(ω,shapes,g;kguess,neigs,eigind,maxiter,tol)
+# end
+
+function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	ds::MaxwellData = make_MD(kz,g)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+end
+
+function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ds::MaxwellData = make_MD(kz,g)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+end
+
+# function solve_k(ω::Number,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;kguess=k_guess(ω,shapes),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+# 	ds::MaxwellData = make_MD(kguess,g)
+# 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+#     # solve_k(ω,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+# 	kz = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k, Roots.Newton())
+# 	return ( copy(ds.H⃗), kz )
+# end
+
+
+# function solve_ω²(k::Vector{<:Number},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+# 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+#     outs = [solve_ω²(kk,ε⁻¹,make_MD(kk,g)::MaxwellData;neigs,eigind,maxiter,tol) for kk in k]
+# 	return ( [o[1] for o in outs], [o[2] for o in outs] ) #( copy(ds.H⃗), kz )
+# end
+
+"""
+################################################################################
+#																			   #
+#						solve_ω methods: (ε⁻¹, k) --> (H, ω)				   #
+#																			   #
+################################################################################
+"""
 
 function solve_ω(k::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
 	# Δk = k - ds.k
@@ -35,7 +143,22 @@ function solve_ω(k,ε⁻¹::AbstractArray,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=
     solve_ω(k,ε⁻¹,MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
 end
 
-##############  (ε⁻¹, ω) --> (H, k) methods ###################
+# function solve_ω(k,shapes::Vector{<:Shape},Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+#     solve_ω(k,ε⁻¹,MaxwellGrid(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
+# end
+#
+# function solve_ω(k::Union{Number,Vector{<:Number}},shapes::Vector{<:Shape},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+#     solve_k(ω,make_εₛ⁻¹(shapes,ds.grid)::Array{Float64,5},ds;neigs,eigind,maxiter,tol)
+# end
+
+"""
+################################################################################
+#																			   #
+#						solve_k methods: (ε⁻¹, ω) --> (H, k)				   #
+#																			   #
+################################################################################
+"""
+
 
 """
 modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x)) as input to solve f(x) = 0
@@ -52,25 +175,6 @@ function _solve_Δω²(k,ωₜ,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1
 	ds.ω²ₖ = 2 * H_Mₖ_H(ds.H⃗,ε⁻¹,ds.kpg_mag,ds.mn) #,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
     return Δω² , Δω² / ds.ω²ₖ
 end
-
-
-"""
-Routines to shield expensive initialization calculations from memory-intensive reverse-mode AD
-"""
-k_guess(ω,ε⁻¹::Array{Float64,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
-k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
-make_MG(Δx,Δy,Δz,Nx,Ny,Nz) = (g = Zygote.@ignore (MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)); g)::MaxwellGrid
-make_MD(k,g::MaxwellGrid) = (ds = Zygote.@ignore (MaxwellData(k,g)); ds)::MaxwellData
-make_KDTree(shapes::Vector{<:Shape}) = (tree = Zygote.@ignore (KDTree(shapes)); tree)::KDTree
-function make_εₛ⁻¹(shapes::Vector{<:Shape},g::MaxwellGrid)::Array{Float64,5}
-    tree = make_KDTree(shapes)
-    ebuf = Zygote.Buffer(Array{Float64}([1.0 2.0]),3,3,g.Nx,g.Ny,1)
-    for i=1:g.Nx,j=1:g.Ny,kk=1:g.Nz
-        ebuf[:,:,i,j,kk] = inv(εₛ(shapes,Zygote.dropgrad(tree),g.x[i],g.y[j],Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy)))
-    end
-    return real(copy(ebuf))
-end
-
 
 # function solve_k(ω,ε⁻¹;Δx=6.0,Δy=4.0,Δz=1.0,k_guess=ω*sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
 function solve_k(ω::Number,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
@@ -124,8 +228,13 @@ function solve_k(ω::Vector{<:Number},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,
 end
 
 
-
-##############  (ε⁻¹, ω) --> (n, ng) methods ###################
+"""
+################################################################################
+#																			   #
+#						solve_n methods: (ε⁻¹, ω) --> (n, ng)				   #
+#																			   #
+################################################################################
+"""
 
 function solve_n(ω::Number,ε⁻¹::AbstractArray,ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
 	k = Roots.find_zero(k -> _solve_Δω²(k,ω,ε⁻¹,ds;neigs,eigind,maxiter,tol), ds.k, Roots.Newton())
@@ -184,4 +293,34 @@ function solve_n(ω::Array{<:Real},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;
 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
 	H,k = solve_k(ω,shapes,Δx,Δy,Δz,Nx,Ny,Nz;kguess,neigs,eigind,maxiter,tol)
 	( k ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(k[i],Δx,Δy,Δz,Nx,Ny,Nz)...) for i=1:length(ω) ] ) # = (n, ng)
+end
+
+"""
+################################################################################
+#																			   #
+#					solve_nω methods: (ε⁻¹, k) --> (n, ng)					   #
+#						(mostly for debugging gradients)					   #
+#																			   #
+################################################################################
+"""
+
+function solve_nω(kz::Number,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ds::MaxwellData = make_MD(kz,g)
+	kpg_mag,kpg_mn = calc_kpg(kz,Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz))
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	H,ω² = solve_ω²(kz,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
+	ω = √(ω²)
+	ng = ω / H_Mₖ_H(H,ε⁻¹,kpg_mag,kpg_mn)
+	( kz/ω, ng )
+end
+
+function solve_nω(kz::Array{<:Real},shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+	Hω = [solve_ω(kz[i],ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol) for i=1:length(kz)]
+	ω² = [res[2] for res in Hω]
+	ω = sqrt.(ω²)
+	H = [res[1] for res in Hω]
+	( kz ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(kz[i],Δx,Δy,Δz,Nx,Ny,Nz)...) for i=1:length(kz) ] ) # = (n, ng)
 end

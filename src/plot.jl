@@ -26,7 +26,7 @@ shape(s::GeometryPrimitives.Sphere) = Plots.partialcircle(0, 2π, 100, s.r)
 
 # ε plotting functions
 
-function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outlines=false, cmap=cgrad(:cherry))
+function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outlines=false,cmap_diag=cgrad(:viridis),cmap_offdiag=cgrad(:bluesreds),scale_each_component=true)
 	tmi,bmi,lmi,rmi = -4mm, -4mm, -4mm, -4mm
 	tmo,bmo,lmo,rmo = 2mm, 0mm, 0mm, 0mm
 
@@ -60,13 +60,14 @@ function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outl
 			bmo bmo bmo
 	]
 
+
 	plot_grid =[
 		heatmap(
 			x,
 			y,
 			# transpose([real(ε1[a,b,1][i,j]) for a=1:length(x),b=1:length(y)]),
 			transpose([real(ε1[i,j,a,b,1]) for a=1:length(x),b=1:length(y)]),
-			c=cmap, #cgrad(:cherry),
+			c = (i==j ? cmap_diag : cmap_offdiag), #cgrad(:cherry),
 			aspect_ratio=:equal,
 			colorbar = false,
 			showaxis = showaxes[j,i],
@@ -75,7 +76,7 @@ function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outl
 			left_margin = lm[j,i],
 			right_margin = rm[j,i],
 			# clim = ( min(ε1...), max(ε1[:,:,i,j]) ),
-			# clim = ( 0., max(ε1[:,:][i,j]...),
+			clim = ( i==j ? (scale_each_component ? ( 0., maximum(real(ε1[i,j,:,:,1]))) : ( 0., maximum(real(ε1))) ) : (scale_each_component ? ( min( minimum(real(ε1[i,j,:,:,1])), -maximum(real(ε1[i,j,:,:,1]))), max( maximum(real(ε1[i,j,:,:,1])), -minimum(real(ε1[i,j,:,:,1])) ) ) : ( minimum(real(ε1)), maximum(real(ε1))))),
 		) for i=1:3,j=1:3 ]
 
 	zoom_plot = heatmap(
@@ -84,11 +85,11 @@ function plot_ε(ε1,x::AbstractVector{Float64},y::AbstractVector{Float64}; outl
 			# transpose([real(ε1[a,b,1][1,1]) for a=1:length(x),b=1:length(y)]),
 			transpose([real(ε1[1,1,a,b,1]) for a=1:length(x),b=1:length(y)]),
 			# transpose(ε1[:,:][1,1]),
-			c=cmap, #cgrad(:cherry),
+			c=cmap_diag, #cgrad(:cherry),
 			aspect_ratio=:equal,
 			legend=false,
 			colorbar = true,
-			# clim = ( 0., max(ε1...) ),
+			clim = (scale_each_component ? ( 0., maximum(real(ε1[1,1,:,:,1]))) : ( 0., maximum(real(ε1)))),
 		)
 
 	if outlines

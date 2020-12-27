@@ -1,4 +1,4 @@
-export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ
+export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ, surfpt_nearby2
 
 εᵥ = [	1. 	0. 	0.
         0. 	1. 	0.
@@ -55,6 +55,8 @@ function surfpt_nearby2(x::Vector{Float64}, s::Sphere{2})
     return s.c+s.r*nout, nout
 end
 
+
+
 function surfpt_nearby2(x, b::Box{2})
     ax = inv(b.p)
     n0 = b.p ./  [ sqrt(b.p[1,1]^2 + b.p[1,2]^2) sqrt(b.p[2,1]^2 + b.p[2,2]^2)  ]
@@ -90,6 +92,41 @@ function surfpt_nearby2(x, b::Box{2})
 
     return SVector{2,Float64}(x+∆x), SVector{2,Float64}(nout)
 end
+
+# surfpt_nearby2(x, p::Polygon) = surfpt_nearby(x, p::Polygon)
+
+f_onbnd_poly(pin,abs∆xe) =  (p = Zygote.@ignore pin; onbnd = Zygote.@ignore ( abs∆xe .≤ Base.rtoldefault(Float64) * maximum(abs.((-)(bounds(p)...))) ); onbnd)
+f_isout_poly(p,∆xe) =  (isout = Zygote.@ignore ( (∆xe.>0) .| f_onbnd_poly(p,abs.(∆xe))); isout)
+function surfpt_nearby2(x, s::Polygon{K}) where {K}
+    ∆xe = sum(s.n .* (x' .- s.v), dims=2)[:,1]  # Calculate the signed distances from x to edge lines.
+    abs∆xe = abs.(∆xe)
+    onbnd = f_onbnd_poly(s,abs∆xe) # abs∆xe .≤ Base.rtoldefault(Float64) * max(sz.data...)  # SVector{K}
+    isout = f_isout_poly(s,∆xe) #(∆xe.>0) .| onbnd  # SVector{K}
+    cout = count(isout)
+    if cout == 2  # x is outside two edges
+        ∆xv = x' .- s.v
+        l∆xv = hypot.(∆xv[:,1], ∆xv[:,2])
+        imin = argmin(l∆xv)
+        surf = s.v[imin,:]
+        imin₋₁ = mod1(imin-1,K)
+        if onbnd[imin] && onbnd[imin₋₁]  # x is very close to vertex imin
+            nout = s.n[imin,:] + s.n[imin₋₁,:]
+        else
+            nout = x - s.v[imin,:]
+        end
+        nout = normalize(nout)
+    else  # cout ≤ 1 or cout ≥ 3
+        imax = argmax(∆xe)
+        vmax, nmax = s.v[imax,:], s.n[imax,:]
+
+        ∆x = (nmax⋅(vmax-x)) .* nmax
+        surf = x + ∆x
+        nout = nmax
+    end
+    return surf, nout
+end
+
+
 
 function τ_trans(ε)
     ε₁₁, ε₂₁, ε₃₁, ε₁₂, ε₂₂, ε₃₂, ε₁₃, ε₂₃, ε₃₃ = ε
@@ -136,11 +173,11 @@ function avg_param(param1, param2, n12, rvol1)
     return S * τ⁻¹_trans(τavg) * transpose(S)  # apply τ⁻¹ and transform back to global coordinates
 end
 
-function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,tree::KDTree,x::Real,y::Real,δx::Real,δy::Real)::Array{Float64,2}
-    x1,y1 = x+δx/2.,y+δy/2
-    x2,y2 = x+δx/2.,y-δy/2
-    x3,y3 = x-δx/2.,y-δy/2
-    x4,y4 = x-δx/2.,y+δy/2
+function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,tree::KDTree,x::Real,y::Real,δx::Real,δy::Real;npix_sm::Int=4)::Array{Float64,2}
+    x1,y1 = x+npix_sm*δx/2.,y+npix_sm*δy/2.
+    x2,y2 = x+npix_sm*δx/2.,y-npix_sm*δy/2.
+    x3,y3 = x-npix_sm*δx/2.,y-npix_sm*δy/2.
+    x4,y4 = x-npix_sm*δx/2.,y+npix_sm*δy/2.
 
     s1 = findfirst([x1,y1],tree)
     s2 = findfirst([x2,y2],tree)
@@ -156,44 +193,49 @@ function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4
         return ε1
     else
         sinds = [ isnothing(ss) ? length(shapes)+1 : findfirst(isequal(ss),shapes) for ss in [s1,s2,s3,s4]]
-        s_fg = shapes[min(sinds...)]
-        r₀,nout = surfpt_nearby2([x; y], s_fg)
-        # bndry_pxl[i,j] = 1
-        # nouts[i,j,:] = nout
-        vxl = (SVector{2,Float64}(x3,y3), SVector{2,Float64}(x1,y1))
-        rvol = volfrac(vxl,nout,r₀)
-        sind_bg = max(sinds...)
-        ε_bg = sind_bg > length(shapes) ? εᵥ : shapes[sind_bg].data
-        return avg_param(
-                s_fg.data,
-                ε_bg,
-                [nout[1];nout[2];0],
-                rvol,)
+        n_unique = Zygote.@ignore( length(unique(sinds)) )
+        if n_unique==2
+            s_fg = shapes[min(sinds...)]
+            r₀,nout = surfpt_nearby2([x; y], s_fg)
+            # bndry_pxl[i,j] = 1
+            # nouts[i,j,:] = nout
+            vxl = (SVector{2,Float64}(x3,y3), SVector{2,Float64}(x1,y1))
+            rvol = volfrac(vxl,nout,r₀)
+            sind_bg = max(sinds...)
+            ε_bg = sind_bg > length(shapes) ? εᵥ : shapes[sind_bg].data
+            return avg_param(
+                    s_fg.data,
+                    ε_bg,
+                    [nout[1];nout[2];0],
+                    rvol,)
+        else
+            return (ε1+ε2+ε3+ε4)/4.
+        end
     end
 end
 
-function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,Δx=6.,Δy=4.,Nx=64,Ny=64)
+function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,Δx=6.,Δy=4.,Nx=64,Ny=64;npix_sm::Int=4)
     g=MaxwellGrid(Δx,Δy,Nx,Ny)
     tree = KDTree(shapes)
     ε_sm = zeros(Float64,g.Nx,g.Ny,3,3)
     for i=1:g.Nx, j=1:g.Ny
-        ε_sm[i,j,:,:] = εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy)
+        ε_sm[i,j,:,:] = εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy;npix_sm)
     end
     return ε_sm
 end
 
-function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)
+function εₛ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid;npix_sm::Int=4)
     tree = KDTree(shapes)
     # ε_sm = copy(reshape(  [εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy) for i=1:g.Nx,j=1:g.Ny] , (g.Nx,g.Ny,1)) )
-    ε_sm = [εₛ(shapes,tree,g.x[ix],g.y[iy],g.δx,g.δy)[a,b] for a=1:3,b=1:3,ix=1:g.Nx,iy=1:g.Ny]
+    ε_sm = [εₛ(shapes,tree,g.x[ix],g.y[iy],g.δx,g.δy;npix_sm)[a,b] for a=1:3,b=1:3,ix=1:g.Nx,iy=1:g.Ny]
 end
 
 # function εₛ⁻¹(shapes::AbstractVector{T},g::MaxwellGrid) where T <: GeometryPrimitives.Shape{2,4,D} where D
-function εₛ⁻¹(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid)
+function εₛ⁻¹(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D,g::MaxwellGrid;npix_sm::Int=4)
     tree = KDTree(shapes)
     # ε_sm_inv = copy(reshape( [inv(εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy)) for i=1:g.Nx,j=1:g.Ny], (g.Nx,g.Ny,1)) )
     # ε_sm_inv = [inv(εₛ(shapes,tree,g.x[ix],g.y[iy],g.δx,g.δy))[a,b] for a=1:3,b=1:3,ix=1:g.Nx,iy=1:g.Ny,iz=1:g.Nz]
-    ε_sm_inv = [inv(εₛ(shapes,tree,g.x[ix],g.y[iy],g.δx,g.δy))[a,b] for a=1:3,b=1:3,ix=1:g.Nx,iy=1:g.Ny]
+    ε_sm_inv = [inv(εₛ(shapes,tree,g.x[ix],g.y[iy],g.δx,g.δy;npix_sm))[a,b] for a=1:3,b=1:3,ix=1:g.Nx,iy=1:g.Ny]
 end
 
 function εₘₐₓ(shapes::AbstractVector{T} where T <: GeometryPrimitives.Shape{2,4,D} where D)
