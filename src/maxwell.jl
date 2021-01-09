@@ -124,8 +124,8 @@ MaxwellData(k::Float64,g::MaxwellGrid,Neigs::Int64) = MaxwellData(
     g.y,        # y
     g.z,        # z
     g.g⃗,
-    ( (kpg_mag, kpg_mn) = calc_kpg(k,g.Δx,g.Δy,g.Δz,g.Nx,g.Ny,g.Nz); kpg_mn),  # mn
-	kpg_mag,
+    calc_kpg(k,g.g⃗)[2], # ( (kpg_mag, kpg_mn) = calc_kpg(k,g.g⃗); kpg_mn), #( (kpg_mag, kpg_mn) = calc_kpg(k,g.Δx,g.Δy,g.Δz,g.Nx,g.Ny,g.Nz); kpg_mn),  # mn
+	calc_kpg(k,g.g⃗)[1], # kpg_mag,
     g.𝓕,
 	g.𝓕⁻¹,
     g.𝓕!,
@@ -140,11 +140,13 @@ MaxwellData(k::Float64,Δx::Float64,Δy::Float64,Nx::Int,Ny::Int) = MaxwellData(
 # non-Mutating Operators
 
 function calc_kpg(kz::T,g⃗::Array{Array{T,1},3})::Tuple{Array{T,3},Array{T,5}} where T <: Real
-	g⃗ₜ_zero_mask = Zygote.@ignore [ sum(abs2.(gg[1:2])) for gg in g⃗ ] .> 0.
-	g⃗ₜ_zero_mask! = Zygote.@ignore .!(g⃗ₜ_zero_mask)
+	g⃗ₜ_zero_mask = Zygote.@ignore( [ sum(abs2.(gg[1:2])) for gg in g⃗ ] .> 0. );
+	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+
 	ŷ = [0.; 1. ;0.]
 	k⃗ = [0.;0.;kz]
-	@tullio kpg[a,i,j,k] := k⃗[a] - g⃗[i,j,k][a] nograd=g⃗ fastmath=false
+	# @tullio kpg[a,i,j,k] := k⃗[a] - g⃗[i,j,k][a] nograd=g⃗ fastmath=false
+	@tullio kpg[a,i,j,k] := k⃗[a] - g⃗[i,j,k][a] fastmath=false
 	@tullio kpg_mag[i,j,k] := sqrt <| kpg[a,i,j,k]^2 fastmath=false
 	zxinds = [2; 1; 3]
 	zxscales = [-1; 1. ;0.] #[[0. -1. 0.]; [-1. 0. 0.]; [0. 0. 0.]]
@@ -162,8 +164,9 @@ function calc_kpg(kz::T,g⃗::Array{Array{T,1},3})::Tuple{Array{T,3},Array{T,5}}
 end
 
 function calc_kpg(kz::T,Δx::T,Δy::T,Δz::T,Nx::Int64,Ny::Int64,Nz::Int64)::Tuple{Array{T,3},Array{T,5}} where T <: Real
-	g⃗ = Zygote.@ignore [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(Nz,Nz/Δz)]
-	calc_kpg(kz,g⃗)
+	g⃗ = Zygote.@ignore( [ [gx;gy;gz] for gx in collect(fftfreq(Nx,Nx/Δx)), gy in collect(fftfreq(Ny,Ny/Δy)), gz in collect(fftfreq(Nz,Nz/Δz))] )
+	# g⃗ = [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(Nz,Nz/Δz)]
+	calc_kpg(kz,Zygote.dropgrad(g⃗))
 end
 
 
@@ -243,6 +246,7 @@ end
 """
 function ε⁻¹_dot(d⃗,ε⁻¹)
 	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k] fastmath=false
+	# @tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k] / 2 + ε⁻¹[b,a,i,j,k] * d⃗[b,i,j,k] / 2 fastmath=false
 end
 
 """
@@ -278,14 +282,15 @@ function P(Hin::AbstractArray{ComplexF64,4},ε⁻¹,mn,kpg_mag,𝓕::FFTW.cFFTWP
     kxinv_c2t( 𝓕 * ε_dot_approx( 𝓕⁻¹ * kxinv_t2c(H,mn,kpg_mag),ε⁻¹),mn,kpg_mag)
 end
 
-function P(Hin::AbstractArray{ComplexF64,1},ε⁻¹,mn,kpg_mag,𝓕)::AbstractArray{ComplexF64,1}
+function P(Hin::AbstractArray{ComplexF64,1},ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1}
     HinA = reshape(Hin,(2,size(ε⁻¹)[end-2:end]...))
-    return vec(P(HinA,ε⁻¹,mn,kpg_mag,𝓕))
+    return vec(P(HinA,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹))
 end
 
-P̂(ε⁻¹,mn,kpg_mag,𝓕) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> P(H,ε⁻¹,mn,kpg_mag,𝓕)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
+P̂(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> P(H,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
 
-function Mₖ(H,ε⁻¹,mn,kpg_mag)
+# function Mₖ(H,ε⁻¹,mn,kpg_mag)
+function Mₖ(H::T,ε⁻¹,mn,kpg_mag)::T where T<:AbstractArray{ComplexF64,4}
     kx_c2t(ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹),mn,kpg_mag)
 end
 
@@ -293,23 +298,28 @@ function Mₖ(H,ε⁻¹,mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)
     kx_c2t( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_t2c(H,mn), ε⁻¹), mn,kpg_mag)
 end
 
-function Mₖ(H::AbstractArray{ComplexF64,1},ε⁻¹,mn,kpg_mag)::AbstractArray{ComplexF64,1}
+# function Mₖ(H::AbstractArray{ComplexF64,1},ε⁻¹,mn,kpg_mag)::AbstractArray{ComplexF64,1}
+function Mₖ(H::T,ε⁻¹,mn,kpg_mag)::T where T<:AbstractArray{ComplexF64,1}
     Ha = reshape(H,(2,size(ε⁻¹)[end-2:end]...))
     return vec(Mₖ(Ha,ε⁻¹,mn,kpg_mag))
 end
 
-function Mₖ(H::AbstractArray{ComplexF64,1},ε⁻¹::AbstractArray{ComplexF64,5},mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)::Array{ComplexF64,1}
+function Mₖ(H::AbstractArray{ComplexF64,1},ε⁻¹::AbstractArray{T,5},mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)::Array{ComplexF64,1} where T
     Ha = reshape(H,(2,size(ε⁻¹)[end-2:end]...))
-    return vec(M(Ha,ε⁻¹,mn,kpg_mag,𝓕))
+    return vec(Mₖ(Ha,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹))
 end
 
-M̂ₖ(ε⁻¹,mn,kpg_mag,𝓕) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> Mₖ(H,ε⁻¹,mn,kpg_mag,𝓕)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
+M̂ₖ(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> Mₖ(H,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
 
 function H_Mₖ_H(H::AbstractArray{ComplexF64,4},ε⁻¹::AbstractArray{Float64,5},kpg_mag,mn)
 	kxinds = [2; 1]
 	kxscales = [-1.; 1.]
-	@tullio out[_] := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) fastmath=false
+	# temp1 = zx_t2c(H,mn)
+	# temp2 = ε⁻¹_dot_t(temp1,ε⁻¹)
+	# @tullio out[_] := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * temp[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
+	@tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	return abs(out[1])
+	# -real( dot(H, kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(H,mn), (2:4) ), ε⁻¹), (2:4)), mn,kpg_mag) ) )
 end
 
 # function H_Mₖ_H(H::AbstractArray{ComplexF64,1},ε⁻¹::AbstractArray{ComplexF64,5},kpg_mag,mn,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)::Float64

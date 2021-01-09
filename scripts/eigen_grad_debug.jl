@@ -1,221 +1,9 @@
-using LinearAlgebra, StaticArrays, IterativeSolvers, ChainRules, Plots
-using FiniteDifferences, ForwardDiff, Zygote, IterativeSolvers # ReverseDiff
+using Revise
+using LinearAlgebra, StaticArrays, ArrayInterface, FFTW, LinearMaps, IterativeSolvers, ChainRules, Plots, BenchmarkTools
+using FiniteDifferences, ForwardDiff, Zygote # ReverseDiff
+using OptiMode #  DataFrames, CSV,
 # using ChainRulesTestUtils, Test
-
-#include("eigen_grad.jl")
-
-function rrule(::typeof(eigen), X::AbstractMatrix{<:Real};k=1)
-    F = eigen(X)
-    function eigen_pullback(Ȳ::Composite{<:Eigen})
-        ∂X = @thunk(eigen_rev(F, Ȳ.values, Ȳ.vectors,k))
-        return (NO_FIELDS, ∂X)
-    end
-    return F, eigen_pullback
-end
-
-function rrule(::typeof(getproperty), F::T, x::Symbol) where T <: Eigen
-    function getproperty_eigen_pullback(Ȳ)
-        C = Composite{T}
-        ∂F = if x === :values
-            C(values=Ȳ,)
-        elseif x === :vectors
-            C(vectors=Ȳ,)
-        end
-        return NO_FIELDS, ∂F, DoesNotExist()
-    end
-    return getproperty(F, x), getproperty_eigen_pullback
-end
-
-function eigen_rev(ΛV::Eigen,Λ̄,V̄,k)
-
-    Λ = ΛV.values
-    V = ΛV.vectors
-    A = V*diagm(Λ)*V'
-
-    Ā = zeros(size(A))
-    tempĀ = zeros(size(A))
-    # eigen(A).values are in descending order, this current implementation
-    # assumes that the input matrix positive definite
-    for j = length(Λ):-1:1
-        tempĀ = (I-V[:,j]*V[:,j]') ./ norm(A*V[:,j])
-        for i = 1:k-1
-            tempĀ += A^i * (I-V[:,j]*V[:,j]') ./ (norm(A*V[:,j])^(i+1))
-        end
-        tempĀ *= V̄[:,j]*V[:,j]'
-        # x = A ./ norm(A*V[:,j])
-        # p = fill(I, (k - 1))
-        # evalpoly(x, p)
-        # v = V[:,j]
-        # w = (v̄ .-v .* dot(v, v̄)) ./ norm(A*v)
-        # tempĀ = (tempĀ * w) * v'
-        Ā += tempĀ
-        A = A - A*V[:,j]*V[:,j]'
-    end
-    return Ā
-end
-
-
-
-# using BLAS
-
-function frule(
-    (_, ΔA),
-    ::typeof(eigen!),
-    A::LinearAlgebra.RealHermSymComplexHerm{<:BLAS.BlasReal,<:StridedMatrix};
-    sortby::Union{Function,Nothing}=nothing,
-)
-    F = eigen!(A; sortby=sortby)
-    ΔA isa AbstractZero && return F, ΔA
-    λ, U = F.values, F.vectors
-    tmp = U' * ΔA
-    ∂K = mul!(ΔA.data, tmp, U)
-    ∂Kdiag = @view ∂K[diagind(∂K)]
-    ∂λ = real.(∂Kdiag)
-    ∂K ./= λ' .- λ
-    fill!(∂Kdiag, 0)
-    ∂U = mul!(tmp, U, ∂K)
-    _eigen_norm_phase_fwd!(∂U, A, U)
-    ∂F = Composite{typeof(F)}(values = ∂λ, vectors = ∂U)
-    return F, ∂F
-end
-
-function rrule(
-    ::typeof(eigen),
-    A::LinearAlgebra.RealHermSymComplexHerm;
-    sortby::Union{Function,Nothing}=nothing,
-)
-    F = eigen(A; sortby=sortby)
-    function eigen_pullback(ΔF::Composite{<:Eigen})
-        λ, U = F.values, F.vectors
-        Δλ, ΔU = ΔF.values, ΔF.vectors
-        ∂A = eigen_rev(A, λ, U, Δλ, ΔU)
-        return NO_FIELDS, ∂A
-    end
-    eigen_pullback(ΔF::AbstractZero) = (NO_FIELDS, ΔF)
-    return F, eigen_pullback
-end
-
-function eigen_rev(A::LinearAlgebra.RealHermSymComplexHerm, λ, U, ∂λ, ∂U)
-    if ∂U isa AbstractZero
-        ∂λ isa AbstractZero && return (NO_FIELDS, ∂λ + ∂U)
-        ∂K = Diagonal(∂λ)
-        ∂A = U * ∂K * U'
-    else
-        ∂U = copyto!(similar(∂U), ∂U)
-        _eigen_norm_phase_rev!(∂U, A, U)
-        ∂K = U' * ∂U
-        ∂K ./= λ' .- λ
-        ∂K[diagind(∂K)] = ∂λ
-        ∂A = mul!(∂K, U * ∂K, U')
-    end
-    return _hermitrize!(∂A, A)
-end
-
-_eigen_norm_phase_fwd!(∂V, ::LinearAlgebra.RealHermSym, V) = ∂V
-function _eigen_norm_phase_fwd!(∂V, A::Hermitian, V)
-    k = A.uplo === 'U' ? size(A, 1) : 1
-    @inbounds for i in axes(V, 2)
-        v = @view V[:, i]
-        vₖ, ∂vₖ = real(v[k]), ∂V[k, i]
-        ∂v .-= v .* (imag(∂vₖ) / ifelse(iszero(vₖ), one(vₖ), vₖ))
-    end
-    return ∂V
-end
-
-_eigen_norm_phase_rev!(∂V, ::LinearAlgebra.RealHermSym, V) = ∂V
-function _eigen_norm_phase_rev!(∂V, A::Hermitian, V)
-    k = A.uplo === 'U' ? size(A, 1) : 1
-    @inbounds for i in axes(V, 2)
-        v, ∂v = @views V[:, i], ∂V[:, i]
-        vₖ = real(v[k])
-        ∂c = dot(v, ∂v)
-        ∂v[k] -= im * (imag(∂c) / ifelse(iszero(vₖ), one(vₖ), vₖ))
-    end
-    return ∂V
-end
-
-#####
-##### `eigvals!`/`eigvals`
-#####
-
-function frule(
-    (_, ΔA),
-    ::typeof(eigvals!),
-    A::LinearAlgebra.RealHermSymComplexHerm{<:BLAS.BlasReal,<:StridedMatrix};
-    sortby::Union{Function,Nothing}=nothing,
-)
-    ΔA isa AbstractZero && return eigvals!(A; sortby=sortby), ΔA
-    F = eigen!(A; sortby=sortby)
-    λ, U = F.values, F.vectors
-    tmp = ΔA * U
-    # diag(U' * tmp) without computing matrix product
-    ∂λ = similar(λ)
-    @inbounds for i in eachindex(λ)
-        ∂λ[i] = @views real(dot(U[:, i], tmp[:, i]))
-    end
-    return λ, ∂λ
-end
-
-function rrule(
-    ::typeof(eigvals),
-    A::LinearAlgebra.RealHermSymComplexHerm;
-    sortby::Union{Function,Nothing}=nothing,
-)
-    F = eigen(A; sortby=sortby)
-    λ = F.values
-    function eigvals_pullback(Δλ)
-        U = F.vectors
-        ∂A = _hermitrize!(U * Diagonal(Δλ) * U', A)
-        return NO_FIELDS, ∂A
-    end
-    eigvals_pullback(Δλ::AbstractZero) = (NO_FIELDS, Δλ)
-    return λ, eigvals_pullback
-end
-
-# in-place hermitrize matrix, optionally wrapping like A
-function _hermitrize!(A)
-    A .= (A .+ A') ./ 2
-    return A
-end
-function _hermitrize!(∂A, A)
-    _hermitrize!(∂A)
-    return _symhermtype(A)(∂A, Symbol(A.uplo))
-end
-
-
-Zygote.@adjoint enumerate(xs) = enumerate(xs), diys -> (map(last, diys),)
-_ndims(::Base.HasShape{d}) where {d} = d
-_ndims(x) = Base.IteratorSize(x) isa Base.HasShape ? _ndims(Base.IteratorSize(x)) : 1
-Zygote.@adjoint function Iterators.product(xs...)
-                    d = 1
-                    Iterators.product(xs...), dy -> ntuple(length(xs)) do n
-                        nd = _ndims(xs[n])
-                        dims = ntuple(i -> i<d ? i : i+nd, ndims(dy)-nd)
-                        d += nd
-                        func = sum(y->y[n], dy; dims=dims)
-                        ax = axes(xs[n])
-                        reshape(func, ax)
-                    end
-                end
-
-
-function sum2(op,arr)
-    return sum(op,arr)
-end
-
-function sum2adj( Δ, op, arr )
-    n = length(arr)
-    g = x->Δ*Zygote.gradient(op,x)[1]
-    return ( nothing, map(g,arr))
-end
-
-Zygote.@adjoint function sum2(op,arr)
-    return sum2(op,arr),Δ->sum2adj(Δ,op,arr)
-end
-
-ChainRulesCore.refresh_rules()
-Zygote.refresh()
-
+#include("eigen_rules.jl")
 
 ## Test AD sensitivity analysis of random matrices using rrules defined above
 
@@ -318,34 +106,489 @@ scatter!(p̄_AD,p̄_SJ,label="AD/SJ")
 # [ ( A*X⃗[:,i] - α[i] * X⃗[:,i]) for i = 1:N]
 
 ## Now test eigen rrule fns with Helmholtz Operator matrices
-using Revise
-using OptiMode, BenchmarkTools, DataFrames, CSV, FFTW
-using LinearMaps
-## parameters
-w           =   1.7
-t_core      =   0.7
-edge_gap    =   0.5               # μm
-n_core      =   2.4
-n_subs      =   1.4
-λ           =   1.55                  # μm
+
+# using LinearMaps
+
+"""
+Default design parameters for ridge waveguide. Both MPB and OptiMode functions
+should intake data in this format for convenient apples-to-apples comparison.
+"""
+p0 = [
+    1.45,               #   propagation constant    `kz`            [μm⁻¹]
+    1.7,                #   top ridge width         `w_top`         [μm]
+    0.7,                #   ridge thickness         `t_core`        [μm]
+    π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+    2.4,                #   core index              `n_core`        [1]
+    1.4,                #   substrate index         `n_subs`        [1]
+    0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+]
+
+function kxt2c_matrix(mag,mn) #; Nx = 16, Ny = 16, Nz = 1)
+    Nx, Ny, Nz = size(mag)
+    kxt2c_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(2*Nx*Ny*Nz)))
+    for ix=1:Nx,iy=1:Ny,iz=1:Nz,a=1:3 #,b=1:2
+        q = Nx * Ny * (iz - 1) + Nx * (iy - 1) + ix
+        # reference from kcross_t2c!:
+        #       ds.d[1,i,j,k] = ( ds.H[1,i,j,k] * ds.mn[1,2,i,j,k] - ds.H[2,i,j,k] * ds.mn[1,1,i,j,k] ) * -ds.kpg_mag[i,j,k]
+        #       ds.d[2,i,j,k] = ( ds.H[1,i,j,k] * ds.mn[2,2,i,j,k] - ds.H[2,i,j,k] * ds.mn[2,1,i,j,k] ) * -ds.kpg_mag[i,j,k]
+        #       ds.d[3,i,j,k] = ( ds.H[1,i,j,k] * ds.mn[3,2,i,j,k] - ds.H[2,i,j,k] * ds.mn[3,1,i,j,k] ) * -ds.kpg_mag[i,j,k]
+        # which implements d⃗ = k×ₜ₂c ⋅ H⃗
+        # Here we want to explicitly define the matrix k×ₜ₂c
+        # the general indexing scheme:
+        # kxt2c_matrix_buf[ (3*q-2)+a-1 ,(2*q-1) + (b-1) ] <==> mn[a,b,ix,iy,iz], mag[ix,iy,iz]
+        # b = 1  ( m⃗ )
+        kxt2c_matrix_buf[(3*q-2)+a-1,(2*q-1)] = mn[a,2,ix,iy,iz] * mag[ix,iy,iz]
+        # b = 2  ( n⃗ )
+        kxt2c_matrix_buf[(3*q-2)+a-1,(2*q-1)+1] = mn[a,1,ix,iy,iz] * -mag[ix,iy,iz]
+    end
+    return copy(kxt2c_matrix_buf)
+end
+
+function kxt2c_matrix(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+    mag,mn = calc_kpg(p[1],grid.g⃗)
+    return kxt2c_matrix(mag,mn)
+end
+
+function zxt2c_matrix(mn::AbstractArray{T,5}) where T #; Nx = 16, Ny = 16, Nz = 1)
+    Nx, Ny, Nz = size(mn)[3:5]
+    zxt2c_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(2*Nx*Ny*Nz)))
+    for ix=1:Nx,iy=1:Ny,iz=1:Nz #,b=1:2 #,a=1:2
+        q = Nx * Ny * (iz - 1) + Nx * (iy - 1) + ix
+        # reference from zcross_t2c!:
+        #          ds.d[1,i,j,k] = -Hin[1,i,j,k] * ds.mn[2,1,i,j,k] - Hin[2,i,j,k] * ds.mn[2,2,i,j,k]
+        #          ds.d[2,i,j,k] =  Hin[1,i,j,k] * ds.mn[1,1,i,j,k] + Hin[2,i,j,k] * ds.mn[1,2,i,j,k]
+        #          ds.d[3,i,j,k] = 0
+        # which implements d⃗ = z×ₜ₂c ⋅ H⃗
+        # Here we want to explicitly define the matrix z×ₜ₂c
+        # the general indexing scheme:
+        # zxt2c_matrix_buf[ (3*q-2)+a-1 ,(2*q-1) + (b-1) ] <==> mn[a,b,ix,iy,iz]
+        # a = 1  ( x̂ ), b = 1  ( m⃗ )
+        zxt2c_matrix_buf[(3*q-2),(2*q-1)] = -mn[2,1,ix,iy,iz]
+        # a = 1  ( x̂ ), b = 2  ( n⃗ )
+        zxt2c_matrix_buf[(3*q-2),2*q] = -mn[2,2,ix,iy,iz]
+        # a = 2  ( ŷ ), b = 1  ( m⃗ )
+        zxt2c_matrix_buf[(3*q-2)+1,(2*q-1)] = mn[1,1,ix,iy,iz]
+        # a = 2  ( ŷ ), b = 2  ( n⃗ )
+        zxt2c_matrix_buf[(3*q-2)+1,2*q] = mn[1,2,ix,iy,iz]
+    end
+    return copy(zxt2c_matrix_buf)
+end
+
+function zxt2c_matrix(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+    mag,mn = calc_kpg(p[1],grid.g⃗)
+    return zxt2c_matrix(mn)
+end
+
+function ei_dot_rwg(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    # (w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
+    grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+    shapes = ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy)
+    ei_field = make_εₛ⁻¹(shapes,grid)
+    # ei_matrix_buf = Zygote.bufferfrom(zeros(Float64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
+    ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
+    for i=1:Nx,j=1:Ny,a=1:3,b=1:3
+        q = (Ny * (j-1) + i)
+        ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    # return copy(ei_matrix_buf)
+    return Hermitian(copy(ei_matrix_buf))
+end
+
+function M_components(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    #(kz,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,NxF,NyF,NzF)
+    # Nx,Ny,Nz = Zygote.ignore() do
+    #     (Int(round(NxF)),Int(round(NyF)),Int(round(NzF)))
+    # end
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    kcr_t2c = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    eeii = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
+    return ( kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c )
+end
+
+function make_M_old(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    kcr_t2c = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    eeii = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
+    M = -kcr_c2t * 𝓕⁻¹ * eeii * 𝓕 * kcr_t2c
+    # @assert M' ≈ M
+    return Hermitian(M)
+end
+
+function make_M(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    kcr_t2c = kxt2c_matrix(mag,mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -kcr_t2c'
+    eeii = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
+    M = -kcr_c2t * 𝓕⁻¹ * eeii * 𝓕 * kcr_t2c
+    return Hermitian(M)
+end
+
+function make_Mₖ(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    zcr_t2c = zxt2c_matrix(mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -kxt2c_matrix(mag,mn)'
+    eeii = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
+    -kcr_c2t * 𝓕⁻¹ * eeii * 𝓕 * zcr_t2c
+end
+
+function make_M_eidot(p,
+                    eidot::Hermitian;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    kcr_t2c = kxt2c_matrix(mag,mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -transpose(kcr_t2c) #-kcr_t2c'
+    M = -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * kcr_t2c
+    return Hermitian(M)
+end
+
+function make_Mₖ_eidot(p,
+                    eidot::Hermitian;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
+    zcr_t2c = zxt2c_matrix(mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -transpose(kxt2c_matrix(mag,mn)) #-kxt2c_matrix(mag,mn)'
+    -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * zcr_t2c
+end
+
+function make_M(eidot::Hermitian,mag,mn)
+    kcr_t2c = kxt2c_matrix(mag,mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -kcr_t2c'
+    M = -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * kcr_t2c
+    return Hermitian(M)
+end
+
+function make_Mₖ(eidot::Hermitian,mag,mn)
+    zcr_t2c = zxt2c_matrix(mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -kxt2c_matrix(mag,mn)'
+    -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * zcr_t2c
+end
+
+function proc_eigs(p,Xone,αone;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    # sum2(x->abs2(x)^2,Xone) * abs2(αone)^2
+    # sqrt(real(αone)) / real(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+    sqrt(αone) / abs(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+end
+
+function proc_eigs_eidot(p,eidot::Hermitian,Xone,αone;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    # sum2(x->abs2(x)^2,Xone) * abs2(αone)^2
+    sqrt(real(αone)) / real(dot(Xone,make_Mₖ_eidot(p,eidot;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+end
+
+function solve_dense(p = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    Eigs = eigen(make_M(p;Δx,Δy,Δz,Nx,Ny,Nz))
+    Xone = Eigs.vectors[:,1]
+    αone = Eigs.values[1]
+    proc_eigs(p,Xone,αone;Δx,Δy,Δz,Nx,Ny,Nz)
+    # proc_eigs(Xone,αone)
+end
+
+function solve_dense_eidot(p,
+                    eidot::Hermitian;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    #(kz,eidot::Hermitian{ComplexF64, Matrix{ComplexF64}},Δx,Δy,Δz,Nx,Ny,Nz)
+    Eigs = eigen(make_M_eidot(p,eidot;Δx,Δy,Δz,Nx,Ny,Nz))
+    Xone = Eigs.vectors[:,1]
+    αone = Eigs.values[1]
+    proc_eigs_eidot(p,eidot,Xone,αone;Δx,Δy,Δz,Nx,Ny,Nz)
+end
+
+function ∂solve_dense_SJ(p = p0;
+                    Δx  = 6.0,
+                    Δy  = 4.0,
+                    Δz  = 1.0,
+                    Nx  = 16,
+                    Ny  = 16,
+                    Nz  = 1,
+                    i   = 1)
+    M, M_pb = Zygote.pullback(x->make_M(x;Δx,Δy,Δz,Nx,Ny,Nz),p)
+    α,X = eigen(M)
+    p̄2,X̄,ᾱ = Zygote.gradient(p,X[:,1],α[1]) do p,H,ω²
+        proc_eigs(p,H,ω²;Δx,Δy,Δz,Nx,Ny,Nz)
+    end
+    P = I - X[:,i] * X[:,i]'
+    b = P * X̄ #[i]
+    λ₀ = IterativeSolvers.bicgstabl(M-α[i]*I,b,3)
+    if isnothing(ᾱ)
+        ᾱ = 0.
+    end
+    λ = λ₀ - ᾱ * X[:,i]
+    M̄ = -λ * X[:,i]'
+    p̄1 = M_pb(M̄)[1]
+    if isnothing(p̄2)
+        p̄2 = zeros(eltype(p),size(p))
+    end
+    if isnothing(p̄1)
+        p̄1 = zeros(eltype(p),size(p))
+    end
+    p̄2 + p̄1
+end
+function ei_field2matrix(ei_field,Nx,Ny,Nz)
+    ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
+    for i=1:Nx,j=1:Ny,a=1:3,b=1:3
+        q = (Ny * (j-1) + i)
+        ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    # return copy(ei_matrix_buf)
+    return Hermitian(copy(ei_matrix_buf))
+end
+
+function ei_matrix2field1(ei_matrix,Nx,Ny,Nz)
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    D0 = diag(ei_matrix,0)
+    D1 = diag(ei_matrix,1)
+    D2 = diag(ei_matrix,2)
+    for i=1:Nx,j=1:Ny,k=1:Nz #,a=1:3,b=1:3
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        ei_field[1,1,i,j,k] = real(D0[3*q-2])
+        ei_field[2,2,i,j,k] = real(D0[3*q-1] )
+        ei_field[3,3,i,j,k] = real(D0[3*q])
+        ei_field[1,2,i,j,k] = real(D1[3*q-2])
+        ei_field[2,1,i,j,k] = real(conj(D1[3*q-2]))
+        ei_field[2,3,i,j,k] = real(D1[3*q-1])
+        ei_field[3,2,i,j,k] = real(conj(D1[3*q-1]))
+        ei_field[1,3,i,j,k] = real(D2[3*q-2])
+        ei_field[3,1,i,j,k] = real(conj(D2[3*q-2]))
+        # ei_matrix[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    return ei_field
+end
+
+using ArrayInterface, LoopVectorization
+function ei_matrix2field2(ei_matrix,Nx,Ny,Nz)
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    D0 = diag(ei_matrix,0)
+    D1 = diag(ei_matrix,1)
+    D2 = diag(ei_matrix,2)
+    @avx for i=1:Nx,j=1:Ny,k=1:Nz #,a=1:3,b=1:3
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        ei_field[1,1,i,j,k] = D0[3*q-2]
+        ei_field[2,2,i,j,k] = D0[3*q-1]
+        ei_field[3,3,i,j,k] = D0[3*q]
+        ei_field[1,2,i,j,k] = D1[3*q-2]
+        ei_field[2,1,i,j,k] = D1[3*q-2]
+        ei_field[2,3,i,j,k] = D1[3*q-1]
+        ei_field[3,2,i,j,k] = D1[3*q-1]
+        ei_field[1,3,i,j,k] = D2[3*q-2]
+        ei_field[3,1,i,j,k] = D2[3*q-2]
+        # ei_matrix[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    return ei_field
+end
+
+function ei_matrix2field3(ei_matrix,Nx,Ny,Nz)
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    @avx for a=1:3,b=1:3,k=1:Nz,j=1:Ny,i=1:Nx
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        ei_field[a,b,i,j,k] = ei_matrix[(3*q-2)+a-1,(3*q-2)+b-1]
+    end
+    return ei_field
+end
+
+function ei_matrix2field4(d,λd,Nx,Ny,Nz)
+    # ei_field = Hermitian(zeros(Float64,(3,3,Nx,Ny,Nz)),"U")
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    @avx for k=1:Nz,j=1:Ny,i=1:Nx
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        for a=1:3 # loop over diagonals
+            ei_field[a,a,i,j,k] = real( -λd[3*q-2+a-1] * conj(d[3*q-2+a-1]) )
+        end
+        for a2=1:2 # loop over first off diagonal
+            ei_field[a2,a2+1,i,j,k] = real( -conj(λd[3*q-2+a2]) * d[3*q-2+a2-1] - λd[3*q-2+a2-1] * conj(d[3*q-2+a2]) )
+            ei_field[a2+1,a2,i,j,k] = ei_field[a2,a2+1,i,j,k]  # D1[3*q-2]
+        end
+        # a = 1, set 1,3 and 3,1, second off-diagonal
+        ei_field[1,3,i,j,k] = real( -conj(λd[3*q]) * d[3*q-2] - λd[3*q-2] * conj(d[3*q]) )
+        ei_field[3,1,i,j,k] =  ei_field[1,3,i,j,k]
+    end
+    return ei_field
+end
+
+ei_matrix2field = ei_matrix2field4
+
+# @assert ei_field2matrix(ei,Nx,Ny,Nz) ≈ eid
+# @assert ei_matrix2field1(eid,Nx,Ny,Nz) ≈ ei
+# @assert ei_matrix2field2(real(eid),Nx,Ny,Nz) ≈ ei
+# @assert ei_matrix2field3(real(eid),Nx,Ny,Nz) ≈ ei
+#
+# ei_matrix2field(Matrix(eīd1_herm),Nx,Ny,Nz) ≈ ei_matrix2field3(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
+# ei_matrix2field(Matrix(real(eīd1_herm)),Nx,Ny,Nz) ≈ ei_matrix2field2(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
+# @assert ei_matrix2field4(d,λd,Nx,Ny,Nz) ≈ ei_matrix2field2(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
+
+
+## set discretization parameters and generate explicit dense matrices
 Δx          =   6.                    # μm
 Δy          =   4.                    # μm
 Δz          =   1.
 Nx          =   16
 Ny          =   16
 Nz          =   1
-kz          =   1.45
-p = [kz,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz]
+kz          =   p0[1] #1.45
 # ω           =   1 / λ
-##
-
+p = p0 #[kz,w,t_core,θ,n_core,n_subs,edge_gap] #,Δx,Δy,Δz,Nx,Ny,Nz]
+eid = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
 g = MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
-ds = MaxwellData(kz,g)
-s1 = ridge_wg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy)
-ei = make_εₛ⁻¹(s1,g)
-eii = similar(ei); [ (eii[a,b,i,j,k] = inv(ei[:,:,i,j,k])[a,b]) for a=1:3,b=1:3,i=1:Nx,j=1:Ny,k=1:Nz ] # eii = epsilon tensor field (eii for epsilon_inverse_inverse, yea it's dumb)
+ds = MaxwellData(p[1],g)
+ei = make_εₛ⁻¹(ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy),g)
+# eii = similar(ei); [ (eii[a,b,i,j,k] = inv(ei[:,:,i,j,k])[a,b]) for a=1:3,b=1:3,i=1:Nx,j=1:Ny,k=1:Nz ] # eii = epsilon tensor field (eii for epsilon_inverse_inverse, yea it's dumb)
 Mop = M̂!(ei,ds)
+Mₖop = M̂ₖ(ei,ds.mn,ds.kpg_mag,ds.𝓕,ds.𝓕⁻¹)
 M = Matrix(Mop)
+dMdk = Matrix(Mₖop)
+mag,mn = calc_kpg(p[1],OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
+eid = ei_dot_rwg(p0)
+make_M(eid,mag,mn) ≈ M
+make_Mₖ(eid,mag,mn) ≈ -dMdk
+make_Mₖ_eidot(p,eid) ≈ -dMdk
+make_Mₖ(p0) ≈ -dMdk
+
+
 # M̂(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> M(H,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
 # function M(H,ε⁻¹,mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)
 #     kx_c2t( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_t2c(H,mn,kpg_mag), ε⁻¹), mn,kpg_mag)
@@ -362,169 +605,77 @@ Finv_op = LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ds.𝓕⁻
 Finv = Matrix(Finv_op)
 kxc2t_op = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,ds.Nx,ds.Ny,ds.Nz)), ds.mn, ds.kpg_mag ) )::AbstractArray{ComplexF64,1},*(2,ds.Nx,ds.Ny,ds.Nz),*(3,ds.Nx,ds.Ny,ds.Nz),ishermitian=false,ismutating=false)
 kxc2t = Matrix(kxc2t_op)
-@assert -kxc2t * Finv * einv * F * kxt2c ≈ M
-
 zxt2c_op = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( zx_t2c( reshape(H,(2,ds.Nx,ds.Ny,ds.Nz)), ds.mn ) )::AbstractArray{ComplexF64,1},*(3,ds.Nx,ds.Ny,ds.Nz),*(2,ds.Nx,ds.Ny,ds.Nz),ishermitian=false,ismutating=false)
 zxt2c = Matrix(zxt2c_op)
 
-heatmap(real(kxt2c))
-heatmap(imag(kxt2c))
-heatmap(real(F))
-heatmap(imag(F))
-heatmap(real(einv))
-heatmap(imag(einv))
-heatmap(real(Finv))
-heatmap(imag(Finv))
-heatmap(real(kxc2t))
-heatmap(imag(kxc2t))
-heatmap(real(M))
-heatmap(imag(M))
-kxt2c_op * ds.H⃗[:,1]
+@assert -kxc2t * Finv * einv * F * kxt2c ≈ M
+@assert kxc2t * Finv * einv * F * zxt2c ≈ dMdk # wrong sign?
+@assert make_M(p;Δx,Δy,Δz,Nx,Ny,Nz) ≈ M
+@assert make_M_eidot(p,eid;Δx,Δy,Δz,Nx,Ny,Nz) ≈ M
+@assert ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz) ≈ einv
+# if Finv is ifft
+@assert F' ≈  Finv * ( size(F)[1]/3 )
+@assert Finv' * ( size(F)[1]/3 ) ≈  F
+# # if Finv is bfft
+# @assert F' ≈ Finv
+# @assert Finv' ≈  F
+@assert kxc2t' ≈ -kxt2c
+@assert kxt2c' ≈ -kxc2t
 
-Hv = ds.H⃗[:,1]
-dv = kxt2c * Hv
-Finv * (F * dv) ≈ dv
-mag_dv = sum(abs2.(dv))
-mag_Fdv = sum(abs2.(F*dv))
-mag_Finvdv = sum(abs2.(Finv*dv))
-mag_Fdv / mag_dv
-mag_dv / mag_Finvdv
-# ein̄v = (-kxc2t * Finv)' * M̄ * (F * kxt2c)'
-# heatmap(real(ein̄v))
-# heatmap(imag(ein̄v))
-
-function ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-    grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
-    shapes = ridge_wg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy)
-    ei_field = make_εₛ⁻¹(shapes,grid)
-    # ei_matrix_buf = Zygote.bufferfrom(zeros(Float64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
-    ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
-    for i=1:Nx,j=1:Ny,a=1:3,b=1:3
-        q = (Ny * (j-1) + i)
-        ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
-    end
-    # return copy(ei_matrix_buf)
-    return Hermitian(copy(ei_matrix_buf))
-end
-
-ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz) ≈ einv #real.(einv)
-
-function M_components(kz,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,NxF,NyF,NzF)
-    Nx,Ny,Nz = Zygote.ignore() do
-        (Int(round(NxF)),Int(round(NyF)),Int(round(NzF)))
-    end
-    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
-    kcr_t2c = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕 = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-
-    𝓕⁻¹ = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    kcr_c2t = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    eeii = ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-    return ( kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c )
-end
-
-function make_M(kz,w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,NxF,NyF,NzF)
-    Nx,Ny,Nz = Zygote.ignore() do
-        (Int(round(NxF)),Int(round(NyF)),Int(round(NzF)))
-    end
-    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
-    kcr_t2c = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕 = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕⁻¹ = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    kcr_c2t = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    eeii = ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-    M = -kcr_c2t * 𝓕⁻¹ * eeii * 𝓕 * kcr_t2c
-    # @assert M' ≈ M
-    return Hermitian(M)
-end
-@assert make_M(p...) ≈ M
-
-function make_M_eidot(kz,eidot,Δx,Δy,Δz,NxF,NyF,NzF)
-    Nx,Ny,Nz = Zygote.ignore() do
-        (Int(round(NxF)),Int(round(NyF)),Int(round(NzF)))
-    end
-    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
-    kcr_t2c = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕 = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕⁻¹ = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    kcr_c2t = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    # eeii = ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-    M = -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * kcr_t2c
-    # @assert M' ≈ M
-    return Hermitian(M)
-end
-eid = ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-@assert make_M_eidot(kz,eid,Δx,Δy,Δz,Nx,Ny,Nz) ≈ M
+# ix = 8
+# iy = 4
+# q = Nx * (iy - 1) + ix
+# 3q-2:3q+3 # 3q-2:3q-2+6-1
+# 2q-1:2q+2 # 2q-1:2q-1+4-1
+#
+# real(kxt2c[3q-2:3q+3,2q-1:2q+2])
+@assert kxt2c_matrix(p0) ≈ kxt2c
+@assert kxt2c_matrix(mag,mn) ≈ kxt2c
+@assert zxt2c_matrix(mn) ≈ zxt2c
+# sum(kxt2c_matrix(p0))
+# ∇sum_kxt2c1 = Zygote.gradient(x->sum(real(kxt2c_matrix(x))), p0)[1]
+#
+# (mag, mn), magmn_pb = Zygote.pullback(p0) do p
+#     calc_kpg(p[1],OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
+# end
+#
+# kxt2c, kxt2c_pb = Zygote.pullback(mag,mn) do mag,mn
+#     kxt2c_matrix(mag,mn)
+# end
+#
+# sum_kxt2c, sum_kxt2c_pb = Zygote.pullback(sum, kxt2c)
+#
+# # step-by-step pullback
+# kxt̄2c = sum_kxt2c_pb(1)[1]
+# māg,mn̄ = kxt2c_pb(kxt̄2c)
+# p̄ = magmn_pb((māg,mn̄))[1]
 
 
-function proc_eigs(Xone,αone)
-    sum2(x->abs2(x)^2,Xone) * abs2(αone)^2
-end
+##
 
-function solve_dense(params)
-    # MM = make_M(params...)
-    # Eigs = eigen(MM)
-    # α = Eigs.values
-    # X = Eigs.vectors
-    Eigs = eigen(make_M(params...))
-    Xone = Eigs.vectors[:,1]
-    αone = Eigs.values[1]
-    proc_eigs(Xone,αone)
-end
+##
+ei_dot_rwg(p0)
+solve_dense(p0)
+∂solve_dense_SJ(p0)
+Zygote.gradient(solve_dense,p0)[1] ≈ ∂solve_dense_SJ(p0)
 
-function solve_dense_eidot(kz,eidot::Hermitian{ComplexF64, Matrix{ComplexF64}},Δx,Δy,Δz,Nx,Ny,Nz)
-    # MM = make_M(params...)
-    # Eigs = eigen(MM)
-    # α = Eigs.values
-    # X = Eigs.vectors
-    Eigs = eigen(make_M_eidot(kz,eidot,Δx,Δy,Δz,Nx,Ny,Nz))
-    Xone = Eigs.vectors[:,1]
-    αone = Eigs.values[1]
-    proc_eigs(Xone,αone)
-end
-
-function ∂solve_dense_SJ(p,α,X,ᾱ,X̄;i=1)
-    # w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz,mn,mag = p
-    # Mk, Mk_pb = Zygote.pullback(M_dense,w,t_core,edge_gap,n_core,n_subs)
-    Mk, Mk_pb = Zygote.pullback(make_M,p...)
-    α,X = eigen(Mk)
-    X̄,ᾱ = Zygote.gradient(proc_eigs,X[:,1],α[1])
-    P = I - X[:,i] * X[:,i]'
-    b = P * X̄ #[i]
-    λ₀ = IterativeSolvers.bicgstabl(Mk-α[i]*I,b,3)
-    if isnothing(ᾱ)
-        ᾱ = 0.
-    end
-    λ = λ₀ - ᾱ * X[:,i]
-    M̄k = -λ * X[:,i]'
-    Mk_pb(M̄k)
-end
-
-M = make_M(p...)
+## Finite Difference End-to-end (parameters to group velocity) gradient calculation for checking AD gradients
+println("####################################################################################")
+println("")
+println("Finite Difference End-to-end (parameters to group velocity) gradient calculation for checking AD gradients")
+println("")
+println("####################################################################################")
+@show p=p0
+@show p̄_FD = FiniteDifferences.jacobian(central_fdm(3,1),x->solve_dense(x),p0)[1][1,:]
+## End-to-end (parameters to group velocity) gradient calculation with explicit matrices
+println("####################################################################################")
+println("")
+println("End-to-end (parameters to group velocity) gradient calculation with explicit matrices")
+println("")
+println("####################################################################################")
+p=p0
+M, M_pb = Zygote.pullback(x->make_M(x;Δx,Δy,Δz,Nx,Ny,Nz),p)
+# M = make_M(p;Δx,Δy,Δz,Nx,Ny,Nz)
 αX = eigen(M)
 # @btime eigen(make_M($p...))
 # 41.165 ms (32813 allocations: 9.78 MiB) for Nx=Ny=8, size(M)=(128,128)
@@ -534,25 +685,655 @@ M = make_M(p...)
 # 0.021 s (24 allocations: 0.78 MiB) for Nx=Ny=8, size(M)=(128,128)
 α = αX.values
 X = αX.vectors
-proc_eigs(X[:,1],α[1])
+@show α[1]
+proc_eigs(p,X[:,1],α[1];Δx,Δy,Δz,Nx,Ny,Nz)
 solve_dense(p)
-X̄,ᾱ = Zygote.gradient(proc_eigs,X[:,1],α[1])
+p̄2,X̄,ᾱ = Zygote.gradient(p,X[:,1],α[1]) do p,H,ω²
+    proc_eigs(p,H,ω²;Δx,Δy,Δz,Nx,Ny,Nz)
+end
+@show p̄2
 P̂ = I - X[:,1] * X[:,1]'
 b = P̂ * X̄ #[1]
+@show maximum(abs2.(b))
+X̄ - X[:,1] * dot(X[:,1],X̄) ≈ b
 λ₀ = IterativeSolvers.bicgstabl(M-α[1]*I,b,3)
+@show maximum(abs2.(λ₀))
 if isnothing(ᾱ)
     ᾱ = 0.
 end
 λ = λ₀ - ᾱ * X[:,1]
+@show maximum(abs2.(λ))
 M̄ = -λ * X[:,1]'
-heatmap(real(M̄))
-heatmap(imag(M̄))
-kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c = M_components(p...)
-eīdot1 = (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)'
-eīdot3 = (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)'#((-kcr_c2t * 𝓕⁻¹)' * M̄' * (𝓕 * kcr_t2c)')'
-eid = ei_dot_rwg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-@assert solve_dense_eidot(kz,eid,Δx,Δy,Δz,Nx,Ny,Nz) ≈ solve_dense(p)
-eīdot2 = Zygote.gradient(solve_dense_eidot,kz,eid,Δx,Δy,Δz,Nx,Ny,Nz)[2]
+@show p̄1 = M_pb(M̄)[1]
+if isnothing(p̄2)
+    p̄2 = zeros(eltype(p),size(p))
+end
+if isnothing(p̄1)
+    p̄1 = zeros(eltype(p),size(p))
+end
+@show p̄ = p̄2 + p̄1
+@show p̄_err = abs.(p̄_FD .- p̄) ./ abs.(p̄_FD)
+## (ε⁻¹ operator ,k) to group velocity gradient calculation with explicit matrices
+println("####################################################################################")
+println("")
+println("(ε⁻¹ operator ,k) to group velocity gradient calculation with explicit matrices")
+println("")
+println("####################################################################################")
+p = p0
+eid, eid_pb = Zygote.pullback(x->ei_dot_rwg(x;Δx,Δy,Δz,Nx,Ny,Nz),p)
+# eid = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
+M = make_M_eidot(p,eid;Δx,Δy,Δz,Nx,Ny,Nz)
+αX = eigen(M)
+α = αX.values
+X = αX.vectors
+@show ω²_eidot = α[1]
+# @show ng_proc_eigs_eidot = proc_eigs_eidot(p,eid,X[:,1],α[1];Δx,Δy,Δz,Nx,Ny,Nz)
+@show ng_eidot = solve_dense_eidot(p,eid;Δx,Δy,Δz,Nx,Ny,Nz)
+p̄2_eidot,eīd2,X̄,ᾱ = Zygote.gradient(p,eid,X[:,1],α[1]) do p,eidot,H,ω²
+    proc_eigs_eidot(p,eidot,H,ω²;Δx,Δy,Δz,Nx,Ny,Nz)
+end
+@show ω̄sq_eidot = ᾱ
+@show p̄2_eidot
+P̂ = I - X[:,1] * X[:,1]'
+b = P̂ * X̄ #[1]
+@show maximum(abs2.(b))
+X̄ - X[:,1] * dot(X[:,1],X̄) ≈ b
+λ₀ = IterativeSolvers.bicgstabl(M-α[1]*I,b,3)
+@show maximum(abs2.(λ₀))
+if isnothing(ᾱ)
+    ᾱ = 0.
+end
+λ = λ₀ - ᾱ * X[:,1]
+@show maximum(abs2.(λ))
+M̄ = -λ * X[:,1]'
+kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c = M_components(p;Δx,Δy,Δz,Nx,Ny,Nz)
+# eīd1 = -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹ # = (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)'
+# (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)' ≈ -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹
+d = 𝓕 * kcr_t2c * X[:,1] ./ (Nx * Ny * Nz)
+λd = 𝓕 * kcr_t2c * λ
+@show maximum(abs2.(d))
+@show maximum(abs2.(λd))
+# -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹ ≈ -λd * d'
+eīd1 = -λd * d'
+eīd1_herm = Zygote._hermitian_back(eīd1,eid.uplo)
+dstar = conj.(d)
+λdstar = conj.(λd)
+D0 = real( (-λd .* dstar)) #-λd .* dstar
+D1 = -λdstar[2:end] .* d[begin:end-1] + -λd[begin:end-1] .* dstar[2:end]
+D2 = -λdstar[3:end] .* d[begin:end-2] + -λd[begin:end-2] .* dstar[3:end]
+diag(eīd1_herm,0) ≈ D0
+diag(eīd1_herm,1) ≈ D1
+diag(eīd1_herm,2) ≈ D2
+@show maximum(abs2.(D0))
+@show maximum(abs2.(D1))
+@show maximum(abs2.(D2))
+# eīd1_herm2 = Hermitian(diagm(0 => D0, 1 => D1, 2 => D2),:U) # Hermitian(UpperTriangular(diagm(0 => D0, 1 => D1, 2 => D2)))
+# eīd1_herm2 ≈ eīd1_herm
+# eīd1_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+# for i=1:Nx,j=1:Ny,k=1:Nz #,a=1:3,b=1:3
+#     q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+#     eīd1_field[1,1,i,j,k] = real(D0[3*q-2])
+#     eīd1_field[2,2,i,j,k] = real(D0[3*q-1] )
+#     eīd1_field[3,3,i,j,k] = real(D0[3*q])
+#     eīd1_field[1,2,i,j,k] = real(D1[3*q-2])
+#     eīd1_field[2,1,i,j,k] = real(conj(D1[3*q-2]))
+#     eīd1_field[2,3,i,j,k] = real(D1[3*q-1])
+#     eīd1_field[3,2,i,j,k] = real(conj(D1[3*q-1]))
+#     eīd1_field[1,3,i,j,k] = real(D2[3*q-2])
+#     eīd1_field[3,1,i,j,k] = real(conj(D2[3*q-2]))
+#     # ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+# end
+eīd = eīd1_herm + eīd2
+eīd_5diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -2:2]...)
+eīd_3diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -1:1]...)
+eīd_1diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = 0]...)
+@assert eid_pb(eīd)[1] ≈ eid_pb(eīd_3diag)[1]
+@show p̄1_eidot = eid_pb(eīd_3diag)[1]
+# @show p̄1_eidot = eid_pb(eīd)[1]
+@show p̄1_eidot_5diag = eid_pb(eīd_5diag)[1]
+@show p̄1_eidot_3diag = eid_pb(eīd_3diag)[1]
+@show p̄1_eidot_1diag = eid_pb(eīd_1diag)[1]
+@show p̄1_eidot_5diag_err = abs.(p̄1_eidot .- p̄1_eidot_5diag) ./ abs.(p̄1_eidot)
+@show p̄1_eidot_3diag_err = abs.(p̄1_eidot .- p̄1_eidot_3diag) ./ abs.(p̄1_eidot)
+@show p̄1_eidot_1diag_err = abs.(p̄1_eidot .- p̄1_eidot_1diag) ./ abs.(p̄1_eidot)
+if isnothing(p̄2_eidot)
+    p̄2_eidot = zeros(eltype(p),size(p))
+end
+if isnothing(p̄1_eidot)
+    p̄1_eidot = zeros(eltype(p),size(p))
+end
+@show p̄_eidot = p̄1_eidot + p̄2_eidot
+@show p̄_err_eidot = abs.(p̄_FD .- p̄_eidot) ./ abs.(p̄_FD)
+##
+println("####################################################################################")
+println("")
+println("End-to-end (parameters to group velocity) gradient calculation with OptiMode (implicit operators)")
+println("")
+println("####################################################################################")
+function nngω_rwg_OM(p::Vector{Float64} = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 16,
+                    Ny = 16,
+                    Nz = 1,
+                    band_idx = 1,
+                    tol = 1e-8)
+                    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+                    # nng_tuple = solve_nω(kz,ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    nng_tuple = solve_nω(p[1],ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    [nng_tuple[1],nng_tuple[2]]
+end
+n_rwg_OM(p) = nngω_rwg_OM(p)[1]
+ng_rwg_OM(p) = nngω_rwg_OM(p)[2]
+@show ng_OM = ng_rwg_OM(p0)
+@show ng_OM_err = abs(ng_eidot - ng_OM) / ng_eidot
+@show p̄_OM = gradient(ng_rwg_OM,p0)[1]
+@show p̄_OM_err = abs.(p̄_FD .- p̄_OM) ./ abs.(p̄_FD)
+##
+
+
+##
+using Revise
+using ChainRules, Zygote, FiniteDifferences, OptiMode
+p0 = [
+    1.47,               #   propagation constant    `kz`            [μm⁻¹]
+    1.5,                #   top ridge width         `w_top`         [μm]
+    0.7,                #   ridge thickness         `t_core`        [μm]
+    π / 10.0,           #   ridge sidewall angle    `θ`             [radian]
+    2.4,                #   core index              `n_core`        [1]
+    1.4,                #   substrate index         `n_subs`        [1]
+    0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+]
+
+function nngω_rwg_OM(p::Vector{Float64} = p0;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 64,
+                    Ny = 64,
+                    Nz = 1,
+                    band_idx = 1,
+                    tol = 1e-8)
+                    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+                    # nng_tuple = solve_nω(kz,ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    nng_tuple = solve_nω(p[1],ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    [nng_tuple[1],nng_tuple[2]]
+end
+
+nngω_rwg_OM(p0)
+
+
+
+
+real(Zygote.gradient(x->nngω_rwg_OM(x)[1],p0)[1])
+
+
+
+
+
+
+
+
+real(Zygote.gradient(x->nngω_rwg_OM(x)[2],p0)[1])
+
+
+
+
+
+
+
+
+FiniteDifferences.jacobian(central_fdm(3,1),x->nngω_rwg_OM(x),p0)[1]'
+
+## Calculate ng and gradient by hand
+
+# params
+p = p0
+Δx = 6.0
+Δy = 4.0
+Δz = 1.0
+Nx = 128
+Ny = 128
+Nz = 1
+band_idx = 1
+tol = 1e-8
+
+# fwd pass
+ε⁻¹, ε⁻¹_pb = Zygote.pullback(p) do p
+     make_εₛ⁻¹(ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy), make_MG(Δx,Δy,Δz,Nx,Ny,Nz))  # MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz))
+end
+
+Hω²,Hω²_pb = Zygote.pullback(p,ε⁻¹) do p,ε⁻¹
+    solve_ω²(p[1],ε⁻¹,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol)
+end
+
+H = Hω²[1][:,1]
+ω² = Hω²[2]
+
+mag_mn, mag_mn_pb = Zygote.pullback(p) do p
+    # calc_kpg(p[1],Δx,Δy,Δz,Nx,Ny,Nz)
+    g⃗ = Zygote.@ignore([ [gx;gy;gz] for gx in collect(fftfreq(Nx,Nx/Δx)), gy in collect(fftfreq(Ny,Ny/Δy)), gz in collect(fftfreq(Nz,Nz/Δz))])
+    calc_kpg(p[1],Zygote.dropgrad(g⃗))
+end
+
+kpg_mag, mn = mag_mn
+
+MkH, MkH_pb = Zygote.pullback(Mₖ,H,ε⁻¹,mn,kpg_mag)
+
+ng, ng_pb = Zygote.pullback(H,MkH,ω²) do H,MkH,ω²
+    -sqrt(ω²) / real(dot(H,MkH))
+end
+
+# reverse pass
+H̄_ng, Mk̄H_ng, ωs̄q_ng = ng_pb(1)
+H̄_MkH, eī_MkH, mn̄_MkH, maḡ_MkH = MkH_pb(Mk̄H_ng)
+p̄_mnmag = mag_mn_pb((maḡ_MkH,mn̄_MkH))[1]
+p̄_mnmag = mag_mn_pb((maḡ_MkH,nothing))[1]
+p̄_Hω², eī_Hω² = Hω²_pb(( H̄_MkH + H̄_ng , ωs̄q_ng ))
+p̄_ε⁻¹ = ε⁻¹_pb( eī_Hω² + eī_MkH )[1]
+p̄ = p̄_ε⁻¹ + p̄_Hω² + real(p̄_mnmag)
+
+
+function f_kpg(p)
+    # g⃗ = Zygote.@ignore( [ [gx;gy;gz] for gx in collect(fftfreq(Nx,Nx/Δx)), gy in collect(fftfreq(Ny,Ny/Δy)), gz in collect(fftfreq(Nz,Nz/Δz))] )
+    g⃗ = [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(Nz,Nz/Δz)]
+    kpg_mag, mn = calc_kpg(p[1],Zygote.dropgrad(g⃗))
+    # sum(abs2,mn[3,:,:,:])
+    sum(kpg_mag)
+end
+f_kpg(p0)
+f_kpg([1.85,1.7,0.7,0.2243994752564138,2.4,1.4,0.5])
+
+gradient(f_kpg,p0)
+FiniteDifferences.jacobian(central_fdm(3,1),f_kpg,p0)[1][1,:]
+
+
+##
+
+
+
+
+
+nngω_rwg_OM(p0)
+
+FiniteDifferences.jacobian(central_fdm(3,1),x->nngω_rwg_OM(x),p0)[1]'
+
+
+
+
+
+
+
+
+real(Zygote.gradient(x->nngω_rwg_OM(x)[1],p0)[1])
+
+
+
+
+
+
+
+
+Zygote.gradient(x->nngω_rwg_OM(x)[2],p0)[1]
+
+
+Zygote.refresh()
+
+##
+
+## configure swept-parameter data collection
+ws = collect(0.8:0.1:1.7)
+ts = collect(0.5:0.1:1.3)
+
+@show nw = length(ws)
+@show nt = length(ts)
+np = length(p0)
+
+p̄_AD = zeros(Float64,(nw,nt,np))
+p̄_FD = zeros(Float64,(nw,nt,np))
+p̄_SJ = zeros(Float64,(nw,nt,np))
+
+for wind in 1:nw
+    for tind in 1:nt
+        ww = ws[wind]
+        tt = ts[tind]
+        pp = copy(p0)
+        pp[2] = ww
+        pp[3] = tt
+        p̄_AD[wind,tind,:] = Zygote.gradient(solve_dense,pp)[1]
+        p̄_FD[wind,tind,:] = FiniteDifferences.grad(central_fdm(2, 1),solve_dense,pp)[1]
+        p̄_SJ[wind,tind,:] = ∂solve_dense_SJ(pp)
+    end
+end
+
+## collect parameter sweeps
+
+using HDF5, Dates
+function write_sweep(sw_name;
+                    data_dir="/home/dodd/data/OptiMode/grad_ng_p_rwg_dense/",
+                    dt_fmt=dateformat"Y-m-d--H-M-S",
+                    extension=".h5",
+                    kwargs...)
+    timestamp = Dates.format(now(),dt_fmt)
+    fname = sw_name * "_" *  timestamp * extension
+    @show fpath = data_dir * fname
+    h5open(fpath, "cw") do file
+        for (data_name,data) in kwargs
+            write(file, string(data_name), data)
+        end
+    end
+    return fpath
+end
+
+function read_sweep(sw_name;
+                    data_dir="/home/dodd/data/OptiMode/grad_ng_p_rwg_dense/",
+                    dt_fmt=dateformat"Y-m-d--H-M-S",
+                    extension=".h5",
+                    sw_keys=["ws","ts","p0","p̄_AD","p̄_FD","p̄_SJ"]
+                    )
+    # choose most recently timestamped file matching sw_name tag and extension
+    fname = sort(  filter(x->(prod(split(x,"_")[begin:end-1])==prod(split(sw_name,"_"))),
+                        readdir(data_dir));
+                by=file->DateTime(split(file[begin:end-length(extension)],"_")[end],dt_fmt)
+            )[end]
+    @show fpath = data_dir * fname
+    ds_data = h5open(fpath, "r") do file
+        @show ds_keys = keys(file)
+        ds_data = Dict([k=>read(file,k) for k in sw_keys]...)
+    end
+    return ds_data
+end
+
+fpath_test = write_sweep("wt";ws,ts,p0,p̄_AD,p̄_FD,p̄_SJ)
+ds_test = read_sweep("wt")
+
+
+
+##  plot data from parameter sweeps
+#p̄_AD
+zlabels = [ "∂ng/∂k [μm]", "∂ng/∂w [μm⁻¹]", "∂ng/∂t [μm⁻¹]", "∂ng/∂θ [rad⁻¹]", "∂ng/∂ncore", "∂ng/∂nsubs]", "∂ng/∂edge_gap [μm⁻¹]"]8
+#surface(ts,ws,p̄_AD[:,:,3],xlabel="t [μm]",ylabel="w [μm]",zlabel="∂ng/∂t [μm⁻¹]")
+plt_p̄_AD = [ surface(p̄_AD[:,:,ind],xlabel="t [μm]",ylabel="w [μm]",zlabel=zlabels[ind]) for ind=1:np ]
+plt_p̄_FD = [ surface(p̄_FD[:,:,ind],xlabel="t [μm]",ylabel="w [μm]",zlabel=zlabels[ind]) for ind=1:np ]
+plt_p̄_SJ = [ surface(p̄_SJ[:,:,ind],xlabel="t [μm]",ylabel="w [μm]",zlabel=zlabels[ind]) for ind=1:np ]
+plt_p̄s = [plt_p̄_AD  ,  plt_p̄_FD , plt_p̄_SJ]
+plt_p̄ = [ plt_p̄s[j][ind] for j=1:3,ind=1:np ] #vcat(plt_p̄_AD,plt_p̄_SJ,plt_p̄_FD)
+l = @layout [   a   b   c
+                d   e   f
+                g   h   i
+                j   k   l
+                m   n   o
+                p   q   r
+                s   t   u  ]
+
+p = plot(vec(plt_p̄)..., layout = l, size=(2000,1200))
+
+##
+p̄_AD = Zygote.gradient(solve_dense,p0)[1]
+p̄_FD = FiniteDifferences.grad(central_fdm(2, 1),solve_dense,p0)[1]
+p̄_SJ = ∂solve_dense_SJ(p0)
+
+using Plots: plot, plot!, scatter, scatter!
+pp = plot([-maximum(abs.(p̄_AD)),maximum(abs.(p̄_AD))],[-maximum(abs.(p̄_AD)),maximum(abs.(p̄_AD))],c=:black,label="y=x",legend=:bottomright)
+scatter!(p̄_AD,p̄_FD,label="AD/FD")
+scatter!(p̄_AD,p̄_SJ,label="AD/SJ")
+
+ω² = real.(α)
+plot(ω²,label="ω²",legend=:topleft)
+ω = sqrt.(ω²)
+neff = kz ./ ω
+eig_ind = 1
+H = reshape(X[:,eig_ind],(size(X,1),1))
+plt_neff = plot(neff,label="neff",legend=:topright)
+scatter!(plt_neff,neff[1:10],label="neff",legend=:topright)
+grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+shapes = ridge_wg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy)
+ei_field = make_εₛ⁻¹(shapes,grid)
+plot_ε(ei_field,grid.x,grid.y) #;cmap=cgrad(:viridis))
+plot_d⃗(H,kz,grid)
+
+
+df_p_8x8 = DataFrame(   p = p,
+                        p̄_AD = p̄_AD,
+                        p̄_FD = p̄_FD,
+                        p̄_SJ = p̄_SJ,
+                    )
+name="M_entry_grads_rwg_8x8"
+path="/home/dodd/github/OptiMode/test/"
+CSV.write(*(path,name,".csv"), df_p_8x8)
+
+
+#
+#
+# using Zygote: @adjoint
+# @adjoint (T::Type{<:SArray})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
+# @adjoint (T::Type{<:SArray})(x::AbstractArray) = T(x), dv -> (nothing, dv)
+# @adjoint (T::Type{<:SMatrix})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
+# @adjoint (T::Type{<:SMatrix})(x::AbstractMatrix) = T(x), dv -> (nothing, dv)
+# @adjoint (T::Type{<:SVector})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
+# @adjoint (T::Type{<:SVector})(x::AbstractVector) = T(x), dv -> (nothing, dv)
+# Zygote.refresh()
+
+
+# p̄_AD = [Zygote.gradient(solve_dense,p)[1][begin:end-4]...]
+# p̄_FD = FiniteDifferences.grad(central_fdm(2, 1),solve_dense,p)[1][begin:end-4]
+# p̄_SJ = [∂solve_dense_SJ(p,α,X,ᾱ,X̄)[begin:end-4]...]
+
+##
+
+
+# heatmap(real(kxt2c))
+# heatmap(imag(kxt2c))
+# heatmap(real(F))
+# heatmap(imag(F))
+# heatmap(real(einv))
+# heatmap(imag(einv))
+# heatmap(real(Finv))
+# heatmap(imag(Finv))
+# heatmap(real(kxc2t))
+# heatmap(imag(kxc2t))
+# heatmap(real(M))
+# heatmap(imag(M))
+# kxt2c_op * ds.H⃗[:,1]
+# ein̄v = (-kxc2t * Finv)' * M̄ * (F * kxt2c)'
+# heatmap(real(ein̄v))
+# heatmap(imag(ein̄v))
+
+##
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+using StaticArrays
+ei = make_εₛ⁻¹( ridge_wg(p0[2],p0[3],p0[4],p0[7],p0[5],p0[6],6.0,4.0), make_MG(6.,4.,1.,64,64,1) )
+eiH = HybridArray{Tuple{3,3,StaticArrays.Dynamic(),StaticArrays.Dynamic(),StaticArrays.Dynamic()}}(ei)
+eis1 = [ SMatrix{3,3,Float64,9}(ei[:,:,Ixyz]) for Ixyz in CartesianIndices(size(ei)[3:5]) ]
+eish1 = [ SHermitianCompact{3,Float64,6}(ei[:,:,Ixyz]) for Ixyz in CartesianIndices(size(ei)[3:5]) ]
+
+ei[:,:,42,32,1]
+
+
+
+eir = reshape(ei,(9,64,64,1))
+eir[:,42,32,1]
+
+
+
+
+
+
+
+
+
+eis2 = reinterpret(reshape,SMatrix{3,3,Float64,9},eir)
+
+eis1 ≈ eis2
+eis2[42,32,1]
+
+
+
+
+eish1 = [ SHermitianCompact{3,Float64,6}(ei[:,:,Ixyz]) for Ixyz in CartesianIndices(size(ei)[3:5]) ]
+eis1r = reinterpret(Float64,eis1)
+eish1r = reinterpret(Float64,eish1)
+
+eis1rr = reinterpret(reshape,SMatrix{3,3,Float64,9},eis1r)
+
+SMatrix{3,3,Float64,9}(ei[:,:,42,32,1])
+
+reinterpret(SMatrix{3,3,Float64,9},ei)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##
+
+@btime ei_field2matrix($ei,$Nx,$Ny,$Nz) # 534.711 μs (3 allocations: 9.00 MiB)
+@btime ei_matrix2field($eid,$Nx,$Ny,$Nz) # 11.129 μs (6 allocations: 54.50 KiB)
+@btime ei_matrix2field2($(real(eid)),$Nx,$Ny,$Nz) # 9.772 μs (6 allocations: 36.50 KiB)
+@btime ei_matrix2field3($(real(eid)),$Nx,$Ny,$Nz) # 5.862 μs (3 allocations: 18.12 KiB)
+@btime ei_matrix2field4($d,$λd,$Nx,$Ny,$Nz) # 2.702 μs (3 allocations: 18.12 KiB)
+# eīd1_L, eīd1_U, eīd1_rD = LowerTriangular(eīd1), UpperTriangular(eīd1), real.(Diagonal(eīd1))
+# eīd1_Herm = eīd1_U .+ eīd1_L' - eīd1_rD
+  # return uplo == 'U' ? U .+ L' - rD : L .+ U' - rD
+# eīd1 = transpose(-kcr_c2t * 𝓕⁻¹) * M̄ * transpose(𝓕 * kcr_t2c)
+if isnothing(eīd2)
+    eīd2 = zeros(eltype(eīd1),size(eīd1))
+end
+
+# eīd2_L, eīd2_U, eīd2_rD = LowerTriangular(eīd2), UpperTriangular(eīd2), real.(Diagonal(eīd2))
+# eīd2_Herm = eīd2_U .+ eīd2_L' - eīd2_rD
+
+eīd_tot1 = Zygote._hermitian_back(eīd1,eid.uplo) + Zygote._hermitian_back(eīd2,eid.uplo) #eīd1 + eīd2
+eīd_tot2 = Zygote._hermitian_back(Zygote.gradient(solve_dense_eidot,p,eid::Hermitian)[2],eid.uplo)
+eīd_tot3 = Zygote._hermitian_back(eīd1+eīd2,eid.uplo) # eīd1_Herm + eīd2_Herm
+
+##
+plt = plot(real(diag(eīd_tot1,-1)),
+                xlim=(280,520),
+                c=:black,
+                label="d-1,SJ_tot",
+                legend=:bottomright,
+                lw=2,
+                alpha=0.5,
+                )
+plot!(real(diag(eīd_tot1,1)),
+                c=:orange,
+                label="d1,SJ_tot",
+                lw=2,
+                alpha=0.5,
+                )
+plot!(real(diag(eīd_tot2,-1)),c=:red,label="d-1,AD" )
+plot!(real(diag(eīd_tot2,1)),c=:blue,label="d1,AD" )
+plot!(real(diag(eīd_tot3,-1)),c=:green,label="d-1,SJHerm" )
+plot!(real(diag(eīd_tot3,1)),c=:magenta,label="d1,SJHerm" )
+##
+plt = plot(real(diag(eīd_tot1,1))+real(diag(eīd_tot1,-1)),
+                xlim=(280,520),
+                c=:black,
+                label="d-1,SJ_tot",
+                legend=:bottomright,
+                lw=2,
+                alpha=0.5,
+                )
+plot!(real(diag(eīd_tot2,1))+real(diag(eīd_tot2,-1)) )
+plot!(real(diag(eīd_tot3,1))+real(diag(eīd_tot3,-1)),ls=:dash,color=:green )
+##
+plt = plot(real(diag(eīd_tot1,1))+real(diag(eīd_tot1,-1)),
+                xlim=(280,520),
+                c=:black,
+                label="d-1+d1,SJ_tot",
+                legend=:bottomright,
+                lw=2,
+                alpha=0.5,
+                )
+plot!(real(diag(eīd1,1))+real(diag(eīd1,-1)) )
+plot!((real(diag(eīd2,1))+real(diag(eīd2,-1))) )
+plot!((real(diag(eīd1,1))+real(diag(eīd1,-1))) - (real(diag(eīd2,1))+real(diag(eīd2,-1))) )
+plot!(real(diag(eīd_tot2,1))+real(diag(eīd_tot2,-1)) )
+
+
+##
+plt = plot(real(diag(eīd1,-1)),xlim=(280,520))
+plot!(real(diag(eīd1,1)) )
+# plot!(real(diag(eīd2,-1)) )
+# plot!(real(diag(eīd2,1)) )
+plot!(real(diag(eīd_tot2,-1)) )
+plot!(real(diag(eīd_tot2,1)) )
+plot!(real(diag(eīd_tot2,1))+real(diag(eīd_tot2,-1)) )
+
+##
+plt = plot(real(diag(eīd_tot1,0)),
+                xlim=(280,520),
+                c=:black,
+                label="d0,SJ_tot",
+                legend=:bottomright,
+                lw=3,
+                alpha=0.5,
+                )
+plot!(real(diag(eīd1,0)),c=:red,label="d0,SJ1")
+plot!(real(diag(eīd2,0)),c=:blue,label="d0,SJ2")
+plot!(real(diag(eīd_tot2,0)),c=:green,label="d0,AD_tot")
+##
+
+plt = plot(imag(diag(eīd1,-1)),xlim=(280,520))
+plot!(imag(diag(eīd1,1)) )
+plot!(imag(diag(eīd2,-1)) )
+plot!(imag(diag(eīd2,1)) )
+plot!(imag(diag(eīd_tot2,-1)) )
+plot!(imag(diag(eīd_tot2,1)) )
+
+
+@assert solve_dense_eidot(p,eid;Δx,Δy,Δz,Nx,Ny,Nz) ≈ solve_dense(p;Δx,Δy,Δz,Nx,Ny,Nz)
+eīd_tot1 ≈ eīd_tot2
+real(diag(eīd_tot1,0)) ≈ real(diag(eīd_tot2,0))
+real(diag(eīd_tot1,1)) ≈ real(diag(eīd_tot2,1))
+real(diag(eīd_tot1,-1)) ≈ real(diag(eīd_tot2,-1))
+real(diag(eīd_tot1,-1)) ≈ -real(diag(eīd_tot2,1))
+
 eīdot1 ≈ eīdot2
 real(diag(eīdot1,0)) ≈ real(diag(eīdot2,0))
 real(diag(eīdot1,1)) ≈ real(diag(eīdot2,1))
@@ -633,41 +1414,7 @@ end
 
 compare_eīdot(1;figsize=(800,800),xlims=(340,380))
 
-##
 
-p̄_AD = [Zygote.gradient(solve_dense,p)[1][begin:end-4]...]
-p̄_FD = FiniteDifferences.grad(central_fdm(2, 1),solve_dense,p)[1][begin:end-4]
-p̄_SJ = [∂solve_dense_SJ(p,α,X,ᾱ,X̄)[begin:end-4]...]
-p̄_AD[1] = 1.0e-12
-p̄_SJ[1] = 1.0e-12
-using Plots: plot, plot!, scatter, scatter!
-pp = plot([-maximum(abs.(p̄_AD)),maximum(abs.(p̄_AD))],[-maximum(abs.(p̄_AD)),maximum(abs.(p̄_AD))],c=:black,label="y=x",legend=:bottomright)
-scatter!(p̄_AD,p̄_FD,label="AD/FD")
-scatter!(p̄_AD,p̄_SJ,label="AD/SJ")
-
-ω² = real.(α)
-plot(ω²,label="ω²",legend=:topleft)
-ω = sqrt.(ω²)
-neff = kz ./ ω
-eig_ind = 1
-H = reshape(X[:,eig_ind],(size(X,1),1))
-plt_neff = plot(neff,label="neff",legend=:topright)
-scatter!(plt_neff,neff[1:10],label="neff",legend=:topright)
-grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
-shapes = ridge_wg(w,t_core,edge_gap,n_core,n_subs,Δx,Δy)
-ei_field = make_εₛ⁻¹(shapes,grid)
-plot_ε(ei_field,grid.x,grid.y) #;cmap=cgrad(:viridis))
-plot_d⃗(H,kz,grid)
-
-
-df_p_8x8 = DataFrame(   p = p,
-                        p̄_AD = p̄_AD,
-                        p̄_FD = p̄_FD,
-                        p̄_SJ = p̄_SJ,
-                    )
-name="M_entry_grads_rwg_8x8"
-path="/home/dodd/github/OptiMode/test/"
-CSV.write(*(path,name,".csv"), df_p_8x8)
 
 ##
 
@@ -976,5 +1723,155 @@ A = A * A'
 # function g(X⃗,α,p)
 #     sum(X⃗) + sum(α) + sum(p)
 # end
+
+##
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+
+function ftest1(p = p0;
+                Δx = 6.0,
+                Δy = 4.0,
+                Δz = 1.0,
+                Nx = 16,
+                Ny = 16,
+                Nz = 1)
+    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+    # kz=p[1]; w=p[2]; t_core=p[3]; θ=p[4]; n_core=p[5]; n_subs=p[6]; edge_gap=p[7]
+    # grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+    shapes = ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy)
+    # grid = Zygote.@ignore OptiMode.make_MG(6.0,4.0,1.0,16,16,1)
+    # shapes = ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],6.0,4.0)
+    # sum(abs.(shapes[1].v))
+    # ei_field = make_εₛ⁻¹(shapes,grid)
+    ei_field = make_ei1(shapes,Δx, Δy, Δz, Nx, Ny, Nz)
+    sum(ei_field)
+end
+using ArrayInterface
+ftest1(p0)
+gradient(ftest1,p0)
+using ReverseDiff
+# ForwardDiff.gradient(ftest1,p0)
+y,back =  _pullback(Context(),ftest1,p0)
+@code_typed _pullback(Context(),ftest1,p0)
+##
+# function fp(v::SMatrix{K,2,<:Real}, data::D=nothing) where {K,D}
+function fp(v::AbstractMatrix{<:Real}, data::D=nothing) where D
+    K = size(v,1);
+    @show typeof(v)
+    # v = SMatrix{K,2}(vin)
+    # v = copy(vin)
+    # Sort the vertices in the counter-clockwise direction
+    @show w = v .- mean(v, dims=1)  # v in center-of-mass coordinates
+    ϕ = mod.(atan.(w[:,2], w[:,1]), 2π)  # SVector{K}: angle of vertices between 0 and 2π; `%` does not work for negative angle
+    if !issorted(ϕ)
+        # Do this only when ϕ is not sorted, because the following uses allocations.
+        ind = MVector{K}(sortperm(ϕ))  # sortperm(::SVector) currently returns Vector, not MVector
+        @show v = v[ind,:]  # SVector{K}: sorted v
+    end
+
+    # Calculate the increases in angle between neighboring edges.
+    # ∆v = vcat(diff(v, dims=1), SMatrix{1,2}(v[1,:]-v[end,:]))  # SMatrix{K,2}: edge directions
+    @show ∆v = vcat(diff(v, dims=1), transpose(v[1,:]-v[end,:]))
+    ∆z = ∆v[:,1] + im * ∆v[:,2]  # SVector{K}: edge directions as complex numbers
+    icurr = ntuple(identity, Val(K-1))
+    inext = ntuple(x->x+1, Val(K-1))
+    ∆ϕ = angle.(∆z[SVector(inext)] ./ ∆z[SVector(icurr)])  # angle returns value between -π and π
+
+    # Check all the angle increases are positive.  If they aren't, the polygon is not convex.
+    #@assert all(∆ϕ .> 0) #|| throw("v = $v should represent vertices of convex polygon.")
+
+    n0 = [∆v[:,2] -∆v[:,1]]  # outward normal directions to edges
+    # norms = SVector{K,Float64}([hypot(n0[vind,1],n0[vind,2]) for vind=1:K])
+    @show n = n0 ./ hypot.(n0[:,1],n0[:,2])  # normalize
+    # n0_norm = sqrt.( n0[:,1].^2 + n0[:,2].^2  )
+    # nM =  Matrix(n0) ./ Vector(n0_norm)
+    # n = SMatrix(nM)
+    # nt = [normalize(n0[vind,:])[cind] for cind=1:2,vind=1:4]
+    @show typeof(v)
+    return Polygon{K,2K,D}(v,(SMatrix{4,2,Float64}(n)),data)
+    # return SMatrix{K,2}(n) #Polygon{K,2K,D}(v,n,data)
+end
+
+fp(v1,6.3).n[2,2]
+fp(v0,6.3)
+Zygote.gradient(v -> v[1], SVector(5,5))[1]
+Zygote.gradient((a,b) -> SVector(a,b)[1], 5,5)
+Zygote.gradient((a,b) -> sum(SVector(a,b)), 5,5)
+
+SMatrix{2,2,Float64,4}(1,2,3,4)
+Zygote.gradient(m->m[1,1], SMatrix{2,2,Float64,4}(1,2,3,4))
+gradient(v1,6.3) do a,b
+    nn = fp(a,b).n[2,2] #.n
+    # nn[1,1]
+    #sum(abs.())
+end
+
+fp(v0,6.3)
+
+v0 = [  0.85    -0.85   -1.     1.
+        0.35    0.35    -0.35   -0.35   ]'
+
+v1 = [  0.85     0.35
+        -0.85    0.35
+        -1.      -0.35
+        1.       -0.35  ]
+v1 ≈ v0
+∆v = vcat(diff(v0, dims=1), SMatrix{1,2}(v0[1,:]-v0[end,:]))
+∆v2 = vcat(diff(v0, dims=1), (v0[1,:]-v0[end,:])')
+∆v2 ≈ ∆v
+(v0[1,:]-v0[end,:])'
+fp(v0,6.3)
+fp(v0,6.3).v[1,1]
+
+n1 = @SMatrix [ 0.      1.7
+                -0.7    0.15
+                0.      -2.
+                0.7     0.15    ]
+
+n1[:,1], n1[:,2]
+
+hypot.(n1[:,1], n1[:,2])
+
+n2M = Matrix(n1) ./ Vector(hypot.(n1[:,1],n1[:,2]))
+n2SM = SMatrix{4,2,Float64,8}(n2M)
+n1 ./ sqrt.( n1[:,1].^2 + n1[:,2].^2  )
+@assert sqrt.( n1[:,1].^2 + n1[:,2].^2  ) ≈ hypot.(n1[:,1],n1[:,2])
+
+abs2.(n1)
+
+Zygote.@adjoint (T::Type{<:SMatrix})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
+Zygote.@adjoint (T::Type{<:SMatrix})(x::AbstractMatrix) = T(x), dv -> (nothing, dv)
+
+
+Zygote.refresh()
+
+
+##
+
+using GeometryPrimitives
+using OptiMode: make_KDTree
+using Zygote: dropgrad
+function make_ei1(shapes::Vector{<:GeometryPrimitives.Shape}, Δx, Δy, Δz, Nx, Ny, Nz)::Array{Float64,5}
+    tree = make_KDTree(shapes)
+    δx = dropgrad(Δx) / dropgrad(Nx)    # δx
+    δy = dropgrad(Δy) / dropgrad(Ny)    # δy
+    x = ( ( dropgrad(Δx) / dropgrad(Nx) ) .* (0:(dropgrad(Nx)-1))) .- dropgrad(Δx)/2.  # x
+    y = ( ( dropgrad(Δy) / dropgrad(Ny) ) .* (0:(dropgrad(Ny)-1))) .- dropgrad(Δy)/2.  # y
+    ebuf = Zygote.Buffer(Array{Float64}([1.0 2.0]),3,3,dropgrad(Nx),dropgrad(Ny),1)
+    # for i=1:dropgrad(Nx),j=1:dropgrad(Ny),kk=1:dropgrad(Nz)
+        # ebuf[:,:,i,j,kk] = inv(εₛ(shapes,dropgrad(tree),dropgrad(x[i]),dropgrad(y[j]),dropgrad(δx),dropgrad(δy)))
+    for a=1:3,b=1:3,i=1:dropgrad(Nx),j=1:dropgrad(Ny),kk=1:dropgrad(Nz)
+        ebuf[a,b,i,j,kk] = inv(εₛ(shapes,dropgrad(tree),dropgrad(x[i]),dropgrad(y[j]),dropgrad(δx),dropgrad(δy)))[a,b]
+    end
+    return real(copy(ebuf))
+end
+
+##
+@assert typeof(ridge_wg(p0[2],p0[3],p0[4],p0[7],p0[5],p0[6],6.0,4.0))<:Vector{<:GeometryPrimitives.Shape}
+ftest(p0)
+Zygote.gradient(ftest,p0)
 
 ##

@@ -32,11 +32,16 @@ function ridge_wg(wₜₒₚ::Float64,t_core::Float64,θ::Float64,edge_gap::Floa
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)
     ε_subs = ε_tensor(n_subs)
-    tanθ = tan(θ)
-    tcore_tanθ = t_core*tanθ
-    w_bottom = wₜₒₚ + 2*tcore_tanθ
-    verts = 0.5.*   [   wₜₒₚ     -wₜₒₚ     -w_bottom    w_bottom
-                        t_core   t_core    -t_core      -t_core    ]'
+    # tanθ = tan(θ)
+    # tcore_tanθ = t_core*tanθ
+    # w_bottom = wₜₒₚ + 2*tcore_tanθ
+    # verts = 0.5.*   [   wₜₒₚ     -wₜₒₚ     -w_bottom    w_bottom
+    #                     t_core   t_core    -t_core      -t_core    ]'
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+    verts =   [   wt_half     -wt_half     -wb_half    wb_half
+                    tc_half     tc_half    -tc_half      -tc_half    ]'
     core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
                     verts,			                                            # v: polygon vertices in counter-clockwise order
                     ε_core,					                                    # data: any type, data associated with box shape
