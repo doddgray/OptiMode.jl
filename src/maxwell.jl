@@ -259,11 +259,11 @@ function ε_dot_approx(e⃗,ε⁻¹)
 end
 
 function M(H,ε⁻¹,mn,kpg_mag)
-    kx_c2t(ε⁻¹_dot_t(kx_t2c(H,mn,kpg_mag),ε⁻¹),mn,kpg_mag)
+    -kx_c2t(ε⁻¹_dot_t(kx_t2c(H,mn,kpg_mag),ε⁻¹),mn,kpg_mag)
 end
 
 function M(H,ε⁻¹,mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)
-    kx_c2t( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_t2c(H,mn,kpg_mag), ε⁻¹), mn,kpg_mag)
+    -kx_c2t( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_t2c(H,mn,kpg_mag), ε⁻¹), mn,kpg_mag)
 end
 
 function M(Hin::AbstractArray{ComplexF64,1},ε⁻¹,mn,kpg_mag)::Array{ComplexF64,1}

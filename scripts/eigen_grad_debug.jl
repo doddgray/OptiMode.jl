@@ -1,5 +1,5 @@
 using Revise
-using LinearAlgebra, StaticArrays, ArrayInterface, FFTW, LinearMaps, IterativeSolvers, ChainRules, Plots, BenchmarkTools
+using LinearAlgebra, StaticArrays, ArrayInterface, FFTW, LinearMaps, IterativeSolvers, ChainRules, Tullio, Plots, BenchmarkTools
 using FiniteDifferences, ForwardDiff, Zygote # ReverseDiff
 using OptiMode #  DataFrames, CSV,
 # using ChainRulesTestUtils, Test
@@ -106,9 +106,6 @@ scatter!(p̄_AD,p̄_SJ,label="AD/SJ")
 # [ ( A*X⃗[:,i] - α[i] * X⃗[:,i]) for i = 1:N]
 
 ## Now test eigen rrule fns with Helmholtz Operator matrices
-
-# using LinearMaps
-
 """
 Default design parameters for ridge waveguide. Both MPB and OptiMode functions
 should intake data in this format for convenient apples-to-apples comparison.
@@ -360,6 +357,19 @@ function make_Mₖ_eidot(p,
     -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * zcr_t2c
 end
 
+function make_M(eidot::Hermitian,kcr_t2c)
+    # kcr_t2c = kxt2c_matrix(mag,mn)
+    𝓕 = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
+    end
+    kcr_c2t = -kcr_t2c'
+    M = -kcr_c2t * 𝓕⁻¹ * eidot * 𝓕 * kcr_t2c
+    return Hermitian(M)
+end
+
 function make_M(eidot::Hermitian,mag,mn)
     kcr_t2c = kxt2c_matrix(mag,mn)
     𝓕 = Zygote.ignore() do
@@ -394,7 +404,15 @@ function proc_eigs(p,Xone,αone;
                     Nz = 1)
     # sum2(x->abs2(x)^2,Xone) * abs2(αone)^2
     # sqrt(real(αone)) / real(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
-    sqrt(αone) / abs(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+    # sqrt(αone) / abs(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+    sqrt(real(αone)) / real(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+end
+
+function proc_eigs(eidot::Hermitian,mag,mn,Xone,αone)
+    # sum2(x->abs2(x)^2,Xone) * abs2(αone)^2
+    # sqrt(real(αone)) / real(dot(Xone,make_Mₖ(p;Δx,Δy,Δz,Nx,Ny,Nz),Xone))
+    # sqrt(αone) / abs(dot(Xone,make_Mₖ(eidot,mag,mn),Xone))
+    sqrt(real(αone)) / real(dot(Xone,make_Mₖ(eidot,mag,mn),Xone))
 end
 
 function proc_eigs_eidot(p,eidot::Hermitian,Xone,αone;
@@ -421,6 +439,13 @@ function solve_dense(p = p0;
     αone = Eigs.values[1]
     proc_eigs(p,Xone,αone;Δx,Δy,Δz,Nx,Ny,Nz)
     # proc_eigs(Xone,αone)
+end
+
+function solve_dense(eidot::Hermitian,mag,mn)
+    Eigs = eigen(make_M(eidot,mag,mn))
+    Xone = Eigs.vectors[:,1]
+    αone = Eigs.values[1]
+    proc_eigs(eidot,mag,mn,Xone,αone)
 end
 
 function solve_dense_eidot(p,
@@ -552,14 +577,6 @@ end
 
 ei_matrix2field = ei_matrix2field4
 
-# @assert ei_field2matrix(ei,Nx,Ny,Nz) ≈ eid
-# @assert ei_matrix2field1(eid,Nx,Ny,Nz) ≈ ei
-# @assert ei_matrix2field2(real(eid),Nx,Ny,Nz) ≈ ei
-# @assert ei_matrix2field3(real(eid),Nx,Ny,Nz) ≈ ei
-#
-# ei_matrix2field(Matrix(eīd1_herm),Nx,Ny,Nz) ≈ ei_matrix2field3(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
-# ei_matrix2field(Matrix(real(eīd1_herm)),Nx,Ny,Nz) ≈ ei_matrix2field2(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
-# @assert ei_matrix2field4(d,λd,Nx,Ny,Nz) ≈ ei_matrix2field2(Matrix(real(eīd1_herm)),Nx,Ny,Nz)
 
 
 ## set discretization parameters and generate explicit dense matrices
@@ -578,17 +595,28 @@ ds = MaxwellData(p[1],g)
 ei = make_εₛ⁻¹(ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy),g)
 # eii = similar(ei); [ (eii[a,b,i,j,k] = inv(ei[:,:,i,j,k])[a,b]) for a=1:3,b=1:3,i=1:Nx,j=1:Ny,k=1:Nz ] # eii = epsilon tensor field (eii for epsilon_inverse_inverse, yea it's dumb)
 Mop = M̂!(ei,ds)
+Mop2 = M̂(ei,ds)
 Mₖop = M̂ₖ(ei,ds.mn,ds.kpg_mag,ds.𝓕,ds.𝓕⁻¹)
 M = Matrix(Mop)
 dMdk = Matrix(Mₖop)
 mag,mn = calc_kpg(p[1],OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
 eid = ei_dot_rwg(p0)
+
 make_M(eid,mag,mn) ≈ M
 make_Mₖ(eid,mag,mn) ≈ -dMdk
 make_Mₖ_eidot(p,eid) ≈ -dMdk
 make_Mₖ(p0) ≈ -dMdk
 
+𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
+𝓕⁻¹ = plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
+Mop2 = M̂(ei,mn,mag,𝓕,𝓕⁻¹)
+M2 = Matrix(Mop2)
+M2 ≈ M
 
+
+3
+
+##
 # M̂(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> M(H,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
 # function M(H,ε⁻¹,mn,kpg_mag,𝓕::FFTW.cFFTWPlan,𝓕⁻¹)
 #     kx_c2t( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_t2c(H,mn,kpg_mag), ε⁻¹), mn,kpg_mag)
@@ -649,10 +677,7 @@ zxt2c = Matrix(zxt2c_op)
 # kxt̄2c = sum_kxt2c_pb(1)[1]
 # māg,mn̄ = kxt2c_pb(kxt̄2c)
 # p̄ = magmn_pb((māg,mn̄))[1]
-
-
-##
-
+# @assert ei_field2matrix(ei,Nx,Ny,Nz) ≈ eid
 ##
 ei_dot_rwg(p0)
 solve_dense(p0)
@@ -665,7 +690,14 @@ println("")
 println("Finite Difference End-to-end (parameters to group velocity) gradient calculation for checking AD gradients")
 println("")
 println("####################################################################################")
+@show Δx          =   6.                    # μm
+@show Δy          =   4.                    # μm
+@show Δz          =   1.
+@show Nx          =   16
+@show Ny          =   16
+@show Nz          =   1
 @show p=p0
+@show kz          =   p[1]
 @show p̄_FD = FiniteDifferences.jacobian(central_fdm(3,1),x->solve_dense(x),p0)[1][1,:]
 ## End-to-end (parameters to group velocity) gradient calculation with explicit matrices
 println("####################################################################################")
@@ -729,11 +761,12 @@ X = αX.vectors
 @show ω²_eidot = α[1]
 # @show ng_proc_eigs_eidot = proc_eigs_eidot(p,eid,X[:,1],α[1];Δx,Δy,Δz,Nx,Ny,Nz)
 @show ng_eidot = solve_dense_eidot(p,eid;Δx,Δy,Δz,Nx,Ny,Nz)
-p̄2_eidot,eīd2,X̄,ᾱ = Zygote.gradient(p,eid,X[:,1],α[1]) do p,eidot,H,ω²
+p̄_pe,eīd_pe,X̄,ᾱ = Zygote.gradient(p,eid,X[:,1],α[1]) do p,eidot,H,ω²
     proc_eigs_eidot(p,eidot,H,ω²;Δx,Δy,Δz,Nx,Ny,Nz)
 end
+eīd_pe_herm = Zygote._hermitian_back(eīd_pe,eid.uplo)
 @show ω̄sq_eidot = ᾱ
-@show p̄2_eidot
+@show p̄_pe
 P̂ = I - X[:,1] * X[:,1]'
 b = P̂ * X̄ #[1]
 @show maximum(abs2.(b))
@@ -751,71 +784,244 @@ kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c = M_components(p;Δx,Δy,Δz,Nx,Ny,Nz)
 # (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)' ≈ -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹
 d = 𝓕 * kcr_t2c * X[:,1] ./ (Nx * Ny * Nz)
 λd = 𝓕 * kcr_t2c * λ
+e = eid * d
+eīd_eig = -λd * d'
+eīd_eig_herm = Zygote._hermitian_back(eīd_eig,eid.uplo)
+λe = eid * λd
+λẽ = 𝓕⁻¹ * λe
+ẽ = (Nx * Ny * Nz) * 𝓕⁻¹ * e
+kcr̄_t2c = -( λẽ * X[:,1]' + ẽ * λ' )
 @show maximum(abs2.(d))
 @show maximum(abs2.(λd))
+@show maximum(abs2.(e))
+@show maximum(abs2.(λe))
+kcr_t2c2, kcr_t2c_pb = Zygote.pullback(kxt2c_matrix,p)
+@show p̄_kcr = real(kcr_t2c_pb(kcr̄_t2c)[1])
 # -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹ ≈ -λd * d'
-eīd1 = -λd * d'
-eīd1_herm = Zygote._hermitian_back(eīd1,eid.uplo)
+eīd = eīd_eig_herm + eīd_pe_herm
+@show p̄_eid = eid_pb(eīd)[1]
+if isnothing(p̄_pe)
+    p̄_pe = zeros(eltype(p),size(p))
+end
+if isnothing(p̄_eid)
+    p̄_eid = zeros(eltype(p),size(p))
+end
+if isnothing(p̄_kcr)
+    p̄_kcr = zeros(eltype(p),size(p))
+end
+@show p̄ = p̄_eid + p̄_pe + p̄_kcr
+@show p̄_FD
+@show p̄_err = abs.(p̄_FD .- p̄) ./ abs.(p̄_FD)
+# eīd_5diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -2:2]...)
+# eīd_3diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -1:1]...)
+# eīd_1diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = 0]...)
+# @assert eid_pb(eīd)[1] ≈ eid_pb(eīd_3diag)[1]
+# @show p̄1_eidot = eid_pb(eīd_3diag)[1]
+# @show p̄1_eidot_5diag = eid_pb(eīd_5diag)[1]
+# @show p̄1_eidot_3diag = eid_pb(eīd_3diag)[1]
+# @show p̄1_eidot_1diag = eid_pb(eīd_1diag)[1]
+# @show p̄1_eidot_5diag_err = abs.(p̄1_eidot .- p̄1_eidot_5diag) ./ abs.(p̄1_eidot)
+# @show p̄1_eidot_3diag_err = abs.(p̄1_eidot .- p̄1_eidot_3diag) ./ abs.(p̄1_eidot)
+# @show p̄1_eidot_1diag_err = abs.(p̄1_eidot .- p̄1_eidot_1diag) ./ abs.(p̄1_eidot)
+
+# dstar = conj.(d)
+# λdstar = conj.(λd)
+# D0 = real( (-λd .* dstar)) #-λd .* dstar
+# D1 = -λdstar[2:end] .* d[begin:end-1] + -λd[begin:end-1] .* dstar[2:end]
+# D2 = -λdstar[3:end] .* d[begin:end-2] + -λd[begin:end-2] .* dstar[3:end]
+# diag(eīd1_herm,0) ≈ D0
+# diag(eīd1_herm,1) ≈ D1
+# diag(eīd1_herm,2) ≈ D2
+# @show maximum(abs2.(D0))
+# @show maximum(abs2.(D1))
+# @show maximum(abs2.(D2))
+##
+println("####################################################################################")
+println("")
+println("(ε⁻¹ operator ,(mn(k), mag(k)) arrays) to group velocity gradient calculation with explicit matrices")
+println("")
+println("####################################################################################")
+p = p0
+eid, eid_pb = Zygote.pullback(x->ei_dot_rwg(x;Δx,Δy,Δz,Nx,Ny,Nz),p)
+(mag, mn), magmn_pb = Zygote.pullback(p0) do p
+    calc_kpg(p[1],OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
+end
+kxt2c, kxt2c_pb = Zygote.pullback(mag,mn) do mag,mn
+    kxt2c_matrix(mag,mn)
+end
+@show ng,ng_pb = Zygote.pullback(solve_dense,eid,mag,mn)
+eīd,māg,mn̄ = ng_pb(1)
+@show p̄_magmn = magmn_pb((real(māg),real(mn̄)))[1]
+@show p̄_eid = eid_pb(eīd)[1]
+@show p̄ = p̄_magmn + p̄_eid
+@show p̄_FD
+@show p̄_err = abs.(p̄_FD .- p̄) ./ abs.(p̄_FD)
+M = make_M(eid,mag,mn)
+αX = eigen(M)
+α = αX.values
+X = αX.vectors
+@show ω² = α[1]
+@show n = sqrt(ω²) / p[1]
+@show ng, pe_pb = Zygote.pullback(proc_eigs,eid,mag,mn,X[:,1],α[1])
+eīd_pe,māg_pe,mn̄_pe,X̄,ᾱ = pe_pb(1)
+@show ω̄sq = ᾱ
+@show maximum(abs2.(eīd_pe))
+@show maximum(abs2.(māg_pe))
+@show maximum(abs2.(mn̄_pe))
+@show size(X̄)
+@show maximum(abs2.(X̄))
+# @show maximum(real.(X̄))
+# @show maximum(imag.(X̄))
+# @show minimum(real.(X̄))
+# @show minimum(imag.(X̄))
+# solve for adjoint field, pull back through M to get p̄ contributions
+P̂ = I - X[:,1] * X[:,1]'
+b = P̂ * X̄ #[1]
+@show maximum(abs2.(b))
+# @show maximum(real.(b))
+# @show maximum(imag.(b))
+# @show minimum(real.(b))
+# @show minimum(imag.(b))
+X̄ - X[:,1] * dot(X[:,1],X̄) ≈ b
+λ₀ = IterativeSolvers.bicgstabl(M-α[1]*I,b,3)
+@show maximum(abs2.(λ₀))
+# @show maximum(real.(λ₀))
+# @show maximum(imag.(λ₀))
+# @show minimum(real.(λ₀))
+# @show minimum(imag.(λ₀))
+if isnothing(ᾱ)
+    ᾱ = 0.
+end
+λ = λ₀ - ᾱ * X[:,1]
+@show maximum(abs2.(λ))
+# @show maximum(real.(λ))
+# @show maximum(imag.(λ))
+# @show minimum(real.(λ))
+# @show minimum(imag.(λ))
+M̄ = -λ * X[:,1]'
+kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c = M_components(p;Δx,Δy,Δz,Nx,Ny,Nz)
+# eīd1 = -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹ # = (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)'
+# (-kcr_c2t * 𝓕⁻¹)' * M̄ * (𝓕 * kcr_t2c)' ≈ -𝓕 * kcr_t2c * M̄ * kcr_c2t * 𝓕⁻¹
+d = 𝓕 * kcr_t2c * X[:,1] ./ (Nx * Ny * Nz)
+λd = 𝓕 * kcr_t2c * λ
+e = eid * d
+λe = eid * λd
+λẽ = 𝓕⁻¹ * λe
+ẽ = (Nx * Ny * Nz) * 𝓕⁻¹ * e
+kcr̄_t2c = -( λẽ * X[:,1]' + ẽ * λ' )
+@show maximum(abs2.(d))
+@show maximum(abs2.(λd))
+@show maximum(abs2.(e))
+@show maximum(abs2.(λe))
+@show maximum(abs2.(ẽ))
+@show maximum(abs2.(λẽ))
+λẽ_3v = reinterpret(SVector{3,ComplexF64},λẽ)
+ẽ_3v = reinterpret(SVector{3,ComplexF64},ẽ)
+λ_2v = reinterpret(SVector{2,ComplexF64},λ)
+H_2v = reinterpret(SVector{2,ComplexF64},X[:,1])
+@show size(λẽ_3v)
+@show size(ẽ_3v)
+@show size(λ_2v)
+@show size(H_2v)
+@show maximum(norm.(λẽ_3v))
+@show maximum(norm.(ẽ_3v))
+@show maximum(norm.(λ_2v))
+@show maximum(norm.(H_2v))
+kx̄ = reshape( reinterpret(Float64, -real.( λẽ_3v .* adjoint.(conj.(H_2v)) + ẽ_3v .* adjoint.(conj.(λ_2v)) ) ), (3,2,Nx,Ny,Nz) )
+@tullio māg_eigs[ix,iy,iz] := mn[a,2,ix,iy,iz] * kx̄[a,1,ix,iy,iz] - mn[a,1,ix,iy,iz] * kx̄[a,2,ix,iy,iz]
+mn̄_signs = [-1 ; 1]
+@tullio mn̄_eigs[a,b,ix,iy,iz] := kx̄[a,3-b,ix,iy,iz] * mag[ix,iy,iz] * mn̄_signs[b] nograd=mn̄_signs
+@show maximum(abs2.(kx̄))
+@show maximum(māg_eigs)
+@show maximum(mn̄_eigs)
+@show p̄_kcr_eigs = magmn_pb((māg_eigs,mn̄_eigs))[1]
+eīd_eigs = -λd * d'
+eīd_eigs_herm = Zygote._hermitian_back(eīd_eigs,eid.uplo)
+eīd_pe_herm = Zygote._hermitian_back(eīd_pe,eid.uplo)
+eīd_full_herm = Zygote._hermitian_back(eīd,eid.uplo)
+@show p̄_eid_eigs = eid_pb(eīd_eigs_herm)[1]
+@show p̄_eigs = p̄_eid_eigs + p̄_kcr_eigs
+
+
+
+@show p̄_eid_pe = eid_pb(eīd_pe_herm)[1]
+@show p̄_kcr_pe = magmn_pb((real(māg_pe),real(mn̄_pe)))[1]
+@show p̄_pe = p̄_eid_pe + p̄_kcr_pe
+
+if isnothing(p̄_pe)
+    p̄_pe = zeros(eltype(p),size(p))
+end
+if isnothing(p̄_eigs)
+    p̄_eigs = zeros(eltype(p),size(p))
+end
+@show p̄ = p̄_eigs + p̄_pe
+@show p̄_err = abs.(p̄_FD .- p̄) ./ abs.(p̄_FD)
+
+
+# māg_eigs_AD,mn̄_eigs_AD = kxt2c_pb(kcr̄_t2c)
+# @assert māg_eigs ≈ real(māg_eigs_AD)
+# @assert mn̄_eigs ≈ real(mn̄_eigs_AD)
+
+# kcr_t2c2, kcr_t2c_p_pb = Zygote.pullback(kxt2c_matrix,p)
+# kcr_t2c3, kcr_t2c_magmn_pb = Zygote.pullback(kxt2c_matrix,mag,mn)
+# @assert kcr_t2c2 ≈ kcr_t2c
+# @assert kcr_t2c3 ≈ kcr_t2c
+# @assert make_M(eid,mag,mn) ≈ make_M(eid,kcr_t2c)
+# M,M_pb_kcr = Zygote.pullback(make_M,eid,kcr_t2c)
+# M,M_pb_magmn = Zygote.pullback(make_M,eid,mag,mn)
+# eīd_eigs2,māg_eigs2,mn̄_eigs2 = M_pb(M̄)
+# eīd_kcr, kcr̄_t2c1 = M_pb_kcr(M̄)
+# kcr̄_t2c2 = 𝓕⁻¹ * ( (eid * 𝓕 * kcr_t2c * M̄') + (eid * 𝓕 * kcr_t2c * M̄) )
+# kcr̄_t2c3 = 𝓕⁻¹ * ( (eid * 𝓕 * kcr_t2c * -X[:,1] * λ') + (eid * 𝓕 * kcr_t2c * -λ * X[:,1]' ) )
+# kcr̄_t2c4 = 𝓕⁻¹ * ( ( -(Nx * Ny * Nz) * e * λ') + (-λe * X[:,1]' ) )
+# kcr̄_t2c5 =  𝓕⁻¹ * -( λe * X[:,1]' + (Nx * Ny * Nz) * e * λ' )
+# kcr̄_t2c2 ≈ kcr̄_t2c1
+# kcr̄_t2c3 ≈ kcr̄_t2c1
+# kcr̄_t2c4 ≈ kcr̄_t2c1
+# kcr̄_t2c5 ≈ kcr̄_t2c1
+# kcr̄_t2c2 ./ kcr̄_t2c1
+
+# # naive ε⁻¹_bar construction
 dstar = conj.(d)
 λdstar = conj.(λd)
 D0 = real( (-λd .* dstar)) #-λd .* dstar
 D1 = -λdstar[2:end] .* d[begin:end-1] + -λd[begin:end-1] .* dstar[2:end]
 D2 = -λdstar[3:end] .* d[begin:end-2] + -λd[begin:end-2] .* dstar[3:end]
-diag(eīd1_herm,0) ≈ D0
-diag(eīd1_herm,1) ≈ D1
-diag(eīd1_herm,2) ≈ D2
-@show maximum(abs2.(D0))
-@show maximum(abs2.(D1))
-@show maximum(abs2.(D2))
-# eīd1_herm2 = Hermitian(diagm(0 => D0, 1 => D1, 2 => D2),:U) # Hermitian(UpperTriangular(diagm(0 => D0, 1 => D1, 2 => D2)))
-# eīd1_herm2 ≈ eīd1_herm
-# eīd1_field = zeros(Float64,(3,3,Nx,Ny,Nz))
-# for i=1:Nx,j=1:Ny,k=1:Nz #,a=1:3,b=1:3
-#     q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
-#     eīd1_field[1,1,i,j,k] = real(D0[3*q-2])
-#     eīd1_field[2,2,i,j,k] = real(D0[3*q-1] )
-#     eīd1_field[3,3,i,j,k] = real(D0[3*q])
-#     eīd1_field[1,2,i,j,k] = real(D1[3*q-2])
-#     eīd1_field[2,1,i,j,k] = real(conj(D1[3*q-2]))
-#     eīd1_field[2,3,i,j,k] = real(D1[3*q-1])
-#     eīd1_field[3,2,i,j,k] = real(conj(D1[3*q-1]))
-#     eīd1_field[1,3,i,j,k] = real(D2[3*q-2])
-#     eīd1_field[3,1,i,j,k] = real(conj(D2[3*q-2]))
-#     # ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
-# end
-eīd = eīd1_herm + eīd2
-eīd_5diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -2:2]...)
-eīd_3diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -1:1]...)
-eīd_1diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = 0]...)
-@assert eid_pb(eīd)[1] ≈ eid_pb(eīd_3diag)[1]
-@show p̄1_eidot = eid_pb(eīd_3diag)[1]
-# @show p̄1_eidot = eid_pb(eīd)[1]
-@show p̄1_eidot_5diag = eid_pb(eīd_5diag)[1]
-@show p̄1_eidot_3diag = eid_pb(eīd_3diag)[1]
-@show p̄1_eidot_1diag = eid_pb(eīd_1diag)[1]
-@show p̄1_eidot_5diag_err = abs.(p̄1_eidot .- p̄1_eidot_5diag) ./ abs.(p̄1_eidot)
-@show p̄1_eidot_3diag_err = abs.(p̄1_eidot .- p̄1_eidot_3diag) ./ abs.(p̄1_eidot)
-@show p̄1_eidot_1diag_err = abs.(p̄1_eidot .- p̄1_eidot_1diag) ./ abs.(p̄1_eidot)
-if isnothing(p̄2_eidot)
-    p̄2_eidot = zeros(eltype(p),size(p))
-end
-if isnothing(p̄1_eidot)
-    p̄1_eidot = zeros(eltype(p),size(p))
-end
-@show p̄_eidot = p̄1_eidot + p̄2_eidot
-@show p̄_err_eidot = abs.(p̄_FD .- p̄_eidot) ./ abs.(p̄_FD)
+diag(eīd_eigs_herm,0) ≈ D0
+diag(eīd_eigs_herm,1) ≈ D1
+diag(eīd_eigs_herm,2) ≈ D2
+@show maximum(real.(D0))
+@show maximum(real.(D1))
+@show maximum(real.(D2))
+@show minimum(real.(D0))
+@show minimum(real.(D1))
+@show minimum(real.(D2))
+# # eīd = eīd_eigs_herm + eīd_pe_herm
+# eīd_5diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -2:2]...)
+# eīd_3diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = -1:1]...)
+# eīd_1diag = diagm([diag_idx => diag(eīd,diag_idx) for diag_idx = 0]...)
+# @assert eid_pb(eīd)[1] ≈ eid_pb(eīd_5diag)[1]
+#
+# @show p̄_H_eigs_5diag = eid_pb(eīd_5diag)[1]
+# @show p̄_H_eigs_3diag = eid_pb(eīd_3diag)[1]
+# @show p̄_H_eigs_1diag = eid_pb(eīd_1diag)[1]
+# @show p̄_H_eigs_5diag_err = abs.(p̄_H_eigs .- p̄_H_eigs_5diag) ./ abs.(p̄_H_eigs)
+# @show p̄_H_eigs_3diag_err = abs.(p̄_H_eigs .- p̄_H_eigs_3diag) ./ abs.(p̄_H_eigs)
+# @show p̄_H_eigs_1diag_err = abs.(p̄_H_eigs .- p̄_H_eigs_1diag) ./ abs.(p̄_H_eigs)
+
 ##
 println("####################################################################################")
 println("")
 println("End-to-end (parameters to group velocity) gradient calculation with OptiMode (implicit operators)")
 println("")
 println("####################################################################################")
+# Zygote.refresh()
 function nngω_rwg_OM(p::Vector{Float64} = p0;
                     Δx = 6.0,
                     Δy = 4.0,
                     Δz = 1.0,
-                    Nx = 16,
-                    Ny = 16,
+                    Nx = 128, #16,
+                    Ny = 128, #16,
                     Nz = 1,
                     band_idx = 1,
                     tol = 1e-8)
@@ -826,12 +1032,181 @@ function nngω_rwg_OM(p::Vector{Float64} = p0;
 end
 n_rwg_OM(p) = nngω_rwg_OM(p)[1]
 ng_rwg_OM(p) = nngω_rwg_OM(p)[2]
-@show ng_OM = ng_rwg_OM(p0)
-@show ng_OM_err = abs(ng_eidot - ng_OM) / ng_eidot
-@show p̄_OM = gradient(ng_rwg_OM,p0)[1]
+# @show n_OM, n_OM_pb = Zygote.pullback(n_rwg_OM,p0)
+
+##
+@show ng_OM, ng_OM_pb = Zygote.pullback(ng_rwg_OM,p0)
+@show n_OM_err = abs(n - n_OM) / n
+@show ng_OM_err = abs(ng - ng_OM) / ng
+@show p̄_OM = real(ng_OM_pb(1)[1])
 @show p̄_OM_err = abs.(p̄_FD .- p̄_OM) ./ abs.(p̄_FD)
 ##
+println("####################################################################################")
+println("")
+println("End-to-end (parameters to group velocity) gradient calculation with OptiMode (implicit operators)")
+println("")
+println("####################################################################################")
+p = p0
+Δx = 6.0
+Δy = 4.0
+Δz = 1.0
+Nx = 16
+Ny = 16
+Nz = 1
+band_idx = 1
+tol = 1e-8
+# s, s_pb = Zygote.pullback(p) do p
+#     ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy)
+# end
 
+(mag, mn), magmn_pb = Zygote.pullback(p0) do p
+    calc_kpg(p[1],make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
+end
+
+eid,eid_pb = Zygote.pullback(p) do p
+    shapes = ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy)
+    make_εₛ⁻¹(shapes,make_MG(Δx,Δy,Δz,Nx,Ny,Nz))
+    # εₛ⁻¹(s,make_MG(Δx,Δy,Δz,Nx,Ny,Nz))
+end
+
+(H,ω²), eigs_pb = Zygote.pullback(p,eid) do p,eid
+    solve_ω²(p[1],eid,Δx,Δy,Δz;neigs=1,eigind=1,maxiter=3000,tol)
+end
+
+ng, ng_pb = Zygote.pullback(H,ω²,eid,mag,mn) do H,ω²,eid,mag,mn
+    Ha = reshape(H,(2,Nx,Ny,Nz))
+    √ω² / real( dot(H, -vec( kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,mn), (2:4) ), eid), (2:4)),mn,mag) ) ) )
+end
+
+# ng_OM, ng_pb = Zygote.pullback(p,eid) do p,eid
+#     solve_nω(p[1],eid,Δx,Δy,Δz,Nx,Ny,Nz;tol)[2]
+# end
+# p̄_ng, eid_bar = ng_pb(1)
+
+H̄_ng,oms̄q_ng,eīd_ng,māg_ng,mn̄_ng = ng_pb(1)
+p̄_eigs, eīd_eigs = eigs_pb((H̄_ng, oms̄q_ng))
+@show p̄_eigs
+@show p̄_eid_eigs = eid_pb(eīd_eigs)[1]
+@show p̄_eid_ng = eid_pb(eīd_ng)[1]
+@show p̄_magmn_ng = magmn_pb((māg_ng,mn̄_ng))[1]
+
+eī_eigs_OM = eīd_eigs
+p̄_eid_eigs_OM = p̄_eid_eigs
+
+@show p̄ = real(p̄_magmn_ng + p̄_eigs + p̄_eid_eigs + p̄_eid_ng)
+@show p̄_err = abs.(p̄_FD .- p̄) ./ abs.(p̄_FD)
+
+##
+using ArrayInterface, LoopVectorization
+function ei_f2m1(ei_field,Nx,Ny,Nz)
+    ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
+    for i=1:Nx,j=1:Ny,a=1:3,b=1:3
+        q = (Ny * (j-1) + i)
+        ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    # return copy(ei_matrix_buf)
+    return Hermitian(copy(ei_matrix_buf))
+end
+
+function ei_f2m2(ei_field,Nx,Ny,Nz)
+    ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
+    for i=1:Nx,j=1:Ny,a=1:3,b=1:3
+        q = (Ny * (j-1) + i)
+        ei_matrix_buf[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    # return copy(ei_matrix_buf)
+    return copy(ei_matrix_buf)
+end
+
+function ei_m2f1(ei_matrix,Nx,Ny,Nz)
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    D0 = diag(ei_matrix,0)
+    D1 = diag(ei_matrix,1)
+    D2 = diag(ei_matrix,2)
+    for i=1:Nx,j=1:Ny,k=1:Nz #,a=1:3,b=1:3
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        ei_field[1,1,i,j,k] = real(D0[3*q-2])
+        ei_field[2,2,i,j,k] = real(D0[3*q-1] )
+        ei_field[3,3,i,j,k] = real(D0[3*q])
+        ei_field[1,2,i,j,k] = real(D1[3*q-2])
+        ei_field[2,1,i,j,k] = real(conj(D1[3*q-2]))
+        ei_field[2,3,i,j,k] = real(D1[3*q-1])
+        ei_field[3,2,i,j,k] = real(conj(D1[3*q-1]))
+        ei_field[1,3,i,j,k] = real(D2[3*q-2])
+        ei_field[3,1,i,j,k] = real(conj(D2[3*q-2]))
+        # ei_matrix[(3*q-2)+a-1,(3*q-2)+b-1] = ei_field[a,b,i,j,1]
+    end
+    return ei_field
+end
+
+function ei_m2f3(ei_matrix,Nx,Ny,Nz)
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    @avx for a=1:3,b=1:3,k=1:Nz,j=1:Ny,i=1:Nx
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        ei_field[a,b,i,j,k] = ei_matrix[(3*q-2)+a-1,(3*q-2)+b-1]
+    end
+    return ei_field
+end
+
+function ei_m2f4(d,λd,Nx,Ny,Nz)
+    # ei_field = Hermitian(zeros(Float64,(3,3,Nx,Ny,Nz)),"U")
+    ei_field = zeros(Float64,(3,3,Nx,Ny,Nz))
+    @avx for k=1:Nz,j=1:Ny,i=1:Nx
+        q = (Nz * (k-1) + Ny * (j-1) + i) # (Ny * (j-1) + i)
+        for a=1:3 # loop over diagonals
+            ei_field[a,a,i,j,k] = real( -λd[3*q-2+a-1] * conj(d[3*q-2+a-1]) )
+        end
+        for a2=1:2 # loop over first off diagonal
+            ei_field[a2,a2+1,i,j,k] = real( -conj(λd[3*q-2+a2]) * d[3*q-2+a2-1] - λd[3*q-2+a2-1] * conj(d[3*q-2+a2]) )
+            ei_field[a2+1,a2,i,j,k] = ei_field[a2,a2+1,i,j,k]  # D1[3*q-2]
+        end
+        # a = 1, set 1,3 and 3,1, second off-diagonal
+        ei_field[1,3,i,j,k] = real( -conj(λd[3*q]) * d[3*q-2] - λd[3*q-2] * conj(d[3*q]) )
+        ei_field[3,1,i,j,k] =  ei_field[1,3,i,j,k]
+    end
+    return ei_field
+end
+
+##
+
+eid_ref, eid_ref_pb = Zygote.pullback(x->ei_dot_rwg(x;Δx,Δy,Δz,Nx,Ny,Nz),p)
+eīd_eigs = -λd * d'
+eīd_eigs_herm = Zygote._hermitian_back(eīd_eigs,eid_ref.uplo)
+@show p̄_eid_eigs_ref = eid_ref_pb(eīd_eigs_herm)[1]
+
+@show p̄_eid_eigs_OM
+eīd_eigs_OM1 = ei_f2m1(eī_eigs_OM,Nx,Ny,Nz)
+eīd_eigs_OM2 = ei_f2m2(eī_eigs_OM,Nx,Ny,Nz)
+eīd_eigs_OM3 = Zygote._hermitian_back(ei_f2m1(eī_eigs_OM,Nx,Ny,Nz),eid_ref.uplo)
+eīd_eigs_OM4 = Zygote._hermitian_back(ei_f2m2(eī_eigs_OM,Nx,Ny,Nz),eid_ref.uplo)
+@show p̄_eid_eigs_OM1 = eid_ref_pb(eīd_eigs_OM1)[1]
+@show p̄_eid_eigs_OM2 = eid_ref_pb(eīd_eigs_OM2)[1]
+@show p̄_eid_eigs_OM3 = eid_ref_pb(eīd_eigs_OM3)[1]
+@show p̄_eid_eigs_OM4 = eid_ref_pb(eīd_eigs_OM4)[1]
+
+##
+xlim=(320,520)
+dind = 1
+plt = plot(real(diag(eīd_eigs_herm,dind)),label="ref_r",lw=3,alpha=0.5,xlim=xlim)
+# plot!(imag(diag(eīd_eigs_herm,dind)),label="ref_i",lw=3,alpha=0.5,) #,xlim=xlim)
+plot!(real(diag(eīd_eigs_OM4,dind)),label="OM4_r",ls=:dash)
+# plot!(imag(diag(eīd_eigs_OM4,dind)),label="OM4_i",ls=:dash)
+plot!(real(diag(eīd_eigs_OM2,dind)),label="OM2_r",ls=:dash)
+# plot!(imag(diag(eīd_eigs_OM2,dind)),label="OM2_i",ls=:dash)
+
+##
+eīd_eigs_OM = ei_field2matrix(eīd_eigs,Nx,Ny,Nz)
+eīd_eigs_OM_herm = Zygote._hermitian_back(eīd_eigs_OM,eīd_eigs_OM.uplo)
+@show p̄_eid_eigs2 = eid_ref_pb(eīd_eigs_OM)[1]
+@show p̄_eid_eigs3 = eid_ref_pb(eīd_eigs_OM_herm)[1]
+eīd_eigs_OM ≈ eīd_eigs_herm
+@show diag(eīd_eigs_OM,0)./diag(eīd_eigs_herm,0)
+@show diag(eīd_eigs_OM,1)./diag(eīd_eigs_herm,1)
+@show diag(eīd_eigs_OM,-1)./diag(eīd_eigs_herm,-1)
+eīd_eigs ≈ eī_eigs_herm
+
+##
+ng_OM_pb(1)
 
 ##
 using Revise
