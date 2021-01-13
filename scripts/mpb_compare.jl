@@ -3,8 +3,8 @@ using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, 
 # pyplot()
 # pygui()
 SHM3 = SHermitianCompact{3,Float64,6}
-mp = pyimport("meep")
-mpb = pyimport("meep.mpb")
+# mp = pyimport("meep")
+# mpb = pyimport("meep.mpb")
 
 """
 ################################################################################
