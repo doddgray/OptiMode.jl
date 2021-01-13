@@ -1,4 +1,4 @@
-using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, Plots      #, GLMakie, AbstractPlotting,
+using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, Plots, ChainRules, Zygote      #, GLMakie, AbstractPlotting,
  #FFTW, BenchmarkTools, LinearMaps, IterativeSolvers, Roots, GeometryPrimitives
 # pyplot()
 # pygui()
@@ -123,9 +123,19 @@ p_def = [
     1.55,               #   wavelength              `λ`             [μm]
     1.7,                #   top ridge width         `w_top`         [μm]
     0.7,                #   ridge thickness         `t_core`        [μm]
-    π / 14.0,              #   ridge sidewall angle    `θ`             [radian]
+    π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
     2.4,                #   core index              `n_core`        [1]
     1.4,                #   substrate index         `n_subs`        [1]
+]
+
+pω_def = [
+    1.45,               #   propagation constant    `kz`            [μm⁻¹]
+    1.7,                #   top ridge width         `w_top`         [μm]
+    0.7,                #   ridge thickness         `t_core`        [μm]
+    π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+    2.4,                #   core index              `n_core`        [1]
+    1.4,                #   substrate index         `n_subs`        [1]
+    0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
 ]
 
 """
@@ -175,7 +185,6 @@ function ms_rwg_mpb(
         center = mp.Vector3(0, c_subs_y, 0),
         material = mp.Medium(index = n_subs),
     )
-
     ms = mpb.ModeSolver(
         geometry_lattice = lat,
         geometry = [core, subs],
@@ -489,6 +498,21 @@ end
 """
 OptiMode functions for ridge waveguide data
 """
+function nngω_rwg_OM(p::Vector{Float64} = pω_def;
+                    Δx = 6.0,
+                    Δy = 4.0,
+                    Δz = 1.0,
+                    Nx = 128, #16,
+                    Ny = 128, #16,
+                    Nz = 1,
+                    band_idx = 1,
+                    tol = 1e-8)
+                    # kz, w, t_core, θ, n_core, n_subs, edge_gap = p
+                    # nng_tuple = solve_nω(kz,ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    nng_tuple = solve_nω(p[1],ridge_wg(p[2],p[3],p[4],p[7],p[5],p[6],Δx,Δy),Δx,Δy,Δz,Nx,Ny,Nz;tol)
+                    [nng_tuple[1],nng_tuple[2]]
+end
+
 function nng_rwg_OM(p = p_def;
                     Δx = 6.0,
                     Δy = 4.0,
@@ -546,6 +570,22 @@ function ε⁻¹_rwg_OM(p = p_def;
                     )
 end
 
+∇nngω_rwg_OM_FD(
+    p;
+    Δx = 6.0,
+    Δy = 4.0,
+    Δz = 1.0,
+    Nx = 128,
+    Ny = 128,
+    Nz = 1,
+    edge_gap = 0.5,
+    band_idx = 1,
+    tol = 1e-8,
+    nFD = 3) = FiniteDifferences.jacobian(
+    central_fdm(nFD, 1),
+    x -> nngω_rwg_OM(x; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap, band_idx, tol),
+    p,)[1]
+
 ∇nng_rwg_OM_FD(
     p;
     Δx = 6.0,
@@ -562,6 +602,37 @@ end
     x -> nng_rwg_OM(x; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap, band_idx, tol),
     p,)[1]
 
+wtω_rwg_OM(wt; NN = 128, bi = 1, tol = 1e-8) = nngω_rwg_OM(
+    [pω_def[1], wt[1], wt[2], pω_def[4:7]...];
+    Nx = NN,
+    Ny = NN,
+    band_idx = bi,
+    tol,
+)
+∇wtω_rwg_OM_FD(wt; NN = 128, bi = 1, tol = 1e-8, nFD = 3) =
+    FiniteDifferences.jacobian(central_fdm(nFD, 1), x -> wtω_rwg_OM(x; NN, bi, tol), wt)[1]
+
+
+
+function wtω_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
+    nw = length(ws)
+    nt = length(ts)
+    nN = length(Ns)
+    nng_OM = zeros(Float64, (2, nw, nt, nN))
+    ∇nng_OM_FD = zeros(Float64, (2, 2, nw, nt, nN))
+    ∇nng_OM_AD = zeros(Float64, (2, 2, nw, nt, nN))
+    for wind = 1:nw, tind = 1:nt, Nind = 1:nN
+        wt = [ws[wind], ts[tind]]
+        nng,nng_pb = Zygote.pullback(x -> wtω_rwg_OM(x; NN = Ns[Nind], bi, tol), wt)
+        nng_OM[:, wind, tind, Nind] = nng
+        @views ∇nng_OM_AD[:,:,wind,tind,Nind] .= [ real(nng_pb([1.,0.])[1])'    # = [   ∂n/∂w   ∂n/∂t
+                                                   real(nng_pb([0.,1.])[1])' ]  #       ∂ng/∂w  ∂ng/∂t  ]
+        @views ∇nng_OM_FD[:, :, wind, tind, Nind] .=
+            ∇wtω_rwg_OM_FD([ws[wind], ts[tind]]; NN = Ns[Nind], bi, tol)
+    end
+    return nng_OM, ∇nng_OM_AD, ∇nng_OM_FD
+end
+
 wt_rwg_OM(wt; NN = 128, bi = 1, tol = 1e-8) = nng_rwg_OM(
     [p_def[1], wt[1], wt[2], p_def[4:6]...];
     Nx = NN,
@@ -569,7 +640,7 @@ wt_rwg_OM(wt; NN = 128, bi = 1, tol = 1e-8) = nng_rwg_OM(
     band_idx = bi,
     tol,
 )
-∇wt_rwg_OM_FD(wt; NN = 128, bi = 1, tol = 1e-8, nFD = 2) =
+∇wt_rwg_OM_FD(wt; NN = 128, bi = 1, tol = 1e-8, nFD = 3) =
     FiniteDifferences.jacobian(central_fdm(nFD, 1), x -> wt_rwg_OM(x; NN, bi, tol), wt)[1]
 
 function wt_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
@@ -591,6 +662,9 @@ end
 @assert size(ε_rwg_mpb(p_def)) == size(ε_rwg_OM(p_def))
 @assert size(ε⁻¹_rwg_mpb(p_def)) == size(ε⁻¹_rwg_OM(p_def))
 
+# ∇wtω_rwg_OM_FD([1.5, 0.7]; NN = 64, bi = 1, tol = 1e-8, nFD = 3)
+nng_OM, ∇nng_OM_AD, ∇nng_OM_FD = wtω_rwg_OM_sweep(1.3:0.2:1.7, .5:0.2:.7, 2 .^(5:7); bi = 1, tol = 1e-8)
+∇nng_err_OM = abs.(∇nng_OM_FD .- ∇nng_OM_AD) ./ abs.(∇nng_OM_FD)
 ##
 function compare_ε11_rwg(p=p_def;
     Δx = 6.0,
