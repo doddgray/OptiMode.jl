@@ -1,4 +1,4 @@
-using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, Plots, ChainRules, Zygote      #, GLMakie, AbstractPlotting,
+using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, Plots, ChainRules, Zygote, Plots, HDF5, Dates  #, GLMakie, AbstractPlotting,
  #FFTW, BenchmarkTools, LinearMaps, IterativeSolvers, Roots, GeometryPrimitives
 # pyplot()
 # pygui()
@@ -14,6 +14,46 @@ mpb = pyimport("meep.mpb")
 #																			   #
 ################################################################################
 """
+
+
+function write_sweep(sw_name;
+                    data_dir="/home/dodd/data/OptiMode/grad_ng_p_rwg_dense/",
+                    dt_fmt=dateformat"Y-m-d--H-M-S",
+                    extension=".h5",
+                    kwargs...)
+    timestamp = Dates.format(now(),dt_fmt)
+    fname = sw_name * "_" *  timestamp * extension
+    @show fpath = data_dir * fname
+    h5open(fpath, "cw") do file
+        for (data_name,data) in kwargs
+            write(file, string(data_name), data)
+        end
+    end
+    return fpath
+end
+
+function read_sweep(sw_name;
+                    data_dir="/home/dodd/data/OptiMode/grad_ng_p_rwg_dense/",
+                    dt_fmt=dateformat"Y-m-d--H-M-S",
+                    extension=".h5",
+                    sw_keys=["ws","ts","p0","p̄_AD","p̄_FD","p̄_SJ"]
+                    )
+    # choose most recently timestamped file matching sw_name tag and extension
+    fname = sort(  filter(x->(prod(split(x,"_")[begin:end-1])==prod(split(sw_name,"_"))),
+                        readdir(data_dir));
+                by=file->DateTime(split(file[begin:end-length(extension)],"_")[end],dt_fmt)
+            )[end]
+    @show fpath = data_dir * fname
+    ds_data = h5open(fpath, "r") do file
+        @show ds_keys = keys(file)
+        ds_data = Dict([k=>read(file,k) for k in sw_keys]...)
+    end
+    return ds_data
+end
+
+# Generic data collection/loading fn use examples:
+# fpath_test = write_sweep("wt";ws,ts,p0,p̄_AD,p̄_FD,p̄_SJ)
+# ds_test = read_sweep("wt")
 
 function get_Δs_mpb(ms)
     Δx, Δy, Δz = [(Δ == 0.0 ? 1.0 : Δ) for Δ in ms.geometry_lattice.size.__array__()]
@@ -104,7 +144,6 @@ function ε_slices(
     ]
     plot(p_diag, p_offdiag, layout = l, size = size)
 end
-
 
 """
 ################################################################################
@@ -612,9 +651,16 @@ wtω_rwg_OM(wt; NN = 128, bi = 1, tol = 1e-8) = nngω_rwg_OM(
 ∇wtω_rwg_OM_FD(wt; NN = 128, bi = 1, tol = 1e-8, nFD = 3) =
     FiniteDifferences.jacobian(central_fdm(nFD, 1), x -> wtω_rwg_OM(x; NN, bi, tol), wt)[1]
 
-
-
-function wtω_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
+function wtω_rwg_OM_sweep(sw_name, ws, ts, Ns;
+    bi = 1,
+    tol = 1e-8,
+    data_dir="/home/dodd/data/OptiMode/mpb_compare_rwg/",
+    dt_fmt=dateformat"Y-m-d--H-M-S",
+    extension=".h5",
+    )
+    timestamp = Dates.format(now(),dt_fmt)
+    fname = sw_name * "_" *  timestamp * extension
+    @show fpath = data_dir * fname
     nw = length(ws)
     nt = length(ts)
     nN = length(Ns)
@@ -622,6 +668,7 @@ function wtω_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
     ∇nng_OM_FD = zeros(Float64, (2, 2, nw, nt, nN))
     ∇nng_OM_AD = zeros(Float64, (2, 2, nw, nt, nN))
     for wind = 1:nw, tind = 1:nt, Nind = 1:nN
+        println("wind: $wind of $nw,  tind: $tind of $nt,  Nind: $Nind of $nN")
         wt = [ws[wind], ts[tind]]
         nng,nng_pb = Zygote.pullback(x -> wtω_rwg_OM(x; NN = Ns[Nind], bi, tol), wt)
         nng_OM[:, wind, tind, Nind] = nng
@@ -629,6 +676,16 @@ function wtω_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
                                                    real(nng_pb([0.,1.])[1])' ]  #       ∂ng/∂w  ∂ng/∂t  ]
         @views ∇nng_OM_FD[:, :, wind, tind, Nind] .=
             ∇wtω_rwg_OM_FD([ws[wind], ts[tind]]; NN = Ns[Nind], bi, tol)
+        h5open(fpath, "w") do file
+            @write file nng_OM
+            @write file ws
+            @write file ts
+            @write file Ns
+            @write file tol
+            write(file, "band_index", bi)
+            write(file, "grad_nng_OM_FD", ∇nng_OM_FD)
+            write(file, "grad_nng_OM_AD", ∇nng_OM_AD)
+        end
     end
     return nng_OM, ∇nng_OM_AD, ∇nng_OM_FD
 end
@@ -659,12 +716,12 @@ function wt_rwg_OM_sweep(ws, ts, Ns; bi = 1, tol = 1e-8)
 end
 
 ##
-@assert size(ε_rwg_mpb(p_def)) == size(ε_rwg_OM(p_def))
-@assert size(ε⁻¹_rwg_mpb(p_def)) == size(ε⁻¹_rwg_OM(p_def))
+# @assert size(ε_rwg_mpb(p_def)) == size(ε_rwg_OM(p_def))
+# @assert size(ε⁻¹_rwg_mpb(p_def)) == size(ε⁻¹_rwg_OM(p_def))
 
 # ∇wtω_rwg_OM_FD([1.5, 0.7]; NN = 64, bi = 1, tol = 1e-8, nFD = 3)
-nng_OM, ∇nng_OM_AD, ∇nng_OM_FD = wtω_rwg_OM_sweep(1.3:0.2:1.7, .5:0.2:.7, 2 .^(5:7); bi = 1, tol = 1e-8)
-∇nng_err_OM = abs.(∇nng_OM_FD .- ∇nng_OM_AD) ./ abs.(∇nng_OM_FD)
+# nng_OM, ∇nng_OM_AD, ∇nng_OM_FD = wtω_rwg_OM_sweep(1.3:0.2:1.7, .5:0.2:.7, 2 .^(5:7); bi = 1, tol = 1e-8)
+# ∇nng_err_OM = abs.(∇nng_OM_FD .- ∇nng_OM_AD) ./ abs.(∇nng_OM_FD)
 ##
 function compare_ε11_rwg(p=p_def;
     Δx = 6.0,
@@ -698,59 +755,57 @@ function compare_ε11_rwg(p=p_def;
     l = @layout[  a  b  ]
     plot(hm_eps11_mpb,hm_eps11_OM,layout=l)
 end
-compare_ε11_rwg(p_def)
+# compare_ε11_rwg(p_def)
 ##
-
-
 # Ns = Int.(ceil.(2 .^ collect(6:0.5:9)))
-Ns = Int.(ceil.(2 .^ collect(4.4:0.02:8)))
-x_slices_N, ε_xslices_N = ε_rwg_xslices_N(Ns, [
-    1.55,               #   wavelength              `λ`             [μm]
-    1.7,                #   top ridge width         `w_top`         [μm]
-    0.7,                #   ridge thickness         `t_core`        [μm]
-    π / 10.0,              #   ridge sidewall angle    `θ`             [radian]
-    2.4,                #   core index              `n_core`        [1]
-    1.4,                #   substrate index         `n_subs`        [1]
-])
-# Makie.surface(x_slices[75:105],(.01 .* Ns),ε_xslices[1,1,75:105,:])
-ixmin, ixmax = 80, 102
-sN11 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 1, ixmin:ixmax, :])
-sN22 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[2, 2, ixmin:ixmax, :])
-sN12 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 2, ixmin:ixmax, :])
-sN13 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 3, ixmin:ixmax, :])
-sN23 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[2, 3, ixmin:ixmax, :])
+# Ns = Int.(ceil.(2 .^ collect(4.4:0.02:8)))
+# x_slices_N, ε_xslices_N = ε_rwg_xslices_N(Ns, [
+#     1.55,               #   wavelength              `λ`             [μm]
+#     1.7,                #   top ridge width         `w_top`         [μm]
+#     0.7,                #   ridge thickness         `t_core`        [μm]
+#     π / 10.0,              #   ridge sidewall angle    `θ`             [radian]
+#     2.4,                #   core index              `n_core`        [1]
+#     1.4,                #   substrate index         `n_subs`        [1]
+# ])
+# # Makie.surface(x_slices[75:105],(.01 .* Ns),ε_xslices[1,1,75:105,:])
+# ixmin, ixmax = 80, 102
+# sN11 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 1, ixmin:ixmax, :])
+# sN22 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[2, 2, ixmin:ixmax, :])
+# sN12 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 2, ixmin:ixmax, :])
+# sN13 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[1, 3, ixmin:ixmax, :])
+# sN23 = Plots.surface(Ns, x_slices_N[ixmin:ixmax], ε_xslices_N[2, 3, ixmin:ixmax, :])
+#
+# ws = collect(1.0:0.005:1.2)
+# x_slices_w, ε_xslices_w = ε_rwg_xslices_w(ws)
+# #ixmin, ixmax = 97, 113 #50,56
+# ixmin, ixmax = 1, 256
+# # sw11 = Plots.surface(Ns,x_slices_w,ε_xslices_w[1,1,:,:])
+# sw11 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 1, ixmin:ixmax, :])
+# sw22 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[2, 2, ixmin:ixmax, :])
+# sw33 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[3, 3, ixmin:ixmax, :])
+# sw12 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 2, ixmin:ixmax, :])
+# sw13 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 3, ixmin:ixmax, :])
+# sw23 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[2, 3, ixmin:ixmax, :])
 
-ws = collect(1.0:0.005:1.2)
-x_slices_w, ε_xslices_w = ε_rwg_xslices_w(ws)
-#ixmin, ixmax = 97, 113 #50,56
-ixmin, ixmax = 1, 256
-# sw11 = Plots.surface(Ns,x_slices_w,ε_xslices_w[1,1,:,:])
-sw11 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 1, ixmin:ixmax, :])
-sw22 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[2, 2, ixmin:ixmax, :])
-sw33 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[3, 3, ixmin:ixmax, :])
-sw12 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 2, ixmin:ixmax, :])
-sw13 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[1, 3, ixmin:ixmax, :])
-sw23 = Plots.surface(ws, x_slices_w[ixmin:ixmax], ε_xslices_w[2, 3, ixmin:ixmax, :])
-
-
-
-using Plots
-pyplot()
-pygui()
-p_xslices = ε_rwg_xslices_N(Ns, p_def, xlims = (-1.1, -0.8))
-
-p_slices64 = ε_slices(ms_rwg_mpb(p_def; Nx = 64, Ny = 64), xlims = (-1.1, -0.8), yind = 32)
-p_slices128 =
-    ε_slices(ms_rwg_mpb(p_def; Nx = 128, Ny = 128), xlims = (-1.1, -0.8), yind = 64)
-p_slices256 =
-    ε_slices(ms_rwg_mpb(p_def; Nx = 256, Ny = 256), xlims = (-1.1, -0.8), yind = 128)
-
-p_slices256.subplots[1]
-
-nng_rwg_mpb(p_def)
-∇nng_rwg_mpb_FD(p_def)
-wt_rwg_mpb([1.0, 0.7]; NN = 64, bi = 1, tol = 1e-5)
-grad_nng = ∇wt_rwg_mpb_FD([1.0, 0.7]; NN = 64, bi = 1, tol = 1e-5)
+#
+#
+# using Plots
+# pyplot()
+# pygui()
+# p_xslices = ε_rwg_xslices_N(Ns, p_def, xlims = (-1.1, -0.8))
+#
+# p_slices64 = ε_slices(ms_rwg_mpb(p_def; Nx = 64, Ny = 64), xlims = (-1.1, -0.8), yind = 32)
+# p_slices128 =
+#     ε_slices(ms_rwg_mpb(p_def; Nx = 128, Ny = 128), xlims = (-1.1, -0.8), yind = 64)
+# p_slices256 =
+#     ε_slices(ms_rwg_mpb(p_def; Nx = 256, Ny = 256), xlims = (-1.1, -0.8), yind = 128)
+#
+# p_slices256.subplots[1]
+#
+# nng_rwg_mpb(p_def)
+# ∇nng_rwg_mpb_FD(p_def)
+# wt_rwg_mpb([1.0, 0.7]; NN = 64, bi = 1, tol = 1e-5)
+# grad_nng = ∇wt_rwg_mpb_FD([1.0, 0.7]; NN = 64, bi = 1, tol = 1e-5)
 
 
 # function wt_rwg_sweep(ws,ts,Ns;bi=1,tol=1e-5,name="rwg_ng_bm_N",path="/home/dodd/github/OptiMode/test/")
