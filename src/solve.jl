@@ -1,5 +1,5 @@
 using  IterativeSolvers, Roots # , KrylovKit
-export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², make_εₛ⁻¹, make_MG
+export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², make_εₛ⁻¹, make_MG, make_MD
 
 
 """
@@ -47,9 +47,9 @@ function solve_ω²(kz::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigi
     H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
     ds.ω² =  real(res.λ[eigind])                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3]
 	ds.H⃗ .= H
-	ds.ω = sqrt(ds.ω²)
+	ds.ω = ( ds.ω² > 0. ? sqrt(ds.ω²) : 0. )
     # ds.ω²ₖ = 2 * H_Mₖ_H(Ha,ε⁻¹,kpg_mn,kpg_mag,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
-    return (H, ds.ω²) #, ωₖ
+    return (H, ds.ω^2) #(H, ds.ω²) #, ωₖ
 end
 # @btime: solve_ω²(1.5,$ε⁻¹_mpb;ds=$ds)
 # 536.372 ms (17591 allocations: 125.75 MiB)
@@ -266,9 +266,12 @@ function solve_n(ω::Array{<:Real},ε⁻¹::Array{<:Real,5},Δx::T,Δy::T,Δz::T
 	( k ./ ω, [ ω[i] / H_Mₖ_H(H[i],ε⁻¹,calc_kpg(k[i],Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...)...) for i=1:length(ω) ] ) # = (n, ng)
 end
 
-function solve_n(ω::Number,ε⁻¹,Δx,Δy,Δz;eigind=1,maxiter=3000,tol=1e-8)
+function solve_n(ω,ε⁻¹,Δx,Δy,Δz;eigind=1,maxiter=3000,tol=1e-8)
+	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)
 	H,kz = solve_k(ω, ε⁻¹,Δx,Δy,Δz)
-	ng = ω / H_Mₖ_H(H,ε⁻¹,calc_kpg(kz,Δx,Δy,Δz,size(ε⁻¹)[end-2:end])...;eigind,maxiter,tol)
+	Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
+	ng = ω / H_Mₖ_H(H,ε⁻¹,calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz);eigind,maxiter,tol)
+	ng = ω / H_Mₖ_H(H,ε⁻¹,kpg_mag,kpg_mn)
 	( kz/ω, ng )
 end
 

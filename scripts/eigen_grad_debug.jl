@@ -244,33 +244,6 @@ function M_components(p = p0;
     return ( kcr_c2t, 𝓕⁻¹, eeii, 𝓕, kcr_t2c )
 end
 
-function make_M_old(p = p0;
-                    Δx = 6.0,
-                    Δy = 4.0,
-                    Δz = 1.0,
-                    Nx = 16,
-                    Ny = 16,
-                    Nz = 1)
-    kz, w, t_core, θ, n_core, n_subs, edge_gap = p
-    mag, mn = calc_kpg(kz, Δx, Δy, Δz, Nx, Ny, Nz)
-    kcr_t2c = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_t2c( reshape(H,(2,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),*(2,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕 = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    𝓕⁻¹ = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(ifft(reshape(d,(3,Nx,Ny,Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    kcr_c2t = Zygote.ignore() do
-        Matrix(LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> vec( kx_c2t( reshape(H,(3,Nx,Ny,Nz)), mn, mag ) )::AbstractArray{ComplexF64,1},*(2,Nx,Ny,Nz),*(3,Nx,Ny,Nz),ishermitian=false,ismutating=false))
-    end
-    eeii = ei_dot_rwg(p;Δx,Δy,Δz,Nx,Ny,Nz)
-    M = -kcr_c2t * 𝓕⁻¹ * eeii * 𝓕 * kcr_t2c
-    # @assert M' ≈ M
-    return Hermitian(M)
-end
-
 function make_M(p = p0;
                     Δx = 6.0,
                     Δy = 4.0,
@@ -609,12 +582,6 @@ make_Mₖ(p0) ≈ -dMdk
 
 𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
 𝓕⁻¹ = plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
-Mop2 = M̂(ei,mn,mag,𝓕,𝓕⁻¹)
-M2 = Matrix(Mop2)
-M2 ≈ M
-
-
-3
 
 ##
 # M̂(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) = LinearMap{ComplexF64}(H::AbstractArray{ComplexF64,1} -> M(H,ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)::AbstractArray{ComplexF64,1},*(2,size(ε⁻¹)[end-2:end]...),ishermitian=true,ismutating=false)
