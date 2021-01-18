@@ -267,11 +267,11 @@ function solve_n(ω::Array{<:Real},ε⁻¹::Array{<:Real,5},Δx::T,Δy::T,Δz::T
 end
 
 function solve_n(ω,ε⁻¹,Δx,Δy,Δz;eigind=1,maxiter=3000,tol=1e-8)
+	Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
 	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)
 	H,kz = solve_k(ω, ε⁻¹,Δx,Δy,Δz)
-	Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
-	ng = ω / H_Mₖ_H(H,ε⁻¹,calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz);eigind,maxiter,tol)
-	ng = ω / H_Mₖ_H(H,ε⁻¹,kpg_mag,kpg_mn)
+	mag, mn = calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz)
+	ng = ω / H_Mₖ_H(H,ε⁻¹,mag,mn)
 	( kz/ω, ng )
 end
 
