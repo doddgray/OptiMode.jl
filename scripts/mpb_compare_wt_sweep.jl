@@ -1,8 +1,8 @@
 include("mpb_compare.jl")
 
 ## configure swept-parameter data collection
-ws = collect(0.8:0.1:1.7)
-ts = collect(0.5:0.1:1.3)
+ws = collect(0.8:0.05:1.7)
+ts = collect(0.5:0.05:1.3)
 Ns = Int.(ceil.(2 .^ collect(5:0.5:8)))
 @show sw_name = "wt_OM"
 
@@ -22,7 +22,7 @@ Ns = Int.(ceil.(2 .^ collect(5:0.5:8)))
 nng_OM, ∇nng_OM_AD, ∇nng_OM_FD = wtω_rwg_OM_sweep(sw_name, ws, ts, Ns;
     bi = 1,
     tol = 1e-8,
-    data_dir= "/home/gridsan/dodd/data/OptiMode/mpb_compare_rwg/", # "/home/dodd/data/OptiMode/mpb_compare_rwg/",
+    data_dir= "/home/dodd/data/OptiMode/mpb_compare_rwg/", #"/home/gridsan/dodd/data/OptiMode/mpb_compare_rwg/", #
     dt_fmt=dateformat"Y-m-d--H-M-S",
     extension=".h5",
     )

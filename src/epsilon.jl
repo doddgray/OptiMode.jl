@@ -1,6 +1,6 @@
-export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ, surfpt_nearby2
+export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ, surfpt_nearby2, make_εₛ⁻¹, make_KDTree
 
-using Zygote: dropgrad
+using Zygote: dropgrad, Buffer, @ignore
 
 εᵥ = [	1. 	0. 	0.
                 0. 	1. 	0.
@@ -259,3 +259,20 @@ end
 
 ñₘₐₓ(ε⁻¹)::Float64 = √(maximum(3 ./ tr.(ε⁻¹)))
 nₘₐₓ(ε)::Float64 = √(maximum(reinterpret(Float64,ε)))
+
+
+make_KDTree(shapes::Vector{<:Shape}) = (tree = @ignore (KDTree(shapes)); tree)::KDTree
+
+function make_εₛ⁻¹(shapes::Vector{<:Shape};Δx::T,Δy::T,Δz::T,Nx::Int,Ny::Int,Nz::Int,
+	 	δx::T=Δx/Nx, δy::T=Δy/Ny, δz::T=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
+		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where T<:Real
+    tree = make_KDTree(shapes)
+    eibuf = Buffer(Array{T}(undef),3,3,Nx,Ny,Nz)
+    for i=1:Nx,j=1:Ny,kk=1:Nz
+		# eps = εₛ(shapes,Zygote.dropgrad(tree),Zygote.dropgrad(g.x[i]),Zygote.dropgrad(g.y[j]),Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy))
+		eps = εₛ(shapes,tree,x[i],y[j],δx,δy)
+		epsi = inv(eps) # inv( (eps' + eps) / 2) # Hermitian(inv(eps))  # inv(Hermitian(eps)) #   # inv(eps)
+        eibuf[:,:,i,j,kk] = epsi #(epsi' + epsi) / 2
+    end
+    return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},T,5,5,Array{T,5}}( real(copy(eibuf)) )
+end

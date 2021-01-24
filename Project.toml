@@ -4,6 +4,7 @@ authors = ["Dodd Gray"]
 version = "0.1.0"
 
 [deps]
+AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
 ArrayInterface = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 ChainRules = "082447d4-558c-5d27-93f4-14fc19e9eca2"
@@ -14,6 +15,7 @@ FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+HybridArrays = "1baab800-613f-4b0a-84e4-9cd3431bfbb9"
 IterTools = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
 IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

@@ -9,10 +9,11 @@
 module OptiMode
 
 ## Imports ##
+using LinearAlgebra, LinearMaps, ArrayInterface, StaticArrays, HybridArrays, StructArrays, FFTW, AbstractFFTs, GeometryPrimitives, Roots, ChainRules, Zygote, ForwardDiff, LoopVectorization, Tullio, IterativeSolvers
+using StaticArrays: Dynamic, SVector
+using Zygote: Buffer, bufferfrom, @ignore, dropgrad
 using Plots: plot, heatmap, plot!, heatmap!
 # using MaxwellFDM: kottke_avg_param
-using LinearAlgebra, FFTW, LinearMaps, ArrayInterface, StaticArrays, StructArrays, GeometryPrimitives, Roots, ChainRulesCore, Zygote, ForwardDiff, LoopVectorization, Tullio
-
 ## Exports ##
 export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3
 
