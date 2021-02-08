@@ -17,7 +17,8 @@ using Plots: plot, heatmap, plot!, heatmap!
 ## Exports ##
 export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3
 
-
+# FFTW settings
+FFTW.set_num_threads(4)     # chosen for thread safety when combined with other parallel code, consider increasing
 
 ## Abbreviations, aliases, etc. ##
 SHM3 = SHermitianCompact{3,Float64,6}   # static Hermitian 3×3 matrix Type, renamed for brevity

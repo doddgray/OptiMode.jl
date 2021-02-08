@@ -1,14 +1,6 @@
 using Zygote: @adjoint, Numeric, literal_getproperty, accum
+using ChainRules: Thunk, @non_differentiable
 export sum2, jacobian
-
-# @adjoint (T::Type{<:SArray})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
-# @adjoint (T::Type{<:SArray})(x::AbstractArray) = T(x), dv -> (nothing, dv)
-# @adjoint (T::Type{<:SMatrix})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
-# @adjoint (T::Type{<:SMatrix})(x::AbstractMatrix) = T(x), dv -> (nothing, dv)
-# @adjoint (T::Type{<:SVector})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
-# @adjoint (T::Type{<:SVector})(x::AbstractVector) = T(x), dv -> (nothing, dv)
-# @adjoint (T::Type{<:HybridArray})(x::AbstractArray) = T(x), dv -> (nothing, dv)
-#
 
 # AD rules for array Constructors
 ChainRulesCore.rrule(T::Type{<:SArray}, xs::Number...) = ( T(xs...), dv -> (nothing, dv...) )
@@ -26,6 +18,84 @@ end
 function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{<:SVector{N1,T1}},A::AbstractArray{T1}) where {T1,N1}
 	return ( reinterpret(reshape,type,A), Δ->( NO_FIELDS, ChainRulesCore.Zero(), ChainRulesCore.Zero(), reinterpret( reshape, eltype(A), Δ ) ) )
 end
+
+# AD rules for fast norms of types SVector{2,T} and SVector{2,3}
+
+function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Real
+    ∂x = Vector{T}(undef,2)
+    ∂x .= x .* (real(Δy) * pinv(y))
+    return reinterpret(SVector{2,T},∂x)[1]
+end
+
+function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Real
+    ∂x = Vector{T}(undef,3)
+    ∂x .= x .* (real(Δy) * pinv(y))
+    return reinterpret(SVector{3,T},∂x)[1]
+end
+
+function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Complex
+    ∂x = Vector{T}(undef,2)
+    ∂x .= conj.(x) .* (real(Δy) * pinv(y))
+    return reinterpret(SVector{2,T},∂x)[1]
+end
+
+function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Complex
+    ∂x = Vector{T}(undef,3)
+    ∂x .= conj.(x) .* (real(Δy) * pinv(y))
+    return reinterpret(SVector{3,T},∂x)[1]
+end
+
+function ChainRulesCore.rrule(::typeof(norm), x::SVector{3,T}) where T<:Real
+	y = LinearAlgebra.norm(x)
+	function norm_pb(Δy)
+		∂x = Thunk() do
+			_norm2_back_SV3r(x, y, Δy)
+		end
+		return ( NO_FIELDS, ∂x )
+	end
+	norm_pb(::Zero) = (NO_FIELDS, Zero())
+    return y, norm_pb
+end
+
+function ChainRulesCore.rrule(::typeof(norm), x::SVector{2,T}) where T<:Real
+	y = LinearAlgebra.norm(x)
+	function norm_pb(Δy)
+		∂x = Thunk() do
+			_norm2_back_SV2r(x, y, Δy)
+		end
+		return ( NO_FIELDS, ∂x )
+	end
+	norm_pb(::Zero) = (NO_FIELDS, Zero())
+    return y, norm_pb
+end
+
+function ChainRulesCore.rrule(::typeof(norm), x::SVector{3,T}) where T<:Complex
+	y = LinearAlgebra.norm(x)
+	function norm_pb(Δy)
+		∂x = Thunk() do
+			_norm2_back_SV3c(x, y, Δy)
+		end
+		return ( NO_FIELDS, ∂x )
+	end
+	norm_pb(::Zero) = (NO_FIELDS, Zero())
+    return y, norm_pb
+end
+
+function ChainRulesCore.rrule(::typeof(norm), x::SVector{2,T}) where T<:Complex
+	y = LinearAlgebra.norm(x)
+	function norm_pb(Δy)
+		∂x = Thunk() do
+			_norm2_back_SV2c(x, y, Δy)
+		end
+		return ( NO_FIELDS, ∂x )
+	end
+	norm_pb(::Zero) = (NO_FIELDS, Zero())
+    return y, norm_pb
+end
+
+
+
+@non_differentiable KDTree(::Any)
 
 # Examples of how to assert type stability for broadcasting custom types (see https://github.com/FluxML/Zygote.jl/issues/318 )
 # Base.similar(bc::Base.Broadcast.Broadcasted{Base.Broadcast.ArrayStyle{V}}, ::Type{T}) where {T<:Real, V<:Real3Vector} = Real3Vector(Vector{T}(undef,3))
@@ -87,39 +157,6 @@ function jacobian(f,x)
     end
     (J,)
 end
-
-# @adjoint function solve_k(ω::Number,ε⁻¹::AbstractArray)
-# 	Ω = solve_k(ω,ε⁻¹)
-# 	#H̄::AbstractArray, k̄::Number
-# 	Ω, Δ -> begin
-# 		H, kz = Ω
-# 		H̄, k̄ = Δ
-# 		# hacky handling of non-differentiated parameters for now
-# 		eigind = 1
-# 		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
-# 		gx = collect(fftfreq(Nx,Nx/6.0))
-# 		gy = collect(fftfreq(Ny,Ny/4.0))
-# 		gz = collect(fftfreq(Nz,Nz/1.0))
-# 		## end hacky parameter handling
-#
-# 		P = LinearMap(x -> H[:,eigind] * dot(H[:,eigind],x),length(H[:,eigind]),ishermitian=true)
-# 		A = M̂(ε⁻¹,kz,gx,gy,gz) - ω^2 * I
-# 		b = ( I  -  P ) * H̄[:,eigind]
-# 		λ⃗₀ = IterativeSolvers.bicgstabl(A,b,3)
-# 		ωₖ = real( ( H[:,eigind]' * Mₖ(H[:,eigind], ε⁻¹,kz,gx,gy,gz) )[1]) / ω # ds.ω²ₖ / ( 2 * ω )
-# 		# Hₖ =  ( I  -  P ) * * ( Mₖ(H[:,eigind], ε⁻¹,ds) / ω )
-# 		ω̄  =  ωₖ * real(k̄)
-# 		λ⃗₀ -= P*λ⃗₀ - ω̄  * H
-# 		Ha = reshape(H,(2,Nx,Ny,Nz))
-# 		Ha_F =  fft(kcross_t2c(Ha,kz,gx,gy,gz),(2:4))
-# 		λ₀ = reshape(λ⃗₀,(2,Nx,Ny,Nz))
-# 		λ₀_F  = fft(kcross_t2c(λ₀,kz,gx,gy,gz),(2:4))
-# 		# ε̄ ⁻¹ = ( 𝓕 * kcross_t2c(λ₀,ds) ) .* ( 𝓕 * kcross_t2c(Ha,ds) )
-# 		# ε⁻¹_bar = [ Diagonal( real.(λ₀_F[:,i,j,kk] .* Ha_F[:,i,j,kk]) ) for i=1:Nx,j=1:Ny,kk=1:Nz]
-# 		ε⁻¹_bar = [ Diagonal( real.(λ₀_F[:,i,j,kk] .* Ha_F[:,i,j,kk]) )[a,b] for a=1:3,b=1:3,i=1:Nx,j=1:Ny,kk=1:Nz]
-# 		return ω̄ , ε⁻¹_bar
-# 	end
-# end
 
 ### Zygote StructArrays rules from https://github.com/cossio/ZygoteStructArrays.jl
 @adjoint function (::Type{SA})(t::Tuple) where {SA<:StructArray}
@@ -207,118 +244,7 @@ end
 
 
 
-#### ChainRules
-
-# @non_differentiable MaxwellGrid(Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int)
-# @non_differentiable MaxwellData(kz::Real,g::MaxwellGrid)
-
-# function ChainRulesCore.rrule(::typeof(solve_k), ω::Number, ε⁻¹::Array{<:Union{Real,Complex}})
-# function ChainRulesCore.rrule(::typeof(solve_k), ω::Number, ε⁻¹::Array{Float64,5},Δx::Real,Δy::Real,Δz::Real;kguess=k_guess(ω,ε⁻¹),neigs=1,eigind=1,maxiter=3000,tol=1e-8,l=2)
-#     Ω = solve_k(ω,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
-#     function solve_k_pullback(ΔΩ) # ω̄ ₖ)
-#         H, kz = Ω
-# 		H̄, k̄ = ΔΩ
-# 		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
-# 		Ha = reshape(H,(2,Nx,Ny,Nz))
-# 		kpg_mag, mn = calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz)
-# 		ωₖ = H_Mₖ_H(Ha,ε⁻¹,kpg_mag,mn) / ω
-# 		ω̄  = k̄ / ωₖ  #  ωₖ * k̄
-# 		ω̄sq =  ω̄  / (2ω)
-# 		𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)))
-# 		𝓕⁻¹ = plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)))
-# 		if typeof(H̄)==ChainRulesCore.Zero
-# 			# return (NO_FIELDS, ω̄ , ChainRulesCore.Zero(),ChainRulesCore.Zero(),ChainRulesCore.Zero(),ChainRulesCore.Zero())
-# 			λ⃗ =  ω̄sq * H[:,eigind]  # ( ( 2 * k̄ / ωₖ ) * H )
-# 		else
-# 			H̄a = reshape(H̄,(2,Nx,Ny,Nz))
-# 			P = LinearMap(x -> H[:,eigind] * dot(H[:,eigind],x),length(H[:,eigind]),ishermitian=true)
-# 			A = M̂(ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹) - ω^2 * I
-# 			b = ( I  -  P ) * H̄[:,eigind]
-# 			λ⃗₀ = IterativeSolvers.bicgstabl(A,b,l)
-# 			λ⃗ = λ⃗₀ - ω̄sq * H[:,eigind]
-# 			λ⃗a = reshape(λ⃗,(2,Nx,Ny,Nz))
-# 			# ωₖ = real( ( H[:,eigind]' * Mₖ(H[:,eigind], ε⁻¹,kz,gx,gy,gz) )[1]) / ω # ds.ω²ₖ / ( 2 * ω )
-# 			# H̄_dot_Hₖ =  dot(H̄[:,eigind],( I  -  P ) * vec(Mₖ(Ha, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)))
-# 			# H̄_dot_Hₖ =  dot(( I  -  P ) * H̄[:,eigind], vec(Mₖ(Ha, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)))
-# 			# H̄_dot_Hₖ =  dot(H̄[:,eigind],vec(Mₖ(Ha, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)))
-# 			# H̄_dot_Hₖ =  dot(λ⃗₀,vec(Mₖ(Ha, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹))) / ω^2
-# 			# H̄_dot_Hₖ =  dot(H,vec(Mₖ(λ⃗₀a, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹))) /  ω #ωₖ
-# 			 # H̄_dot_Hₖ =  dot(λ⃗₀,vec(Mₖ(H̄a, ε⁻¹,mn,kpg_mag,𝓕,𝓕⁻¹)))
-# 			# ω̄  += H̄_dot_Hₖ
-# 			# ω̄  +=  ωₖ / H̄_dot_Hₖ
-# 			# λ⃗₀ -= P*λ⃗₀ - ( ( 2 * k̄ / ωₖ ) * H )
-# 		end
-# 		Ha_F = 𝓕 * kx_t2c(Ha,mn,kpg_mag) #fft(kcross_t2c(Ha,kz,gx,gy,gz),(2:4))
-# 		λ₀ = reshape(λ⃗₀,(2,Nx,Ny,Nz))
-# 		λ₀_F  = 𝓕 * kx_t2c(λ₀,mn,kpg_mag) #fft(kcross_t2c(λ₀,kz,gx,gy,gz),(2:4))
-# 		# ε̄ ⁻¹ = ( 𝓕 * kcross_t2c(λ₀,ds) ) .* ( 𝓕 * kcross_t2c(Ha,ds) )
-# 		ε⁻¹_bar = [ Diagonal( real.(λ₀_F[:,i,j,kk] .* Ha_F[:,i,j,kk]) )[a,b] for a=1:3,b=1:3,i=1:Nx,j=1:Ny,kk=1:Nz]
-# 		return (NO_FIELDS, ω̄ , ε⁻¹_bar,ChainRulesCore.Zero(),ChainRulesCore.Zero(),ChainRulesCore.Zero())
-#     end
-#     return (Ω, solve_k_pullback)
-# end
-
-function ChainRulesCore.rrule(::typeof(solve_ω²), k::T, ε⁻¹::Array{T,5},Δx::T,Δy::T,Δz::T;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
-    Ω = solve_ω²(k,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
-    function solve_ω²_pullback(ΔΩ) # ω̄ ₖ)
-        H⃗, ω² = Ω
-		H̄, ω̄sq = ΔΩ
-		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
-		H = reshape(H⃗[:,eigind],(2,Nx,Ny,Nz))
-		(mag, mn), magmn_pb = Zygote.pullback(k) do k
-		    # calc_kpg(k,make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
-			calc_kpg(k,Δx,Δy,Δz,Nx,Ny,Nz)
-		end
-	    if typeof(ω̄sq)==ChainRulesCore.Zero
-			ω̄sq = 0.
-		end
-		𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
-		𝓕⁻¹ = plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
-		if typeof(H̄)==ChainRulesCore.Zero
-			λ⃗ =  -ω̄sq * H⃗[:,eigind]
-		else
-			λ⃗₀ = IterativeSolvers.bicgstabl(
-											M̂_old(ε⁻¹,mn,mag,𝓕,𝓕⁻¹)-ω²[eigind]*I, # A
-											H̄[:,eigind] - H⃗[:,eigind] * dot(H⃗[:,eigind],H̄[:,eigind]), # b,
-											3,  # "l"
-											)
-			λ⃗ = λ⃗₀ - (ω̄sq + dot(H⃗[:,eigind],λ⃗₀)) * H⃗[:,eigind]  # (P * λ⃗₀) + ω̄sq * H⃗[:,eigind] # λ⃗₀ + ω̄sq * H⃗[:,eigind]
-		end
-		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
-		d =  𝓕 * kx_t2c( H , mn, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
-		λd = 𝓕 * kx_t2c( λ, mn, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
-		d⃗ = vec( d )
-		λ⃗d = vec( λd )
-		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-		λẽ = vec( 𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) )
-		ẽ = vec( 𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹) * (Nx * Ny * Nz) ) # pre-scales needed to compensate fft/ifft normalization asymmetry. If bfft is used, this will need to be adjusted
-		λẽ_3v = reinterpret(SVector{3,ComplexF64},λẽ)
-		ẽ_3v = reinterpret(SVector{3,ComplexF64},ẽ)
-		λ_2v = reinterpret(SVector{2,ComplexF64},λ⃗)
-		H_2v = reinterpret(SVector{2,ComplexF64},H⃗[:,eigind])
-		kx̄ = reshape( reinterpret(Float64, -real.( λẽ_3v .* adjoint.(conj.(H_2v)) + ẽ_3v .* adjoint.(conj.(λ_2v)) ) ), (3,2,Nx,Ny,Nz) )
-		@tullio māg[ix,iy,iz] := mn[a,2,ix,iy,iz] * kx̄[a,1,ix,iy,iz] - mn[a,1,ix,iy,iz] * kx̄[a,2,ix,iy,iz]
-		mn̄_signs = [-1 ; 1]
-		@tullio mn̄[a,b,ix,iy,iz] := kx̄[a,3-b,ix,iy,iz] * mag[ix,iy,iz] * mn̄_signs[b] nograd=mn̄_signs
-		k̄ = magmn_pb((māg,mn̄))[1]
-		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
-		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
-		ε⁻¹_bar = zeros(Float64,(3,3,Nx,Ny,Nz))
-		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
-	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
-	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
-	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
-	        end
-	        for a2=1:2 # loop over first off diagonal
-	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
-	        end
-	        # a = 1, set 1,3 and 3,1, second off-diagonal
-	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
-	    end
-		return (NO_FIELDS, k̄, ε⁻¹_bar,ChainRulesCore.Zero(),ChainRulesCore.Zero(),ChainRulesCore.Zero())
-    end
-    return (Ω, solve_ω²_pullback)
-end
+#### AD Rules for Iterative eigensolves of Helmholtz Operator
 
 function update_k_pb(M̂::HelmholtzMap{T},k⃗::SVector{3,T}) where T<:Real
 	(mag, m, n), mag_m_n_pb = Zygote.pullback(k⃗) do x
@@ -336,63 +262,72 @@ end
 
 update_k_pb(M̂::HelmholtzMap{T},kz::T) where T<:Real = update_k_pb(M̂,SVector{3,T}(0.,0.,kz))
 
+function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny, Nz)
+	# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
+	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+	@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		for a=1:3 # loop over diagonal elements: {11, 22, 33}
+			eī[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+		end
+		for a2=1:2 # loop over first off diagonal
+			eī[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+		end
+		# a = 1, set 1,3 and 3,1, second off-diagonal
+		eī[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+	end
+	return eī
+end
+
+function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
+	ms.adj_itr = bicgstabl_iterator!(
+		ms.adj_itr.x,	# recycle previous soln as initial guess
+		ms.M̂ - real(ms.ω²[eigind])*I, # A
+		H̄[:,eigind] - ms.H⃗[:,eigind] * dot(ms.H⃗[:,eigind],H̄[:,eigind]), # b,
+		3;	# l = number of GMRES iterations per CG iteration
+		Pl = ms.P̂) # left preconditioner
+	for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
+	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+end
+
 function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
-	(mag, m⃗, n⃗), mag_m_n_pb = update_k_pb(ms.M̂,k)
-	Ω = solve_ω²(ms,ε⁻¹; nev, eigind, maxiter, tol, log)
-    function solve_ω²_pullback(ΔΩ) # ω̄ ₖ)
-        ω², H⃗ = Ω
+	ω²,H⃗ = solve_ω²(ms,ε⁻¹; nev, eigind, maxiter, tol, log)
+	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
+		mag_m_n(x,dropgrad(ms.M̂.g⃗))
+	end
+    function solve_ω²_pullback(ΔΩ)
 		ω̄sq, H̄ = ΔΩ
-		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
-		H = reshape(H⃗,(2,Nx,Ny,Nz))
-		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,Nx,Ny,Nz)))
-	    if typeof(ω̄sq)==ChainRulesCore.Zero
+		Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
+		H = reshape(H⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)))
+		if typeof(ω̄sq)==ChainRulesCore.Zero
 			ω̄sq = 0.
 		end
-		if typeof(H̄)==ChainRulesCore.Zero
-			λ⃗ =  -ω̄sq * H⃗
+		if typeof(H̄) != ChainRulesCore.Zero
+			solve_adj!(ms,H̄,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
+			ms.λ⃗ -= (ω̄sq + dot(H⃗,ms.λ⃗)) * H⃗
 		else
-			λ⃗₀ = IterativeSolvers.bicgstabl(
-											ms.M̂-ω²*I, # A
-											H̄ - H⃗ * dot(H⃗,H̄), # b,
-											3,  # "l"
-											)
-			λ⃗ = λ⃗₀ - (ω̄sq + dot(H⃗,λ⃗₀)) * H⃗  # (P * λ⃗₀) + ω̄sq * H⃗ # λ⃗₀ + ω̄sq * H⃗
+			ms.λ⃗ = -ω̄sq * H⃗
 		end
-		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
-		d =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
-		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
-		d⃗ = vec( d )
-		λ⃗d = vec( λd )
+		λ = reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
+		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), ms.M̂.Nx, ms.M̂.Ny, ms.M̂.Nz)
 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-		λẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) / (Nx * Ny * Nz)) )
-		ẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹)) ) # pre-scales needed to compensate fft/
-		kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
-		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
-		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-		# m̄ = kx̄_m⃗ .* mag
-		# n̄ = kx̄_n⃗ .* mag
-		k̄ = mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]
-		if !(typeof(k)<:SVector)
-			k̄ = k̄[3]
-		end
-		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
-		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
-		ε⁻¹_bar = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}(zeros(Float64,(3,3,Nx,Ny,Nz)))
-		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
-	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
-	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
-	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
-	        end
-	        for a2=1:2 # loop over first off diagonal
-	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
-	        end
-	        # a = 1, set 1,3 and 3,1, second off-diagonal
-	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
-	    end
-		return (NO_FIELDS, ChainRulesCore.Zero(), k̄, ε⁻¹_bar)
+		ms.λd *=  ms.M̂.Ninv
+		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
+		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
+		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
+		k̄ = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+		# if !(typeof(k)<:SVector)
+		# 	k̄_kx = k̄_kx[3]
+		# end
+		return (NO_FIELDS, ChainRulesCore.Zero(), k̄ , ms.ε⁻¹_bar)
     end
-    return (Ω, solve_ω²_pullback)
+    return ((ω², H⃗), solve_ω²_pullback)
 end
 
 function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};
@@ -401,88 +336,226 @@ function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{T},ω::T,ε⁻¹
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
 	end
-    function solve_k_pullback(ΔΩ) # ω̄ ₖ)
+    function solve_k_pullback(ΔΩ)
 		k̄, H̄ = ΔΩ
+		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
 		Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
-		H = reshape(H⃗,(2,Nx,Ny,Nz))
-		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,Nx,Ny,Nz)))
+		H = reshape(H⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)))
 	    if typeof(k̄)==ChainRulesCore.Zero
 			k̄ = 0.
 		end
-		@show k̄
-		@show k̄ / ms.∂ω²∂k[eigind]
-		@show ω̄sq_eff = -k̄ / ms.∂ω²∂k[eigind] - 1. * ms.∂ω²∂k[eigind]
-		if typeof(H̄)==ChainRulesCore.Zero
-			λ⃗ =  ω̄sq_eff * H⃗ #-( k̄ / ms.∂ω²∂k[eigind] ) * H⃗
-			# λ⃗ =  0 * H⃗
+		if typeof(H̄) != ChainRulesCore.Zero
+			solve_adj!(ms,H̄,eigind) 											 # overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
+			ms.λ⃗ += ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] - dot(H⃗,ms.λ⃗) ) * H⃗[:,eigind]
 		else
-			λ⃗₀ = IterativeSolvers.bicgstabl(
-											ms.M̂-(ω^2)*I, # A
-											H̄ - H⃗ * dot(H⃗,H̄), # b,
-											3,  # "l"
-											)
-			λ⃗ = λ⃗₀ - ( ω̄sq_eff  + dot(H⃗,λ⃗₀)) * H⃗  # (P * λ⃗₀) + ω̄sq * H⃗ # λ⃗₀ + ω̄sq * H⃗
-			# λ⃗ = λ⃗₀ -  dot(H⃗,λ⃗₀) * H⃗  # (P * λ⃗₀) + ω̄sq * H⃗ # λ⃗₀ + ω̄sq * H⃗
+			ms.λ⃗ = ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H⃗
 		end
-		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
-		d =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
-		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
-		d⃗ = vec( d )
-		λ⃗d = vec( λd )
-		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
-		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
-		ε⁻¹_bar = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}(zeros(Float64,(3,3,Nx,Ny,Nz)))
-		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
-	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
-	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
-	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
-	        end
-	        for a2=1:2 # loop over first off diagonal
-	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
-	        end
-	        # a = 1, set 1,3 and 3,1, second off-diagonal
-	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
-	    end
-
-
-		if typeof(H̄)==ChainRulesCore.Zero
-			λ⃗ =  -k̄ / ms.∂ω²∂k[eigind] * H⃗ #-( k̄ / ms.∂ω²∂k[eigind] ) * H⃗
-			# λ⃗ =  0 * H⃗
-		else
-			λ⃗₀ = IterativeSolvers.bicgstabl(
-											ms.M̂-(ω^2)*I, # A
-											H̄ - H⃗ * dot(H⃗,H̄), # b,
-											3,  # "l"
-											)
-			λ⃗ = λ⃗₀ - ( k̄ / ms.∂ω²∂k[eigind]  + dot(H⃗,λ⃗₀)) * H⃗
-			# λ⃗ = λ⃗₀ -  dot(H⃗,λ⃗₀) * H⃗  # (P * λ⃗₀) + ω̄sq * H⃗ # λ⃗₀ + ω̄sq * H⃗
-		end
-
-		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
-		# d =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
-		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
-		# d⃗ = vec( d )
-		λ⃗d = vec( λd )
-
+		λ = reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
+		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), ms.M̂.Nx, ms.M̂.Ny, ms.M̂.Nz)
+		λ -= ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H
+		ms.λd -= ( ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * ms.M̂.N ) * ms.M̂.d
+		ms.λd *=  ms.M̂.Ninv
 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-		λẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) / (Nx * Ny * Nz)) )
-		ẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹)) ) # pre-scales needed to compensate fft/
-		kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
-		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
-		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-		# m̄ = kx̄_m⃗ .* mag
-		# n̄ = kx̄_n⃗ .* mag
-		@show k̄_kx = mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]
+		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
+		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
+		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
+		k̄_kx = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
 		# if !(typeof(k)<:SVector)
 		# 	k̄_kx = k̄_kx[3]
 		# end
-		@show k̄_kx / ms.∂ω²∂k[eigind]
-		@show ω̄sq = k̄_kx  / ms.∂ω²∂k[eigind] #
-		@show ω̄  = ω̄sq * 2 * ω
-		# @show ω̄sq = ω̄sq_eff
-		# @show ω̄sq = ( -k̄_kx + k̄ ) / ms.∂ω²∂k[eigind] #
-
-		return (NO_FIELDS, ChainRulesCore.Zero(), ω̄  , ε⁻¹_bar)
+		ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
+		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
     end
     return ((k, H⃗), solve_k_pullback)
 end
+
+
+# # old
+#
+# function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};
+# 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+# 	(mag, m⃗, n⃗), mag_m_n_pb = update_k_pb(ms.M̂,k)
+# 	Ω = solve_ω²(ms,ε⁻¹; nev, eigind, maxiter, tol, log)
+#     function solve_ω²_pullback(ΔΩ) # ω̄ ₖ)
+#         ω², H⃗ = Ω
+# 		ω̄sq, H̄ = ΔΩ
+# 		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
+# 		H = reshape(H⃗,(2,Nx,Ny,Nz))
+# 		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,Nx,Ny,Nz)))
+# 	    if typeof(ω̄sq)==ChainRulesCore.Zero
+# 			ω̄sq = 0.
+# 		end
+# 		if typeof(H̄)==ChainRulesCore.Zero
+# 			λ⃗ =  -ω̄sq * H⃗
+# 		else
+# 			λ⃗₀ = IterativeSolvers.bicgstabl(
+# 											ms.M̂-ω²*I, # A
+# 											H̄ - H⃗ * dot(H⃗,H̄), # b,
+# 											3,  # "l"
+# 											)
+# 			λ⃗ = λ⃗₀ - (ω̄sq + dot(H⃗,λ⃗₀)) * H⃗  # (P * λ⃗₀) + ω̄sq * H⃗ # λ⃗₀ + ω̄sq * H⃗
+# 		end
+# 		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
+# 		d =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
+# 		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
+# 		d⃗ = vec( d )
+# 		λ⃗d = vec( λd )
+# 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+# 		λẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) / (Nx * Ny * Nz)) )
+# 		ẽ = reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹)) ) # pre-scales needed to compensate fft/
+# 		kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
+# 		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+# 		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+# 		# m̄ = kx̄_m⃗ .* mag
+# 		# n̄ = kx̄_n⃗ .* mag
+# 		k̄ = mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]
+# 		if !(typeof(k)<:SVector)
+# 			k̄ = k̄[3]
+# 		end
+# 		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
+# 		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+# 		ε⁻¹_bar = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}(zeros(Float64,(3,3,Nx,Ny,Nz)))
+# 		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+# 	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+# 	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
+# 	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+# 	        end
+# 	        for a2=1:2 # loop over first off diagonal
+# 	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+# 	        end
+# 	        # a = 1, set 1,3 and 3,1, second off-diagonal
+# 	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+# 	    end
+# 		return (NO_FIELDS, ChainRulesCore.Zero(), k̄, ε⁻¹_bar)
+#     end
+#     return (Ω, solve_ω²_pullback)
+# end
+#
+# function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};
+# 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+# 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log ,ω²_tol)
+# 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
+# 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
+# 	end
+#     function solve_k_pullback(ΔΩ)
+# 		k̄, H̄ = ΔΩ
+# 		Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
+# 		H = reshape(H⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+# 		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)))
+# 	    if typeof(k̄)==ChainRulesCore.Zero
+# 			k̄ = 0.
+# 		end
+# 		ω̄sq_eff = -k̄ / ms.∂ω²∂k[eigind] - ms.∂ω²∂k[eigind]
+# 		if typeof(H̄)==ChainRulesCore.Zero
+# 			λ⃗ =  ω̄sq_eff * H⃗
+# 		else
+# 			λ⃗₀ = IterativeSolvers.bicgstabl(
+# 											ms.M̂-(ω^2)*I, # A
+# 											H̄ - H⃗ * dot(H⃗,H̄), # b,
+# 											3,  # "l"
+# 											)
+# 			λ⃗ = λ⃗₀ - ( ω̄sq_eff  + dot(H⃗,λ⃗₀) ) * H⃗
+# 		end
+# 		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
+# 		d =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv # ms.M̂.𝓕 * kx_tc( H , mn2, mag )  / (Nx * Ny * Nz)
+# 		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag )
+# 		d⃗ = vec( d )
+# 		λ⃗d = vec( λd )
+# 		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
+# 		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+# 		ε⁻¹_bar = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}(zeros(Float64,(3,3,Nx,Ny,Nz)))
+# 		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+# 	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+# 	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
+# 	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+# 	        end
+# 	        for a2=1:2 # loop over first off diagonal
+# 	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+# 	        end
+# 	        # a = 1, set 1,3 and 3,1, second off-diagonal
+# 	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+# 	    end
+# 		λ -= ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H  # now λ⃗ = λ⃗₀ - ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] + dot(H⃗,λ⃗₀) ) * H⃗
+# 		λd = ms.M̂.𝓕 * kx_tc( λ, mn2, mag )
+# 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+# 		λẽ = reinterpret(reshape,SVector{3,Complex{T}}, ( ms.M̂.𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) * ms.M̂.Ninv ) ) # reinterpret(reshape,SVector{3,Complex{T}}, (ms.M̂.𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) / (Nx * Ny * Nz)) )
+# 		ẽ = reinterpret(reshape,SVector{3,Complex{T}}, ( ms.M̂.𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹)) )
+# 		kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
+# 		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+# 		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+# 		k̄_kx = mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag
+# 		# if !(typeof(k)<:SVector)
+# 		# 	k̄_kx = k̄_kx[3]
+# 		# end
+# 		ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
+# 		return (NO_FIELDS, ChainRulesCore.Zero(), ω̄  , ε⁻¹_bar)
+#     end
+#     return ((k, H⃗), solve_k_pullback)
+# end
+#
+# function ChainRulesCore.rrule(::typeof(solve_ω²), k::T, ε⁻¹::Array{T,5},Δx::T,Δy::T,Δz::T;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+#     Ω = solve_ω²(k,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
+#     function solve_ω²_pullback(ΔΩ) # ω̄ ₖ)
+#         H⃗, ω² = Ω
+# 		H̄, ω̄sq = ΔΩ
+# 		Nx,Ny,Nz = size(ε⁻¹)[end-2:end]
+# 		H = reshape(H⃗[:,eigind],(2,Nx,Ny,Nz))
+# 		(mag, mn), magmn_pb = Zygote.pullback(k) do k
+# 		    # calc_kpg(k,make_MG(Δx, Δy, Δz, Nx, Ny, Nz).g⃗)
+# 			calc_kpg(k,Δx,Δy,Δz,Nx,Ny,Nz)
+# 		end
+# 	    if typeof(ω̄sq)==ChainRulesCore.Zero
+# 			ω̄sq = 0.
+# 		end
+# 		𝓕 = plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
+# 		𝓕⁻¹ = plan_ifft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4))
+# 		if typeof(H̄)==ChainRulesCore.Zero
+# 			λ⃗ =  -ω̄sq * H⃗[:,eigind]
+# 		else
+# 			λ⃗₀ = IterativeSolvers.bicgstabl(
+# 											M̂_old(ε⁻¹,mn,mag,𝓕,𝓕⁻¹)-ω²[eigind]*I, # A
+# 											H̄[:,eigind] - H⃗[:,eigind] * dot(H⃗[:,eigind],H̄[:,eigind]), # b,
+# 											3,  # "l"
+# 											)
+# 			λ⃗ = λ⃗₀ - (ω̄sq + dot(H⃗[:,eigind],λ⃗₀)) * H⃗[:,eigind]  # (P * λ⃗₀) + ω̄sq * H⃗[:,eigind] # λ⃗₀ + ω̄sq * H⃗[:,eigind]
+# 		end
+# 		λ = reshape(λ⃗,(2,Nx,Ny,Nz))
+# 		d =  𝓕 * kx_t2c( H , mn, mag )  / (Nx * Ny * Nz) # fft( kx_t2c( H , mn, mag ) ,(2:4))  / (Nx * Ny * Nz)
+# 		λd = 𝓕 * kx_t2c( λ, mn, mag ) # fft( kx_t2c(λ, mn, mag ),(2:4))
+# 		d⃗ = vec( d )
+# 		λ⃗d = vec( λd )
+# 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+# 		λẽ = vec( 𝓕⁻¹ * ε⁻¹_dot(λd,ε⁻¹) )
+# 		ẽ = vec( 𝓕⁻¹ * ε⁻¹_dot(d,ε⁻¹) * (Nx * Ny * Nz) ) # pre-scales needed to compensate fft/ifft normalization asymmetry. If bfft is used, this will need to be adjusted
+# 		λẽ_3v = reinterpret(SVector{3,ComplexF64},λẽ)
+# 		ẽ_3v = reinterpret(SVector{3,ComplexF64},ẽ)
+# 		λ_2v = reinterpret(SVector{2,ComplexF64},λ⃗)
+# 		H_2v = reinterpret(SVector{2,ComplexF64},H⃗[:,eigind])
+# 		kx̄ = reshape( reinterpret(Float64, -real.( λẽ_3v .* adjoint.(conj.(H_2v)) + ẽ_3v .* adjoint.(conj.(λ_2v)) ) ), (3,2,Nx,Ny,Nz) )
+# 		@tullio māg[ix,iy,iz] := mn[a,2,ix,iy,iz] * kx̄[a,1,ix,iy,iz] - mn[a,1,ix,iy,iz] * kx̄[a,2,ix,iy,iz]
+# 		mn̄_signs = [-1 ; 1]
+# 		@tullio mn̄[a,b,ix,iy,iz] := kx̄[a,3-b,ix,iy,iz] * mag[ix,iy,iz] * mn̄_signs[b] nograd=mn̄_signs
+# 		k̄ = magmn_pb((māg,mn̄))[1]
+# 		# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
+# 		# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+# 		ε⁻¹_bar = zeros(Float64,(3,3,Nx,Ny,Nz))
+# 		@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+# 	        q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+# 	        for a=1:3 # loop over diagonal elements: {11, 22, 33}
+# 	            ε⁻¹_bar[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+# 	        end
+# 	        for a2=1:2 # loop over first off diagonal
+# 	            ε⁻¹_bar[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+# 	        end
+# 	        # a = 1, set 1,3 and 3,1, second off-diagonal
+# 	        ε⁻¹_bar[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+# 	    end
+# 		return (NO_FIELDS, k̄, ε⁻¹_bar,ChainRulesCore.Zero(),ChainRulesCore.Zero(),ChainRulesCore.Zero())
+#     end
+#     return (Ω, solve_ω²_pullback)
+# end

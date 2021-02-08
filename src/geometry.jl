@@ -1,6 +1,6 @@
 # export
 
-function test_shapes(p::Float64)
+function test_shapes(p::T) where T<:Real
     ε₁, ε₂, ε₃ = test_εs(1.42,2.2,3.5)
     ax1b,ax2b = GeometryPrimitives.normalize.(([1.,0.2], [0.,1.]))
     b = Box(					# Instantiate N-D box, here N=2 (rectangle)
@@ -27,7 +27,7 @@ function test_shapes(p::Float64)
     return [ t, s, b ]
 end
 
-function ridge_wg(wₜₒₚ::Float64,t_core::Float64,θ::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
+function ridge_wg(wₜₒₚ::T1,t_core::T1,θ::T1,edge_gap::T1,n_core::T1,n_subs::T1,Δx::T2,Δy::T2)::Vector{<:GeometryPrimitives.Shape} where {T1<:Real,T2<:Real}
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)
@@ -40,10 +40,10 @@ function ridge_wg(wₜₒₚ::Float64,t_core::Float64,θ::Float64,edge_gap::Floa
     wt_half = wₜₒₚ / 2
     wb_half = wt_half + ( t_core * tan(θ) )
     tc_half = t_core / 2
-    verts =   [   wt_half     -wt_half     -wb_half    wb_half
+    verts =     [   wt_half     -wt_half     -wb_half    wb_half
                     tc_half     tc_half    -tc_half      -tc_half    ]'
     core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
-                    verts,			                                            # v: polygon vertices in counter-clockwise order
+                    SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
                     ε_core,					                                    # data: any type, data associated with box shape
                 )
     ax = [      1.     0.
@@ -57,7 +57,7 @@ function ridge_wg(wₜₒₚ::Float64,t_core::Float64,θ::Float64,edge_gap::Floa
     return [core,b_subs]
 end
 
-function circ_wg(w::Float64,t_core::Float64,edge_gap::Float64,n_core::Float64,n_subs::Float64,Δx::Float64,Δy::Float64)::Vector{<:Shape}
+function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::Vector{<:GeometryPrimitives.Shape} where T<:Real
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     ε_core = ε_tensor(n_core)

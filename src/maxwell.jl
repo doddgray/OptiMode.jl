@@ -1,5 +1,5 @@
 # using GeometryPrimitives: orthoaxes
-export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, _g⃗, update_k, update_k!, update_ε⁻¹, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc, ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!, kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, MaxwellGrid, MaxwellData, calc_kpg # legacy structs and method, to be removed asap
+export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, _g⃗, update_k, update_k!, update_ε⁻¹, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc, ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!, kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, _d2ẽ!, _H2d!, MaxwellGrid, MaxwellData, calc_kpg # legacy structs and method, to be removed asap
 export M̂!, P̂!, M̂_old
 
 """
@@ -236,6 +236,22 @@ function _M!(Hout::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4}
     kx_ct!(Hout,e,m,n,mag,Ninv)
 end
 
+function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
+	m::AbstractArray{T,4}, n::AbstractArray{T,4}, mag::AbstractArray{T,3},
+	𝓕!::FFTW.cFFTWPlan)::AbstractArray{Complex{T},4} where T<:Real
+    kx_tc!(d,Hin,m,n,mag);
+    mul!(d.data,𝓕!,d.data);
+	return d
+end
+
+function _d2ẽ!(e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4},
+	ε⁻¹::AbstractArray{T,5},m::AbstractArray{T,4}, n::AbstractArray{T,4}, mag::AbstractArray{T,3},
+	𝓕⁻¹!::FFTW.cFFTWPlan)::AbstractArray{Complex{T},4} where T<:Real
+    eid!(e,ε⁻¹,d);
+    mul!(e.data,𝓕⁻¹!,e.data);
+	return e
+end
+
 """
 ################################################################################
 #																			   #
@@ -382,6 +398,11 @@ mutable struct HelmholtzMap{T} <: LinearMap{T}
 	x::Vector{T}
     y::Vector{T}
     z::Vector{T}
+	xyz::Array{SVector{3,T},3}
+	xc::Vector{T}
+    yc::Vector{T}
+    zc::Vector{T}
+	xyzc::Array{SVector{3,T},3}
 	N::Int
 	Ninv::T
 	shift::T
@@ -397,6 +418,8 @@ mutable struct HelmholtzMap{T} <: LinearMap{T}
 	𝓕⁻¹!::FFTW.cFFTWPlan #AbstractFFTs.ScaledPlan
 	𝓕::FFTW.cFFTWPlan
 	𝓕⁻¹::FFTW.cFFTWPlan #AbstractFFTs.ScaledPlan
+	corner_sinds::Array{Int,3}
+	corner_sinds_proc::Array{NTuple{8,Int},3}
 	ε_ave::Array{T,3}  # for preconditioner
 	inv_mag::Array{T,3} # for preconditioner
 end
@@ -408,10 +431,21 @@ end
 mutable struct ModeSolver{T}
 	M̂::HelmholtzMap{T}
 	P̂::HelmholtzPreconditioner{T}
-	iterator::IterativeSolvers.LOBPCGIterator
+	eigs_itr::IterativeSolvers.LOBPCGIterator
 	H⃗::Matrix{Complex{T}}
 	ω²::Vector{Complex{T}}
 	∂ω²∂k::Vector{T}
+	λ⃗::Vector{Complex{T}}
+	b⃗::Vector{Complex{T}}
+	λd::HybridArray
+	λẽ::HybridArray
+	ε⁻¹_bar::HybridArray
+	kx̄_m⃗::Array{SVector{3, T}, 3}
+	kx̄_n⃗::Array{SVector{3, T}, 3}
+	māg::Array{T,3}
+	k̄_kx::SVector{3,T}
+	ω̄::T
+	adj_itr::IterativeSolvers.BiCGStabIterable
 end
 
 """
@@ -434,9 +468,14 @@ HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T,
 	Δx / Nx,    # δx
     Δy / Ny,    # δy
     Δz / Nz,    # δz
-    collect( ( ( Δx / Nx ) .* (0:(Nx-1))) .- Δx/2. ),  # x
-    collect( ( ( Δy / Ny ) .* (0:(Ny-1))) .- Δy/2. ),  # y
-    collect( ( ( Δz / Nz ) .* (0:(Nz-1))) .- Δz/2. ),  # z
+    x = collect( ( ( Δx / Nx ) .* (0:(Nx-1))) .- Δx/2. ),  # x
+    y = collect( ( ( Δy / Ny ) .* (0:(Ny-1))) .- Δy/2. ),  # y
+    z = collect( ( ( Δz / Nz ) .* (0:(Nz-1))) .- Δz/2. ),  # z
+	[SVector{3}(x[ix],y[iy],z[iz]) for ix=1:Nx,iy=1:Ny,iz=1:Nz],				# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xc = collect( ( ( Δx / Nx ) .* (0:Nx) ) .- ( Δx/2. * ( 1 + 1. / Nx ) ) ),
+	yc = collect( ( ( Δy / Ny ) .* (0:Ny) ) .- ( Δy/2. * ( 1 + 1. / Ny ) ) ),
+	zc = collect( ( ( Δz / Nz ) .* (0:Nz) ) .- ( Δz/2. * ( 1 + 1. / Nz ) ) ),
+	[SVector{3}(xc[ix],yc[iy],zc[iz]) for ix=1:(Nx+1),iy=1:(Nz+1),iy=1:(Nz+1)],	# ((Nx+1) × (Ny+1) × (Nz+1)) 3-Array (x,y,z) vectors at pixel/voxel corners
 	(N = *(Nx,Ny,Nz); N),
 	1. / N,
 	shift,
@@ -448,10 +487,12 @@ HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T,
 	HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)),
     HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Complex{T}}(randn(ComplexF64, (3,Nx,Ny,Nz))),# (Array{T}(undef,(Nx,Ny,Nz,3))),
     HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Complex{T}}(randn(ComplexF64, (3,Nx,Ny,Nz))),# (Array{T}(undef,(Nx,Ny,Nz,3))),
-	plan_fft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)), # planned in-place FFT operator 𝓕!
-	plan_bfft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)), # planned in-place iFFT operator 𝓕⁻¹!
-	plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)), # planned in-place FFT operator 𝓕!
-	plan_bfft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4)), # planned in-place iFFT operator 𝓕⁻¹!
+	plan_fft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
+	plan_bfft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
+	plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
+	plan_bfft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
+	fill(0,Nx+1,Ny+1,Nz+1), # shape indices at pixel/voxel corners,
+	fill((0,0,0,0,0,0,0,0),Nx,Ny,Nz), # processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
 	[ 3. * inv(ε⁻¹[1,1,ix,iy,iz]+ε⁻¹[2,2,ix,iy,iz]+ε⁻¹[3,3,ix,iy,iz]) for ix=1:Nx,iy=1:Ny,iz=1:Nz], # diagonal average ε for precond. ops
 	[ inv(mm) for mm in mag ] # inverse |k⃗+g⃗| magnitudes for precond. ops
 )
@@ -472,14 +513,33 @@ end
 function ModeSolver(k⃗::SVector{3,T}, ε⁻¹::AbstractArray{T,5}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
 	M̂ = HelmholtzMap(k⃗, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz)
 	P̂ = HelmholtzPreconditioner(M̂)
-	it = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],1)),P̂,nothing)
+	eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],1)),P̂,nothing)
+	λ⃗ = randn(Complex{T},2*M̂.N)
+	b⃗ = similar(λ⃗)
+	adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
+                             Pl = Identity(),
+                             max_mv_products = size(M̂, 2),
+                             abstol = zero(T),
+                             reltol = sqrt(eps(T)),
+                             initial_zero = false)
 	ModeSolver{T}(
 	  	M̂,
 		P̂,
-		it,
-		it.XBlocks.block,
-		it.λ,
-		zeros(T,nev)
+		eigs_itr,
+		eigs_itr.XBlocks.block,
+		eigs_itr.λ,
+		zeros(T,nev),
+		λ⃗,
+		b⃗,
+		similar(M̂.d),							# λ⃗d
+		similar(M̂.e),							# λ⃗ẽ
+		similar(M̂.ε⁻¹),						# ε⁻¹_bar
+		similar(M̂.m⃗),							 # kx̄_m⃗
+		similar(M̂.n⃗),							# kx̄_n⃗
+		similar(M̂.mag),						# māg
+		zero(SVector{3,Float64}),				# k̄_kx
+		0.,										# ω̄
+		adj_itr,
 	)
 end
 
@@ -616,10 +676,33 @@ end
 
 LinearAlgebra.transpose(P̂::HelmholtzPreconditioner) = P̂
 LinearAlgebra.ldiv!(c,P̂::HelmholtzPreconditioner,b) = mul!(c,P̂,b) # P̂(c, b) #
-
+LinearAlgebra.ldiv!(P̂::HelmholtzPreconditioner,b) = mul!(b,P̂,b)
 
 mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
 mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
+
+"""
+################################################################################
+#																			   #
+#							  Field Conversion 								   #
+#																			   #
+################################################################################
+"""
+
+function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
+	ms::ModeSolver{T})::AbstractArray{Complex{T},4} where T<:Real
+    kx_tc!(d,Hin,ms.M̂.m,ms.M̂.n,ms.M̂.mag);
+    mul!(d.data,ms.M̂.𝓕!,d.data);
+	return d
+end
+
+function _d2ẽ!(e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4},
+	ms::ModeSolver{T})::AbstractArray{Complex{T},4} where T<:Real
+    eid!(e,ms.M̂.ε⁻¹,d);
+    mul!(e.data,ms.M̂.𝓕⁻¹!,e.data);
+	return e
+end
+
 
 """
 ################################################################################
