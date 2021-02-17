@@ -10,6 +10,7 @@ module OptiMode
 
 ## Imports ##
 using LinearAlgebra, LinearMaps, ArrayInterface, StaticArrays, HybridArrays, StructArrays, FFTW, AbstractFFTs, GeometryPrimitives, Roots, ChainRules, Zygote, ForwardDiff, LoopVectorization, Tullio, IterativeSolvers
+using ModelingToolkit, Unitful #, Latexify
 using StaticArrays: Dynamic, SVector
 using Zygote: Buffer, bufferfrom, @ignore, dropgrad
 using Plots: plot, heatmap, plot!, heatmap!
@@ -29,7 +30,7 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 ## Includes ##
 include("maxwell.jl")
 include("plot.jl")
-# include("materials.jl")
+include("materials.jl")
 include("epsilon.jl")
 include("geometry.jl")
 include("solve.jl")

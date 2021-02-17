@@ -54,7 +54,7 @@ function ε⁻¹_dot(d⃗,ε⁻¹)
 	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
 end
 
-function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{T,5},mag,m,n)::T where T<:Real
+function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
 	# kxinds = [2; 1]
 	# kxscales = [-1.; 1.]
 	# ,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * temp[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
@@ -64,7 +64,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{T,5},mag
 	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), ε⁻¹), (2:4)),mn,mag) ) )
 end
 
-function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹::AbstractArray{T,5},mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
+function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	H_Mₖ_H(Ha,ε⁻¹,mag,m,n)
@@ -109,7 +109,7 @@ end
 #     return H
 # end
 #
-# function eid!(e::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{T,5},d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
+# function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
 #     @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2)
 #         e[1,i,j,k] =  ε⁻¹[1,1,i,j,k]*d[1,i,j,k] + ε⁻¹[2,1,i,j,k]*d[2,i,j,k] + ε⁻¹[3,1,i,j,k]*d[3,i,j,k]
 #         e[2,i,j,k] =  ε⁻¹[1,2,i,j,k]*d[1,i,j,k] + ε⁻¹[2,2,i,j,k]*d[2,i,j,k] + ε⁻¹[3,2,i,j,k]*d[3,i,j,k]
@@ -176,12 +176,18 @@ function kx_ct!(H::AbstractArray{Complex{T},4},e::AbstractArray{Complex{T},4},m:
     return H
 end
 
-function eid!(e::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{T,5},d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
+function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
     @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
         e[1+h,i,j,k] =  ε⁻¹[1+h,1+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,1+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,1+l,i,j,k]*d[3+l,i,j,k]
         e[2+h,i,j,k] =  ε⁻¹[1+h,2+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,2+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,2+l,i,j,k]*d[3+l,i,j,k]
         e[3+h,i,j,k] =  ε⁻¹[1+h,3+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,3+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,3+l,i,j,k]*d[3+l,i,j,k]
     end
+    return e
+end
+
+function eid!(e::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{TA,3},d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where {T<:Real,TA<:SMatrix{3,3}}
+    er = reinterpret(reshape,SVector{3,Complex{T}},e)
+	map!(*,er,ε⁻¹,er)
     return e
 end
 
@@ -225,7 +231,7 @@ function _P!(Hout::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4}
 end
 
 function _M!(Hout::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
-	e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4}, ε⁻¹::AbstractArray{T,5},
+	e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4}, ε⁻¹,
 	m::AbstractArray{T,4}, n::AbstractArray{T,4}, mag::AbstractArray{T,3},
 	𝓕!::FFTW.cFFTWPlan, 𝓕⁻¹!::FFTW.cFFTWPlan,
 	Ninv::T)::AbstractArray{Complex{T},4} where T<:Real
@@ -245,7 +251,7 @@ function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
 end
 
 function _d2ẽ!(e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4},
-	ε⁻¹::AbstractArray{T,5},m::AbstractArray{T,4}, n::AbstractArray{T,4}, mag::AbstractArray{T,3},
+	ε⁻¹,m::AbstractArray{T,4}, n::AbstractArray{T,4}, mag::AbstractArray{T,3},
 	𝓕⁻¹!::FFTW.cFFTWPlan)::AbstractArray{Complex{T},4} where T<:Real
     eid!(e,ε⁻¹,d);
     mul!(e.data,𝓕⁻¹!,e.data);
@@ -385,7 +391,6 @@ end
 
 mutable struct HelmholtzMap{T} <: LinearMap{T}
     k⃗::SVector{3,T}
-    ε⁻¹::HybridArray #{Tuple{Dynamic(),Dynamic(),Dynamic(),3,3},T,5,5,Array{T,5}}
 	Δx::T
     Δy::T
     Δz::T
@@ -420,6 +425,7 @@ mutable struct HelmholtzMap{T} <: LinearMap{T}
 	𝓕⁻¹::FFTW.cFFTWPlan #AbstractFFTs.ScaledPlan
 	corner_sinds::Array{Int,3}
 	corner_sinds_proc::Array{NTuple{8,Int},3}
+	ε⁻¹::Array{SMatrix{3,3,T,9},3} #HybridArray #{Tuple{Dynamic(),Dynamic(),Dynamic(),3,3},T,5,5,Array{T,5}}
 	ε_ave::Array{T,3}  # for preconditioner
 	inv_mag::Array{T,3} # for preconditioner
 end
@@ -439,7 +445,7 @@ mutable struct ModeSolver{T}
 	b⃗::Vector{Complex{T}}
 	λd::HybridArray
 	λẽ::HybridArray
-	ε⁻¹_bar::HybridArray
+	ε⁻¹_bar::Array{SMatrix{3,3,T,9},3} # HybridArray
 	kx̄_m⃗::Array{SVector{3, T}, 3}
 	kx̄_n⃗::Array{SVector{3, T}, 3}
 	māg::Array{T,3}
@@ -456,9 +462,8 @@ end
 ################################################################################
 """
 
-HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real} = HelmholtzMap{T}(
+HelmholtzMap(k⃗::AbstractVector{T}, shapes, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real} = HelmholtzMap{T}(
 	SVector{3,T}(k⃗),
-	ε⁻¹, #::HybridArray{Tuple{Dynamic(),Dynamic(),Dynamic(),3,3}}(ε⁻¹),
 	Δx,
     Δy,
     Δz,
@@ -468,14 +473,14 @@ HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T,
 	Δx / Nx,    # δx
     Δy / Ny,    # δy
     Δz / Nz,    # δz
-    x = collect( ( ( Δx / Nx ) .* (0:(Nx-1))) .- Δx/2. ),  # x
-    y = collect( ( ( Δy / Ny ) .* (0:(Ny-1))) .- Δy/2. ),  # y
-    z = collect( ( ( Δz / Nz ) .* (0:(Nz-1))) .- Δz/2. ),  # z
-	[SVector{3}(x[ix],y[iy],z[iz]) for ix=1:Nx,iy=1:Ny,iz=1:Nz],				# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
-	xc = collect( ( ( Δx / Nx ) .* (0:Nx) ) .- ( Δx/2. * ( 1 + 1. / Nx ) ) ),
-	yc = collect( ( ( Δy / Ny ) .* (0:Ny) ) .- ( Δy/2. * ( 1 + 1. / Ny ) ) ),
-	zc = collect( ( ( Δz / Nz ) .* (0:Nz) ) .- ( Δz/2. * ( 1 + 1. / Nz ) ) ),
-	[SVector{3}(xc[ix],yc[iy],zc[iz]) for ix=1:(Nx+1),iy=1:(Nz+1),iy=1:(Nz+1)],	# ((Nx+1) × (Ny+1) × (Nz+1)) 3-Array (x,y,z) vectors at pixel/voxel corners
+    (x = collect( ( ( Δx / Nx ) .* (0:(Nx-1))) .- Δx/2. ); x),  # x
+    (y = collect( ( ( Δy / Ny ) .* (0:(Ny-1))) .- Δy/2. ); y),  # y
+    (z = collect( ( ( Δz / Nz ) .* (0:(Nz-1))) .- Δz/2. ); z),  # z
+	(xyz = [SVector{3}(x[ix],y[iy],z[iz]) for ix=1:Nx,iy=1:Ny,iz=1:Nz]; xyz),				# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	(xc = collect( ( ( Δx / Nx ) .* (0:Nx) ) .- ( Δx/2. * ( 1 + 1. / Nx ) ) ); xc),
+	(yc = collect( ( ( Δy / Ny ) .* (0:Ny) ) .- ( Δy/2. * ( 1 + 1. / Ny ) ) ); yc),
+	(zc = collect( ( ( Δz / Nz ) .* (0:Nz) ) .- ( Δz/2. * ( 1 + 1. / Nz ) ) ); zc),
+	(xyzc = [SVector{3}(xc[ix],yc[iy],zc[iz]) for ix=1:(Nx+1),iy=1:(Ny+1),iz=1:(Nz+1)]; xyzc),	# ((Nx+1) × (Ny+1) × (Nz+1)) 3-Array (x,y,z) vectors at pixel/voxel corners
 	(N = *(Nx,Ny,Nz); N),
 	1. / N,
 	shift,
@@ -491,27 +496,28 @@ HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T,
 	plan_bfft!(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
 	plan_fft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
 	plan_bfft(randn(ComplexF64, (3,Nx,Ny,Nz)),(2:4),flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
-	fill(0,Nx+1,Ny+1,Nz+1), # shape indices at pixel/voxel corners,
-	fill((0,0,0,0,0,0,0,0),Nx,Ny,Nz), # processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
-	[ 3. * inv(ε⁻¹[1,1,ix,iy,iz]+ε⁻¹[2,2,ix,iy,iz]+ε⁻¹[3,3,ix,iy,iz]) for ix=1:Nx,iy=1:Ny,iz=1:Nz], # diagonal average ε for precond. ops
-	[ inv(mm) for mm in mag ] # inverse |k⃗+g⃗| magnitudes for precond. ops
+	(sinds = corner_sinds(shapes,xyz,xyzc); sinds), #fill(0,Nx+1,Ny+1,Nz+1), # shape indices at pixel/voxel corners,
+	(sinds_proc = proc_sinds(sinds); sinds_proc), #fill((0,0,0,0,0,0,0,0),Nx,Ny,Nz), # processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+	(ε⁻¹ = εₛ⁻¹(shapes,sinds_proc,xyz,xyzc); ε⁻¹),
+	[ 3. * inv(ε⁻¹[ix,iy,iz][1,1]+ε⁻¹[ix,iy,iz][2,2]+ε⁻¹[ix,iy,iz][3,3]) for ix=1:Nx,iy=1:Ny,iz=1:Nz], # diagonal average ε for precond. ops
+	[ inv(mm) for mm in mag ], # inverse |k⃗+g⃗| magnitudes for precond. ops
 )
 
-function HelmholtzMap(kz::T, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real}
+function HelmholtzMap(kz::T, ε⁻¹, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real}
 	HelmholtzMap(SVector{3,T}(0.,0.,kz), ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; shift)
 end
 
-function HelmholtzMap(k, ε⁻¹::AbstractArray{T}, Δx::T, Δy::T, Δz::T; shift=0. ) where {T<:Real}
-	Nx,Ny,Nz = size(ε⁻¹)
-	HelmholtzMap(k, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; shift)
-end
+# function HelmholtzMap(k, ε⁻¹, Δx::T, Δy::T, Δz::T; shift=0. ) where {T<:Real}
+# 	Nx,Ny,Nz = size(ε⁻¹)
+# 	HelmholtzMap(k, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; shift)
+# end
 
-function HelmholtzMap(k, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real}
-	HelmholtzMap(SVector{3,T}(0.,0.,kz), make_εₛ⁻¹(shapes; Δx, Δy, Δz, Nx, Ny, Nz), Δx, Δy, Δz, Nx, Ny, Nz; shift)
-end
+# function HelmholtzMap(k, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; shift=0. ) where {T<:Real}
+# 	HelmholtzMap(SVector{3,T}(0.,0.,kz), make_εₛ⁻¹(shapes; Δx, Δy, Δz, Nx, Ny, Nz), Δx, Δy, Δz, Nx, Ny, Nz; shift)
+# end
 
-function ModeSolver(k⃗::SVector{3,T}, ε⁻¹::AbstractArray{T,5}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
-	M̂ = HelmholtzMap(k⃗, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz)
+function ModeSolver(k⃗::SVector{3,T}, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
+	M̂ = HelmholtzMap(k⃗, shapes, Δx, Δy, Δz, Nx, Ny, Nz)
 	P̂ = HelmholtzPreconditioner(M̂)
 	eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],1)),P̂,nothing)
 	λ⃗ = randn(Complex{T},2*M̂.N)
@@ -543,18 +549,22 @@ function ModeSolver(k⃗::SVector{3,T}, ε⁻¹::AbstractArray{T,5}, Δx::T, Δy
 	)
 end
 
-function ModeSolver(kz::T, ε⁻¹::AbstractArray{T,5}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
-	ModeSolver(SVector{3,T}(0.,0.,kz), ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
+function ModeSolver(kz::T, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
+	ModeSolver(SVector{3,T}(0.,0.,kz), shapes, Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
 end
 
-function ModeSolver(k, ε⁻¹::AbstractArray{T,5}, Δx::T, Δy::T, Δz::T; nev=1, tol=1e-8, maxiter=3000) where T<:Real
-	Nx,Ny,Nz = size(ε⁻¹) #[2:4]
-	ModeSolver(k, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
-end
+# function ModeSolver(kz::T, ε⁻¹::Array{5,T}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
+# 	ModeSolver(SVector{3,T}(0.,0.,kz), ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
+# end
 
-function ModeSolver(k, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
-	ModeSolver(k, make_εₛ⁻¹(shapes; Δx, Δy, Δz, Nx, Ny, Nz), Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
-end
+# function ModeSolver(k, ε⁻¹, Δx::T, Δy::T, Δz::T; nev=1, tol=1e-8, maxiter=3000) where T<:Real
+# 	Nx,Ny,Nz = size(ε⁻¹) #[2:4]
+# 	ModeSolver(k, ε⁻¹, Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
+# end
+#
+# function ModeSolver(k, shapes::Vector{<:Shape}, Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int; nev=1, tol=1e-8, maxiter=3000) where T<:Real
+# 	ModeSolver(k, εₛ⁻¹(shapes; Δx, Δy, Δz, Nx, Ny, Nz), Δx, Δy, Δz, Nx, Ny, Nz; nev, tol, maxiter)
+# end
 
 """
 ################################################################################
@@ -615,12 +625,12 @@ end
 
 update_k!(ms::ModeSolver,k) = update_k!(ms.M̂,k)
 
-function update_ε⁻¹(M̂::HelmholtzMap{T},ε⁻¹::AbstractArray{T,5}) where T<:Real
+function update_ε⁻¹(M̂::HelmholtzMap{T},ε⁻¹) where T<:Real
 	@assert size(M̂.ε⁻¹) == size(ε⁻¹)
 	M̂.ε⁻¹ = ε⁻¹
 end
 
-function update_ε⁻¹(ms::ModeSolver{T},ε⁻¹::AbstractArray{T,5}) where T<:Real
+function update_ε⁻¹(ms::ModeSolver{T},ε⁻¹) where T<:Real
 	@assert size(ms.M̂.ε⁻¹) == size(ε⁻¹)
 	ms.M̂.ε⁻¹ = ε⁻¹
 end

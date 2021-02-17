@@ -1,5 +1,4 @@
-export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ, surfpt_nearby2, make_εₛ⁻¹, make_εₛ⁻¹_fwd, make_KDTree
-
+export ε_init, εₛ, εₛ⁻¹, ε_tensor, test_εs, εₘₐₓ, ñₘₐₓ, nₘₐₓ, surfpt_nearby2, make_εₛ⁻¹, make_εₛ⁻¹_fwd, make_KDTree, corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param
 using Zygote: dropgrad, Buffer, @ignore
 
 εᵥ = @SMatrix	[	1. 	0. 	0.
@@ -29,7 +28,6 @@ function test_εs(n₁::T,n₂::T,n₃::T) where T<:Real
     return ε₁, ε₂, ε₃
 end
 
-
 function τ_trans(ε::AbstractMatrix{T}) where T<:Real
     return @inbounds SMatrix{3,3,T,9}(
         -1/ε[1,1],      ε[2,1]/ε[1,1],                  ε[3,1]/ε[1,1],
@@ -46,7 +44,7 @@ function τ⁻¹_trans(τ::AbstractMatrix{T}) where T<:Real
     )
 end
 
-function avg_param(param1, param2, n12, rvol1)
+function avg_param(ε_fg, ε_bg, n12, rvol1)
 	n = n12 / norm(n12)
 	# n = normalize(n12) #n12 / norm(n12) #sqrt(sum2(abs2,n12))
     # Pick a vector that is not along n.
@@ -54,47 +52,147 @@ function avg_param(param1, param2, n12, rvol1)
 	v = n × h
     # Create a local Cartesian coordinate system.
     S = [n h v]  # unitary
-    τ1 = τ_trans(transpose(S) * param1 * S)  # express param1 in S coordinates, and apply τ transform
-    τ2 = τ_trans(transpose(S) * param2 * S)  # express param2 in S coordinates, and apply τ transform
+    τ1 = τ_trans(transpose(S) * ε_fg * S)  # express param1 in S coordinates, and apply τ transform
+    τ2 = τ_trans(transpose(S) * ε_bg * S)  # express param2 in S coordinates, and apply τ transform
     τavg = τ1 .* rvol1 + τ2 .* (1-rvol1)  # volume-weighted average
-    return S * τ⁻¹_trans(τavg) * transpose(S)  # apply τ⁻¹ and transform back to global coordinates
+    return SMatrix{3,3}(S * τ⁻¹_trans(τavg) * transpose(S))  # apply τ⁻¹ and transform back to global coordinates
 end
 
-function update_corner_sinds!(ms::Modesolver,shapes::AbstractVector{<:GeometryPrimitives.Shape{2}})
-	n_shapes = length(shapes)
-	tree = KDTree(shapes)
-	a = 0
-	unq = [0,0]
-	@avx for I ∈ eachindex(ms.M̂.xyzc)
-		a = findfirst(isequal(findfirst(ms.M̂.xyzc[I],tree)),shapes)
-		ms.M̂.corner_sinds[I] = isnothing(a) ? (n_shapes+1) : a
+
+function corner_sinds(shapes::Vector{S},xyz,xyzc::Array{T}) where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
+	ps = pairs(shapes)
+	lsp1 = length(shapes) + 1
+	map(xyzc) do p
+		let ps=ps, lsp1=lsp1
+			for (i, a) in ps #pairs(s)
+				in(p::T,a::S)::Bool && return i
+			end
+			return lsp1
+		end
 	end
-	@avx for I ∈ eachindex(ms.M̂.xyz)
-		unq .= [	ms.M̂.corner_sinds[I],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,0,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,1,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,1,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,0,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,0,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,1,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,1,1)],
-		  		]
-		unq = unique!( unq )
-		a = length(unq)
-		ms.M̂.corner_sinds_proc[I] = a==1 ? (unq[1],0,0,0,0,0,0,0) :
-			( a==2 ?  (minimum(unq),maximum(unq),0,0,0,0,0,0)  :
-				( 	ms.M̂.corner_sinds[I],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,0,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,1,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,1,0)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,0,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,0,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(0,1,1)],
-					ms.M̂.corner_sinds[I+CartesianIndex(1,1,1)],
+end
+
+function corner_sinds!(corner_sinds,shapes::Vector{S},xyz,xyzc::Array{T}) where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
+	ps = pairs(shapes)
+	lsp1 = length(shapes) + 1
+	map!(corner_sinds,xyzc) do p
+		let ps=ps, lsp1=lsp1
+			for (i, a) in ps #pairs(s)
+				in(p::T,a::S)::Bool && return i
+			end
+			return lsp1
+		end
+	end
+end
+
+function proc_sinds(corner_sinds)
+	unq = [0,0]
+	sinds_proc = fill((0,0,0,0,0,0,0,0),size(corner_sinds).-1) #zeros(eltype(first(corner_sinds)),size(corner_sinds).-1)
+	@inbounds for I ∈ CartesianIndices(sinds_proc)
+	 	unq = [		corner_sinds[I],
+								corner_sinds[I+CartesianIndex(1,0,0)],
+								corner_sinds[I+CartesianIndex(0,1,0)],
+								corner_sinds[I+CartesianIndex(1,1,0)]
+			  				]
+		unique!( unq )
+		sinds_proc[I] = isone(lastindex(unq)) ? (unq[1],0,0,0,0,0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0,0,0,0,0) ) :
+				( 	corner_sinds[I],
+					corner_sinds[I+CartesianIndex(1,0,0)],
+					corner_sinds[I+CartesianIndex(0,1,0)],
+					corner_sinds[I+CartesianIndex(1,1,0)],
+					corner_sinds[I+CartesianIndex(0,0,1)],
+					corner_sinds[I+CartesianIndex(1,0,1)],
+					corner_sinds[I+CartesianIndex(0,1,1)],
+					corner_sinds[I+CartesianIndex(1,1,1)]
+				)
+		)
+	end
+	return sinds_proc
+end
+
+function proc_sinds!(sinds_proc,corner_sinds)
+	unq = [0,0]
+	@inbounds for I ∈ CartesianIndices(sinds_proc)
+	 	unq = [		corner_sinds[I],
+								corner_sinds[I+CartesianIndex(1,0,0)],
+								corner_sinds[I+CartesianIndex(0,1,0)],
+								corner_sinds[I+CartesianIndex(1,1,0)]
+			  				]
+		unique!( unq )
+		sinds_proc[I] = isone(lastindex(unq)) ? (unq[1],0,0,0,0,0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0,0,0,0,0) ) :
+				( 	corner_sinds[I],
+					corner_sinds[I+CartesianIndex(1,0,0)],
+					corner_sinds[I+CartesianIndex(0,1,0)],
+					corner_sinds[I+CartesianIndex(1,1,0)],
+					corner_sinds[I+CartesianIndex(0,0,1)],
+					corner_sinds[I+CartesianIndex(1,0,1)],
+					corner_sinds[I+CartesianIndex(0,1,1)],
+					corner_sinds[I+CartesianIndex(1,1,1)]
 				)
 		)
 	end
 end
+
+_get_ε(shapes,ind) = ind>lastindex(shapes) ? SMatrix{3,3}(1.,0.,0.,0.,1.,0.,0.,0.,1.) : shapes[ind].data
+_V3(v) = isequal(length(v),3) ? v : vcat(v,zeros(3-length(v)))
+
+function n_rvol(shape,xyz,vxl_min,vxl_max)
+	r₀,n⃗ = surfpt_nearby(xyz, shape)
+	rvol = volfrac((vxl_min,vxl_max),n⃗,r₀)
+	return _V3(n⃗),rvol
+end
+
+function _εₛ(shapes,sinds_proc,xyz,vxl_min,vxl_max)
+	iszero(sinds_proc[2]) && return _get_ε(shapes,sinds_proc[1])
+	iszero(sinds_proc[3]) && return avg_param(	shapes[sinds_proc[1]].data,
+												_get_ε(shapes,sinds_proc[2]),
+												n_rvol(shapes[sinds_proc[1]],xyz,vxl_min,vxl_max)...
+												)
+	return mapreduce(i->_get_ε(shapes,i),+,sinds_proc) / 8
+end
+
+function εₛ(shapes,sinds_proc,xyz,xyzc)
+	vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+	vxl_max = @view xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+	f(sp,x,vn,vp) = let s=shapes
+		_εₛ(s,sp,x,vn,vp)
+	end
+	map(f,sinds_proc,xyz,vxl_min,vxl_max)
+end
+
+function εₛ(shapes;ms::ModeSolver)
+	Zygote.@ignore(corner_sinds!(ms.M̂.corner_sinds,shapes,ms.M̂.xyz,ms.M̂.xyzc))
+	Zygote.@ignore(proc_sinds!(ms.M̂.sinds_proc,ms.M̂.corner_sinds))
+	vxl_min = @view ms.M̂.xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+	vxl_max = @view ms.M̂.xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+	f(sp,x,vn,vp) = let s=shapes
+		_εₛ(s,sp,x,vn,vp)
+	end
+	map(f,ms.M̂.corner_sinds_proc,ms.M̂.xyz,ms.M̂.xyzc)
+end
+
+function εₛ⁻¹(shapes,sinds_proc,xyz,xyzc)
+	vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+	vxl_max = @view xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+	f(sp,x,vn,vp) = let s=shapes
+		inv(_εₛ(s,sp,x,vn,vp))
+	end
+	map(f,sinds_proc,xyz,vxl_min,vxl_max)
+end
+
+function εₛ⁻¹(shapes;ms::ModeSolver)
+	Zygote.@ignore(corner_sinds!(ms.M̂.corner_sinds,shapes,ms.M̂.xyz,ms.M̂.xyzc))
+	Zygote.@ignore(proc_sinds!(ms.M̂.sinds_proc,ms.M̂.corner_sinds))
+	vxl_min = @view ms.M̂.xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+	vxl_max = @view ms.M̂.xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+	f(sp,x,vn,vp) = let s=shapes
+		inv(_εₛ(s,sp,x,vn,vp))
+	end
+	map(f,ms.M̂.corner_sinds_proc,ms.M̂.xyz,ms.M̂.xyzc)
+end
+
 
 function εₛ(shapes::AbstractVector{<:GeometryPrimitives.Shape{2}},x::Real,y::Real;tree::KDTree,δx::Real,δy::Real,npix_sm::Int=1)
     s1 = @ignore(findfirst(SVector(x+δx/2.,y+δy/2.),tree))
@@ -128,7 +226,6 @@ function εₛ(shapes::AbstractVector{<:GeometryPrimitives.Shape{2}},x::Real,y::
         end
     end
 end
-
 
 function εₘₐₓ(shapes::AbstractVector{<:GeometryPrimitives.Shape})
     maximum(vec([shapes[i].data[j,j] for j=1:3,i=1:size(shapes)[1]]))
@@ -167,6 +264,17 @@ function make_εₛ⁻¹_fwd(shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz:
 end
 
 
+
+
+# in2(x::SVector{2,<:Real}, s::GeometryPrimitives.Polygon) = all(sum(s.n .* (x' .- s.v), dims=Val(2)) .≤ 0)
+#
+# function in2(x::SVector{N,<:Real}, b::GeometryPrimitives.Box{N}) where {N}
+#     d = b.p * (x - b.c)
+#     for i = 1:N
+#         abs(d[i]) > b.r[i] && return false  # boundary is considered inside
+#     end
+#     return true
+# end
 
 
 # function avg_param(param1, param2, n12, rvol1)

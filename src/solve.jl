@@ -27,13 +27,6 @@ function make_εₛ⁻¹(shapes::Vector{<:Shape},ms::ModeSolver{T}) where T<:Rea
 end
 
 function make_εₛ⁻¹(ω,shapes::Vector{<:Shape},ms::ModeSolver{T}) where T<:Real
-	make_εₛ⁻¹(ω,shapes;Δx=ms.M̂.Δx,Δy=ms.M̂.Δy,Δz=ms.M̂.Δz,Nx=ms.M̂.Nx,Ny=ms.M̂.Ny,
-		 	Nz=ms.M̂.Nz,δx=ms.M̂.δx,δy=ms.M̂.δy,δz=ms.M̂.δz,x=ms.M̂.x,y=ms.M̂.y,z=ms.M̂.z)
-end
-
-function make_εₛ⁻¹(ω,shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int,
-	 	δx=Δx/Nx, δy=Δy/Ny, δz=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
-		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where N
     eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
 	eps_shapes = vcat( [ s.data(1/ω) for s in shapes ], [Diagonal([1,1,1]),] )
 	# eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
@@ -44,11 +37,13 @@ function make_εₛ⁻¹(ω,shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::
 		if sinds[2]==0
 			eibuf[:,:,I[1],I[2],I[3]] = inv(eps_shapes[sinds[1]])
 		elseif sinds[3]==0
+			r₀,nout = surfpt_nearby(ms.M̂.xyz(I), shapes[sinds[1]])
+			rvol = volfrac((ms.M̂.xyzc[I], ms.M̂.xyzc[I+CartesianIndex(1,1,1)]),nout,r₀)
 			eibuf[:,:,I[1],I[2],I[3]] = inv(avg_param(
 					eps_shapes[sinds[1]],
 					eps_shapes[sinds[2]],
-					n12,
-					rvol1,
+					[nout[1];nout[2];0],
+                    rvol,
 				)
 			)
 		else
