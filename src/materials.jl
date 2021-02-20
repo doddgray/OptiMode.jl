@@ -6,7 +6,7 @@
 #                        for phase-matching calculations                       #
 ################################################################################
 # ng(fₙ::Function) = λ -> ( (n,n_pb) = Zygote.pullback(fₙ,λ); ( n - λ * n_pb(1)[1] ) )
-export n, ng, gvd, λ, Material
+export n, ng, gvd, ε, ε⁻¹, fn, fng, fgvd, fε, fε⁻¹, λ, Material, materials
 
 c = Unitful.c0      # Unitful.jl speed of light
 @parameters λ, T
@@ -17,16 +17,69 @@ gvd(n_sym::Num) = λ^3 * expand_derivatives(Dλ(Dλ(n_sym))) # gvd = uconvert( (
 
 struct Material{T}
 	ε::SMatrix{3,3,T,9}
+	# Material(x) = new(ε_tensor(x))
 end
 
+Material(x::AbstractArray) = Material(ε_tensor(x))
+Material(x::Number) = Material(ε_tensor(x))
+Material(x::Tuple) = Material(ε_tensor(x))
+Material(mat::Material) = mat	# maybe
+# import Base.convert
+# convert(::Type{Material}, x) = Material(x)
+
+#### Fixed index Material constructors and methods ####
+
+# Material(n::T where T<:Real) = Material{T}(ε_tensor(n))							# isotropic fixed index Material
+# Material(ns::Tuple{T,T,T} where T<:Real) = Material{T}(ε_tensor(ns))			# anisotropic fixed index Material
+# Material(ε::AbstractMatrix{T} where T<:Real) = Material{T}(ε_tensor(ε))			# fixed dielectric tensor material
+
+ε(mat::Material) = mat.ε
+ε⁻¹(mat::Material) = inv(mat.ε)
 n(mat::Material) = sqrt.(diag(mat.ε))
 n(mat::Material,axind::Int) = sqrt(mat.ε[axind,axind])
-ng(mat::Material) = ng.(n(mat))
-ng(mat::Material,axind::Int) = ng(n(mat,axind))
-gvd(mat::Material) = gvd.(n(mat))
-gvd(mat::Material,axind::Int) = gvd(n(mat,axind))
 
-materials(shapes) = unique!(getfield.(shapes,:data))
+# Fallback methods for fixed-index Materials
+ng(mat::Material{T} where T<:Real) = zeros(T,3)
+ng(mat::Material{T},axind::Int) where T<:Real = zero(T)
+gvd(mat::Material{T} where T<:Real) = zeros(T,3)
+gvd(mat::Material{T},axind::Int) where T<:Real = zero(T)
+
+fε(mat::Material) = x->ε(mat)
+fε⁻¹(mat::Material) = x->ε⁻¹(mat)
+fn(mat::Material) = x->n(mat)
+fn(mat::Material,axind::Int) = x->n(mat,axind)
+fng(mat::Material) = x->ng(mat)
+fng(mat::Material,axind::Int) = x->ng(mat,axind)
+fgvd(mat::Material) = x->gvd(mat)
+fgvd(mat::Material,axind::Int) = x->gvd(mat,axind)
+
+#### Symbolic Material model methods ####
+ng(mat::Material{Num}) = ng.(n(mat))
+ng(mat::Material{Num},axind::Int) = ng(n(mat,axind))
+gvd(mat::Material{Num}) = gvd.(n(mat))
+gvd(mat::Material{Num},axind::Int) = gvd(n(mat,axind))
+### methods to generate numerical functions for symbolic material dispersions ###
+# non-mutating numerical function generators #
+fε(mat::Material{Num}) = eval(build_function(ε(mat),λ)[1])
+fε⁻¹(mat::Material{Num}) = eval(build_function(ε⁻¹(mat),λ)[1])
+fn(mat::Material{Num}) = eval(build_function(n(mat),λ)[1])
+fn(mat::Material{Num},axind::Int) = eval(build_function(n(mat,axind),λ)[1])
+fng(mat::Material{Num}) = eval(build_function(ng(mat),λ)[1])
+fng(mat::Material{Num},axind::Int) = eval(build_function(ng(mat,axind),λ)[1])
+fgvd(mat::Material{Num}) = eval(build_function(gvd(mat),λ)[1])
+fgvd(mat::Material{Num},axind::Int) = eval(build_function(gvd(mat,axind),λ)[1])
+# mutating numerical function generators #
+fε!(mat::Material{Num}) = eval(build_function(ε(mat),λ)[2])
+fε⁻¹!(mat::Material{Num}) = eval(build_function(ε⁻¹(mat),λ)[2])
+fn!(mat::Material{Num}) = eval(build_function(n(mat),λ)[2])
+fn!(mat::Material{Num},axind::Int) = eval(build_function(n(mat,axind),λ)[2])
+fng!(mat::Material{Num}) = eval(build_function(ng(mat),λ)[2])
+fng!(mat::Material{Num},axind::Int) = eval(build_function(ng(mat,axind),λ)[2])
+fgvd!(mat::Material{Num}) = eval(build_function(gvd(mat),λ)[2])
+fgvd!(mat::Material{Num},axind::Int) = eval(build_function(gvd(mat,axind),λ)[2])
+
+materials(shapes::Vector{<:GeometryPrimitives.Shape}) = unique!(Material.(getfield.(shapes,:data))) # unique!(getfield.(shapes,:data))
+
 
 ################################################################################
 #                                Load Materials                                #

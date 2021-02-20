@@ -1,5 +1,5 @@
 using  IterativeSolvers, Roots # , KrylovKit
-export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², make_MG, make_MD, replan_ffts!
+export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², replan_ffts!
 using Zygote: Buffer
 
 """
@@ -13,8 +13,7 @@ using Zygote: Buffer
 
 k_guess(ω,ε⁻¹::Array{Float64,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
 k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
-make_MG(Δx,Δy,Δz,Nx,Ny,Nz) = (g = Zygote.@ignore (MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)); g)::MaxwellGrid
-make_MD(k,g::MaxwellGrid) = (ds = Zygote.@ignore (MaxwellData(k,g)); ds)::MaxwellData
+
 
 function make_εₛ⁻¹(shapes::Vector{<:Shape},M̂::HelmholtzMap{T}) where T<:Real
 	make_εₛ⁻¹(shapes;Δx=M̂.Δx,Δy=M̂.Δy,Δz=M̂.Δz,Nx=M̂.Nx,Ny=M̂.Ny,Nz=M̂.Nz,
@@ -56,17 +55,17 @@ function make_εₛ⁻¹(ω,shapes::Vector{<:Shape},ms::ModeSolver{T}) where T<:
 	return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()}}( real(copy(eibuf)) )
 end
 
-function make_εₛ⁻¹(shapes::Vector{<:Shape},g::MaxwellGrid)::Array{T,5} where T<:Real
-    tree = make_KDTree(shapes)
-    eibuf = Zygote.Buffer(Array{T}(undef),3,3,g.Nx,g.Ny,1)
-    for i=1:g.Nx,j=1:g.Ny,kk=1:g.Nz
-		# eps = εₛ(shapes,Zygote.dropgrad(tree),Zygote.dropgrad(g.x[i]),Zygote.dropgrad(g.y[j]),Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy))
-		eps = εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy)
-		epsi = inv(eps) # inv( (eps' + eps) / 2) # Hermitian(inv(eps))  # inv(Hermitian(eps)) #   # inv(eps)
-        eibuf[:,:,i,j,kk] = epsi #(epsi' + epsi) / 2
-    end
-    return real(copy(eibuf))
-end
+# function make_εₛ⁻¹(shapes::Vector{<:Shape},g::MaxwellGrid)::Array{T,5} where T<:Real
+#     tree = make_KDTree(shapes)
+#     eibuf = Zygote.Buffer(Array{T}(undef),3,3,g.Nx,g.Ny,1)
+#     for i=1:g.Nx,j=1:g.Ny,kk=1:g.Nz
+# 		# eps = εₛ(shapes,Zygote.dropgrad(tree),Zygote.dropgrad(g.x[i]),Zygote.dropgrad(g.y[j]),Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy))
+# 		eps = εₛ(shapes,tree,g.x[i],g.y[j],g.δx,g.δy)
+# 		epsi = inv(eps) # inv( (eps' + eps) / 2) # Hermitian(inv(eps))  # inv(Hermitian(eps)) #   # inv(eps)
+#         eibuf[:,:,i,j,kk] = epsi #(epsi' + epsi) / 2
+#     end
+#     return real(copy(eibuf))
+# end
 
 """
 ################################################################################
@@ -144,41 +143,41 @@ function solve_ω²(k::Vector{T},ε⁻¹::AbstractArray{T,5}; kwargs...) where T
 	[ ( @ignore(update_k(ms,kk)); solve_ω²(ms; kwargs...) ) for kk in k ]
 end
 
-# Legacy code to be removed soon
-function solve_ω²(kz::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
-	# Δk = k - ds.k
-	ds.k = kz
-	ds.kpg_mag, ds.mn = calc_kpg(kz,ds.Δx,ds.Δy,ds.Δz,ds.Nx,ds.Ny,ds.Nz)
-    # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
-    res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
-    H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
-    ds.ω² =  real(res.λ[eigind])                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3]
-	ds.H⃗ .= H
-	ds.ω = ( ds.ω² > 0. ? sqrt(ds.ω²) : 0. )
-    # ds.ω²ₖ = 2 * H_Mₖ_H(Ha,ε⁻¹,kpg_mn,kpg_mag,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
-    return (H, ds.ω^2) #(H, ds.ω²) #, ωₖ
-end
+# # Legacy code to be removed soon
+# function solve_ω²(kz::T,ε⁻¹::Array{Float64,5},ds::MaxwellData;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+# 	# Δk = k - ds.k
+# 	ds.k = kz
+# 	ds.kpg_mag, ds.mn = calc_kpg(kz,ds.Δx,ds.Δy,ds.Δz,ds.Nx,ds.Ny,ds.Nz)
+#     # res = IterativeSolvers.lobpcg(M̂(ε⁻¹,ds),false,neigs;P=P̂(ε⁻¹,ds),maxiter,tol)
+#     res = IterativeSolvers.lobpcg(M̂!(ε⁻¹,ds),false,ds.H⃗;P=P̂!(ε⁻¹,ds),maxiter,tol)
+#     H =  res.X #[:,eigind]                       # eigenmode wavefn. magnetic fields in transverse pol. basis
+#     ds.ω² =  real(res.λ[eigind])                     # eigenmode temporal freq.,  neff = kz / ω, kz = k[3]
+# 	ds.H⃗ .= H
+# 	ds.ω = ( ds.ω² > 0. ? sqrt(ds.ω²) : 0. )
+#     # ds.ω²ₖ = 2 * H_Mₖ_H(Ha,ε⁻¹,kpg_mn,kpg_mag,ds.𝓕,ds.𝓕⁻¹) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+#     return (H, ds.ω^2) #(H, ds.ω²) #, ωₖ
+# end
 
-function solve_ω²(kz,ε⁻¹::Array{Float64,5},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-    solve_ω²(kz,ε⁻¹,make_MD(first(kz),g);neigs,eigind,maxiter,tol)
-end
+# function solve_ω²(kz,ε⁻¹::Array{Float64,5},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+#     solve_ω²(kz,ε⁻¹,make_MD(first(kz),g);neigs,eigind,maxiter,tol)
+# end
 
-function solve_ω²(kz::T,ε⁻¹::Array{T,5},Δx::T,Δy::T,Δz::T;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
-    solve_ω²(kz,ε⁻¹,make_MG(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
-end
+# function solve_ω²(kz::T,ε⁻¹::Array{T,5},Δx::T,Δy::T,Δz::T;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+#     solve_ω²(kz,ε⁻¹,make_MG(Δx,Δy,Δz,size(ε⁻¹)[end-2:end]...);neigs,eigind,maxiter,tol)
+# end
 
-function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-	ds::MaxwellData = make_MD(kz,g)
-	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
-	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
-end
+# function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},g::MaxwellGrid;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	ds::MaxwellData = make_MD(kz,g)
+# 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+# 	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+# end
 
-function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
-	ds::MaxwellData = make_MD(kz,g)
-	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
-	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
-end
+# function solve_ω²(kz,shapes::Vector{<:GeometryPrimitives.Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8)
+# 	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+# 	ds::MaxwellData = make_MD(kz,g)
+# 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+# 	solve_ω²(kz,ε⁻¹,ds;neigs,eigind,maxiter,tol)
+# end
 
 """
 ################################################################################
@@ -435,32 +434,32 @@ function solve_nω(ms::ModeSolver{T},k,ε⁻¹::AbstractArray{T,5};nev=1,eigind=
 	return ( k/ω, ng )
 end
 
-function solve_nω(ms::ModeSolver{T},k,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
-	g::MaxwellGrid = make_MG(ms.M̂.Δx,ms.M̂.Δy,ms.M̂.Δz,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)
-	# ε⁻¹ = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}( make_εₛ⁻¹(shapes,g) )
-	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
-	ω², H⃗ = solve_ω²(ms,k,ε⁻¹;nev,eigind,maxiter,tol,log)
-	ω = sqrt(ω²)
-	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
-	ng = ω / H_Mₖ_H(H⃗,ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
-	return ( k/ω, ng )
-end
+# function solve_nω(ms::ModeSolver{T},k,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+# 	g::MaxwellGrid = make_MG(ms.M̂.Δx,ms.M̂.Δy,ms.M̂.Δz,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)
+# 	# ε⁻¹ = HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},Float64,5,5,Array{Float64,5}}( make_εₛ⁻¹(shapes,g) )
+# 	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
+# 	ω², H⃗ = solve_ω²(ms,k,ε⁻¹;nev,eigind,maxiter,tol,log)
+# 	ω = sqrt(ω²)
+# 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
+# 	ng = ω / H_Mₖ_H(H⃗,ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
+# 	return ( k/ω, ng )
+# end
 
-function solve_nω(kz::T,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
-	# g::MaxwellGrid = make_MG(Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz)) #Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
-	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
-	# ds::MaxwellData = make_MD(kz,g) # MaxwellData(kz,g)
-	# kpg_mag,kpg_mn = calc_kpg(kz,Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz))
-	# mag,mn = calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz)
-	mag,mn = calc_kpg(kz,g.g⃗)
-	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
-	H,ω² = solve_ω²(kz,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
-	# println("ω² = $ω²")
-	ω = sqrt(ω²)
-	Ha = reshape(H,(2,Nx,Ny,Nz))
-	# ng = -ω / real( dot(Ha, kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,ds.mn), (2:4) ), ε⁻¹), (2:4)),ds.mn,ds.mag) ) )
-	ng = ω / H_Mₖ_H(Ha,ε⁻¹,mag,mn[:,1,:,:,:],mn[:,2,:,:,:])
-	# ng = ω / real( dot(H, -vec( kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,mn), (2:4) ), ε⁻¹), (2:4)),mn,mag) ) ) )
-	# ng = -ω / real( dot(Ha, kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,Zygote.@showgrad(mn)), (2:4) ), ε⁻¹), (2:4)), Zygote.@showgrad(mn),Zygote.@showgrad(mag)) ) )
-	( kz/ω, ng )
-end
+# function solve_nω(kz::T,shapes::Vector{<:Shape},Δx,Δy,Δz,Nx,Ny,Nz;neigs=1,eigind=1,maxiter=3000,tol=1e-8) where T<:Real
+# 	# g::MaxwellGrid = make_MG(Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz)) #Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+# 	g::MaxwellGrid = make_MG(Δx,Δy,Δz,Nx,Ny,Nz)  	# MaxwellGrid(Δx,Δy,Δz,Nx,Ny,Nz)
+# 	# ds::MaxwellData = make_MD(kz,g) # MaxwellData(kz,g)
+# 	# kpg_mag,kpg_mn = calc_kpg(kz,Zygote.dropgrad(Δx),Zygote.dropgrad(Δy),Zygote.dropgrad(Δz),Zygote.dropgrad(Nx),Zygote.dropgrad(Ny),Zygote.dropgrad(Nz))
+# 	# mag,mn = calc_kpg(kz,Δx,Δy,Δz,Nx,Ny,Nz)
+# 	mag,mn = calc_kpg(kz,g.g⃗)
+# 	ε⁻¹::Array{Float64,5} = make_εₛ⁻¹(shapes,g)
+# 	H,ω² = solve_ω²(kz,ε⁻¹,Δx,Δy,Δz;neigs,eigind,maxiter,tol)
+# 	# println("ω² = $ω²")
+# 	ω = sqrt(ω²)
+# 	Ha = reshape(H,(2,Nx,Ny,Nz))
+# 	# ng = -ω / real( dot(Ha, kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,ds.mn), (2:4) ), ε⁻¹), (2:4)),ds.mn,ds.mag) ) )
+# 	ng = ω / H_Mₖ_H(Ha,ε⁻¹,mag,mn[:,1,:,:,:],mn[:,2,:,:,:])
+# 	# ng = ω / real( dot(H, -vec( kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,mn), (2:4) ), ε⁻¹), (2:4)),mn,mag) ) ) )
+# 	# ng = -ω / real( dot(Ha, kx_c2t( ifft( ε⁻¹_dot( fft( zx_t2c(Ha,Zygote.@showgrad(mn)), (2:4) ), ε⁻¹), (2:4)), Zygote.@showgrad(mn),Zygote.@showgrad(mag)) ) )
+# 	( kz/ω, ng )
+# end

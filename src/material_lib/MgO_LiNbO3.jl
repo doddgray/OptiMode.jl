@@ -132,3 +132,4 @@ gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency) = ( _gvdₒ_MgO_LiNbO₃(((Unitful.c0/
 
 
 MgO_LiNbO₃ = Material(SMatrix{3,3}(ε_MgO_LiNbO₃_sym))
+# MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym)

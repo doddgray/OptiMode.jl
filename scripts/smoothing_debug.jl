@@ -1,48 +1,122 @@
 using Revise
-using LinearAlgebra, Statistics, StaticArrays, HybridArrays, GeometryPrimitives, OptiMode, BenchmarkTools
+using OptiMode
+using LinearAlgebra, Statistics, StaticArrays, HybridArrays, GeometryPrimitives, BenchmarkTools
+using ChainRules, Zygote, ForwardDiff
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
        π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-       2.4,                #   core index              `n_core`        [1]
-       1.4,                #   substrate index         `n_subs`        [1]
        0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
                ];
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
-rwg(p) = ridge_wg(p[1],p[2],p[3],p[6],p[4],p[5],Δx,Δy)
-ms = ModeSolver(1.45, rwg(p), Δx, Δy, Δz, Nx, Ny, Nz)
-
-function ridge_wg2(wₜₒₚ::T1,t_core::T1,θ::T1,edge_gap::T1,ε_core,ε_subs,Δx::T2,Δy::T2)::Vector{<:GeometryPrimitives.Shape} where {T1<:Real,T2<:Real}
-    t_subs = (Δy -t_core - edge_gap )/2.
-    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
-    # ε_core = ε_tensor(n_core)
-    # ε_subs = ε_tensor(n_subs)
-    wt_half = wₜₒₚ / 2
-    wb_half = wt_half + ( t_core * tan(θ) )
-    tc_half = t_core / 2
-    verts =     [   wt_half     -wt_half     -wb_half    wb_half
-                    tc_half     tc_half    -tc_half      -tc_half    ]'
-    core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
-                    SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
-                    ε_core,					                                    # data: any type, data associated with box shape
-                )
-    ax = [      1.     0.
-                0.     1.      ]
-    b_subs = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
-                    [0. , c_subs_y],            	# c: center
-                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
-                    ax,	    		        # axes: box axes
-                    ε_subs,					        # data: any type, data associated with box shape
-                )
-    return [core,b_subs]
-end
-
-rwg2(p) = ridge_wg2(p[1],p[2],p[3],p[6],MgO_LiNbO₃,SiO₂,Δx,Δy)
-shapes = rwg(p)
-shapes2 = rwg2(p)
+gr = Grid(Δx,Δy,Nx,Ny)
+rwg(p) = ridge_wg(p[1],p[2],p[3],p[4],MgO_LiNbO₃,SiO₂,Δx,Δy)
+ms = ModeSolver(1.45, rwg(p), gr)
 
 ##
 
+shapes1 = rwg3(p)
+geom2 = rwg2(p)
+convert.(Material,getfield.(shapes1,:data))
+mats0 = getfield.(shapes1,:data)
+similar(mats0,Material)
+Material(3.5)
+Material.(getfield.(shapes1,:data))
+
+import Base.convert
+convert(::Type{Material}, x) = Material(x)
+materials(rwg(p))
+materials2(shapes::Vector{S}) where S<:Shape{N,N²,D,T} where {N,N²,D<:Material,T} = unique!(getfield.(shapes,:data))
+materials2(shapes1)
+materials(shapes1)
+rwg(p)
+eltype(shapes1)<:Shape{N,N²,D,T} where {N,N²,D<:Material,T}
+e1 = ε_tensor(3.5)
+Material(e1)
+##
+εs_sym = getfield.(materials(shapes2),:ε)
+ε_exprs = build_function.(getfield.(materials(shapes2),:ε),λ)
+εs = [ eval(εe[1]) for εe in ε_exprs ]
+εs! = [ eval(εe[2]) for εe in ε_exprs ]
+
+εs[1](0.8)
+
+struct Geometry3{N}
+	shapes::Vector{Shape{N}}
+	# materials::Vector{Material}
+end
+Geometry3(s::Vector{S}) where S<:Shape{N} where N = Geometry3{N}(s)
+
+shapes1 =
+Geometry3(shapes1)
+
+
+mats = materials(shapes2)
+sinds2minds = map(s->findfirst(m->isequal(s.data,m), mats),shapes2)
+
+csinds = corner_sinds(shapes2,ms.M̂.xyz,ms.M̂.xyzc)
+sinds_pr = proc_sinds(csinds)
+vxl_min = @view ms.M̂.xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+vxl_max = @view ms.M̂.xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+
+
+
+sr1 = S_rvol(ms.M̂.corner_sinds_proc,ms.M̂.xyz,vxl_min,vxl_max,shapes)
+@btime S_rvol($ms.M̂.corner_sinds_proc,$ms.M̂.xyz,$vxl_min,$vxl_max,$shapes)
+
+sr2 = S_rvol(ms.M̂.corner_sinds_proc,ms.M̂.xyz,vxl_min,vxl_max,shapes2)
+@btime S_rvol($ms.M̂.corner_sinds_proc,$ms.M̂.xyz,$vxl_min,$vxl_max,$shapes2)
+
+corner_sinds!(ms.M̂.corner_sinds,shapes,ms.M̂.xyz,ms.M̂.xyzc)
+
+S_rvol(shapes;ms)
+@btime S_rvol($shapes;ms=$ms)
+@btime S_rvol(shapes2;ms)
+
+const εᵥ = SMatrix{3,3}(1.,0.,0.,0.,1.,0.,0.,0.,1.)
+fεs = map(m->fε(m)[1],mats)
+λs = 0.5:0.1:1.6
+ωs = 1 ./ λs
+εs = [vcat([SMatrix{3,3}(fep(lm)) for fep in fεs],[εᵥ,]) for lm in λs]
+minds= matinds(shapes2)
+
+epsm = εₛ(εs[1],ms.M̂.corner_sinds_proc,minds,sr1)
+@btime εₛ($εs[1],$ms.M̂.corner_sinds_proc,$minds,$sr1)
+
+εₛ11 = [ee[1,1] for ee in epsm][:,:,1]
+εₛ22 = [ee[2,2] for ee in epsm][:,:,1]
+εₛ12 = [ee[1,2] for ee in epsm][:,:,1]
+
+
+
+geom = Geometry(shapes2)
+
+##
+# check that materials/shapes lists and cross-reference index lists work by adding a few shapes
+bx1 = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
+				[0. , 0.1],            	# c: center
+				[2.8, 0.4 ],	# r: "radii" (half span of each axis)
+				SMatrix{2,2}(1.,0.,0.,1.),	    		        # axes: box axes
+				MgO_LiNbO₃,					        # data: any type, data associated with box shape
+			)
+bx2 = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
+				[-0.5 , 0.4],            	# c: center
+				[0.8, 0.2 ],	# r: "radii" (half span of each axis)
+				SMatrix{2,2}(1.,0.,0.,1.),	    		        # axes: box axes
+				SiO₂,					        # data: any type, data associated with box shape
+			)
+bx3 = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
+				[0.5 , 0.4],            	# c: center
+				[0.2, 0.2 ],	# r: "radii" (half span of each axis)
+				SMatrix{2,2}(1.,0.,0.,1.),	    		        # axes: box axes
+				Si₃N₄,					        # data: any type, data associated with box shape
+			)
+shapes3 = vcat(shapes2, [bx1,bx2,bx3])
+mats3 = materials(shapes3)
+sinds2minds3 = map(s->findfirst(m->isequal(s.data,m), mats3),shapes3)
+
+
+##
 struct Material{T}
 	ε::SMatrix{3,3,T,9}
 end
@@ -52,9 +126,6 @@ ng(mat::Material) = ng_sym.(n.(mat))
 ng(mat::Material,axind::Int) = ng_sym(n(mat,axind))
 gvd(mat::Material) = gvd_sym.(n.(mat))
 gvd(mat::Material,axind::Int) = gvd_sym(n(mat,axind))
-
-
-
 
 using ModelingToolkit
 pₑ_MgO_LiNbO₃ = (

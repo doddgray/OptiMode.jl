@@ -18,6 +18,10 @@ using Plots: plot, heatmap, plot!, heatmap!
 ## Exports ##
 export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3
 
+# Import methods that we will overload for custom types
+import Base: size, eltype
+import LinearAlgebra: mul!
+
 # FFTW settings
 FFTW.set_num_threads(4)     # chosen for thread safety when combined with other parallel code, consider increasing
 
@@ -28,11 +32,14 @@ SHM3 = SHermitianCompact{3,Float64,6}   # static Hermitian 3×3 matrix Type, ren
 LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 
 ## Includes ##
-include("maxwell.jl")
-include("plot.jl")
-include("materials.jl")
+
+# include("plot.jl")
 include("epsilon.jl")
+include("materials.jl")
+include("grid.jl")
 include("geometry.jl")
+include("maxwell.jl")
+include("smooth.jl")
 include("solve.jl")
 include("grads.jl")
 # include("optimize.jl")
