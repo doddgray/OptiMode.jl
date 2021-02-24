@@ -75,21 +75,21 @@ end
 ################################################################################
 """
 
-function solve_ω²(ms::ModeSolver;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 		# ; kwargs...) where T<:Real
 		# ;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
 		res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
 		return (real(ms.ω²[eigind]), ms.H⃗[:,eigind])
 end
 
-function solve_ω²(ms::ModeSolver{T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 		# nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
 	@ignore(update_k!(ms,k))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_ω²(ms; nev, eigind, maxiter, tol, log)
 end
 
-function solve_ω²(ms::ModeSolver{T},k::Union{T,SVector{3,T}},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 		# nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
 	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
 	@ignore(update_k!(ms,k))
@@ -97,15 +97,15 @@ function solve_ω²(ms::ModeSolver{T},k::Union{T,SVector{3,T}},shapes::Vector{<:
 	solve_ω²(ms; nev, eigind, maxiter, tol, log)
 end
 
-function solve_ω²(ms::ModeSolver{T},k::Union{T,SVector{3,T}};
-		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}};
+		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 	# @ignore(update_k(ms,k)
 	update_k!(ms,k)
 	solve_ω²(ms; nev, eigind, maxiter, tol, log)
 end
 
-function solve_ω²(ms::ModeSolver{T},k::Vector{T}; nev=1,eigind=1,
-		maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},k::Vector{T}; nev=1,eigind=1,
+		maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 	ω² = Buffer(k,length(k))
 	H = Buffer(ms.H⃗,length(k),size(ms.M̂)[1])
 	@inbounds for kind=1:length(k)
@@ -119,8 +119,8 @@ function solve_ω²(ms::ModeSolver{T},k::Vector{T}; nev=1,eigind=1,
 	# [ ( @ignore(update_k!(ms,kk)); solve_ω²(ms; kwargs...) ) for kk in k ]
 end
 
-function solve_ω²(ms::ModeSolver{T},shapes::Vector{<:Shape};
-		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},shapes::Vector{<:Shape};
+		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_ω²(ms; nev, eigind, maxiter, tol, log)
@@ -201,7 +201,7 @@ end
 modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x)) as input to solve f(x) = 0
 """
 
-function _solve_Δω²(ms::ModeSolver{T},k::Union{T,SVector{3,T}},ωₜ::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real #,ω²_tol=1e-6)
+function _solve_Δω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ωₜ::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real} #,ω²_tol=1e-6)
 	ω²,H⃗ = solve_ω²(ms,k; nev, eigind, maxiter, tol, log)
 	Δω² = ω²[eigind] - ωₜ^2
 	ms.∂ω²∂k[eigind] = 2 * H_Mₖ_H(ms.H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
@@ -215,7 +215,7 @@ end
 # end
 
 # function solve_k(ω,ε⁻¹;Δx=6.0,Δy=4.0,Δz=1.0,k_guess=ω*sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-function solve_k(ms::ModeSolver{T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real #
+function solve_k(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real} #
 	if ms.M̂.k⃗[3]==0.
 		ms.M̂.k⃗ = SVector(0., 0., ω*sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])))
 	end
@@ -223,18 +223,18 @@ function solve_k(ms::ModeSolver{T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,lo
     return ( kz, ms.H⃗ ) # maybe copy(ds.H⃗) instead?
 end
 
-function solve_k(ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_k(ms, ω; nev, eigind, maxiter, tol, log)
 end
 
-function solve_k(ms::ModeSolver{T},ω::T,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
-	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
+function solve_k(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+	ε⁻¹ = εₛ⁻¹(ω,geom;ms) # make_εₛ⁻¹(shapes,dropgrad(ms))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_k(ms, ω; nev, eigind, maxiter, tol, log)
 end
 
-function solve_k(ms::ModeSolver{T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_k(ms::ModeSolver{ND,T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	nω = length(ω)
 	k = Buffer(ω,nω)
 	H = Buffer(ms.H⃗,nω,size(ms.M̂)[1],nev)
@@ -246,7 +246,7 @@ function solve_k(ms::ModeSolver{T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol
 	return ( copy(k), copy(H) )
 end
 
-function solve_k(ms::ModeSolver{T},ω::Vector{T},ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	nω = length(ω)
 	k = Buffer(ω,nω)
@@ -259,7 +259,7 @@ function solve_k(ms::ModeSolver{T},ω::Vector{T},ε⁻¹::AbstractArray{T,5};nev
 	return ( copy(k), copy(H) )
 end
 
-function solve_k(ms::ModeSolver{T},ω::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	nω = length(ω)
@@ -283,7 +283,7 @@ end
 ################################################################################
 """
 
-function solve_n(ms::ModeSolver{T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real #
+function solve_n(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real} #
     k, H⃗ = solve_k(ms,ω;nev,eigind,maxiter,tol,log) #ω²_tol)
 	# ng = ω / H_Mₖ_H(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n)
 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
@@ -291,7 +291,7 @@ function solve_n(ms::ModeSolver{T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,lo
     return ( k/ω, ng )
 end
 
-function solve_n(ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log) #ω²_tol)
 	# ng = ω / H_Mₖ_H(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n)
@@ -300,24 +300,24 @@ function solve_n(ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};nev=1,eigin
     return ( k/ω, ng )
 end
 
-function solve_n(ms::ModeSolver{T},ω::T,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
-	ε⁻¹ = make_εₛ⁻¹(ω,shapes,dropgrad(ms))
+function solve_n(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+	ε⁻¹ = εₛ⁻¹(ω,geom;ms) # make_εₛ⁻¹(ω,shapes,dropgrad(ms))
 	solve_n(ms, ω,ε⁻¹; nev, eigind, maxiter, tol, log)
 end
 
-function solve_n(ms::ModeSolver{T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_n(ms::ModeSolver{ND,T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	nω = length(ω)
 	n = Buffer(ω,nω)
 	ng = Buffer(ω,nω)
 	@inbounds for ωind=1:nω
 		@inbounds nng = solve_n(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
 		@inbounds n[ωind] = nng[1]
-		@inbounds ng[ωind] .= nng[2]
+		@inbounds ng[ωind] = nng[2]
 	end
 	return ( copy(n), copy(ng) )
 end
 
-function solve_n(ms::ModeSolver{T},ω::Vector{T},ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
+function solve_n(ms::ModeSolver{ND,T},ω::Vector{T},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	nω = length(ω)
 	n = Buffer(ω,nω)
@@ -330,11 +330,18 @@ function solve_n(ms::ModeSolver{T},ω::Vector{T},ε⁻¹::AbstractArray{T,5};nev
 	return ( copy(n), copy(ng) )
 end
 
-function replan_ffts!(ms::ModeSolver{T}) where T<:Real
+function replan_ffts!(ms::ModeSolver{3,T}) where T<:Real
 	ms.M̂.𝓕! = plan_fft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
 	ms.M̂.𝓕⁻¹! = plan_bfft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
 	ms.M̂.𝓕 = plan_fft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
 	ms.M̂.𝓕⁻¹ = plan_bfft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
+end
+
+function replan_ffts!(ms::ModeSolver{2,T}) where T<:Real
+	ms.M̂.𝓕! = plan_fft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹! = plan_bfft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕 = plan_fft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹ = plan_bfft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
 end
 
 using Distributed
@@ -344,7 +351,7 @@ function solve_n(ω::T,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1
 	solve_n(ms,ω,shapes;nev,eigind,maxiter,tol,log)
 end
 
-function solve_n(ms::ModeSolver{T},ωs::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where T<:Real
+function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
 	# ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
 	# @ignore(update_ε⁻¹(ms,ε⁻¹))
 	# ms_copies = [ deepcopy(ms) for om in 1:length(ωs) ]

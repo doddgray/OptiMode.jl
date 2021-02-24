@@ -86,10 +86,10 @@ _ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiN
 function ε_MgO_LiNbO₃(λ::T) where T<:Real
     nₑ² = _nₑ²_MgO_LiNbO₃(λ)
     nₒ² = _nₒ²_MgO_LiNbO₃(λ)
-    Diagonal( [ nₑ², nₒ², nₒ² ] )
-    # SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
-    #                   0.,     nₒ²,    0.,
-    #                   0.,     0.,     nₒ², )
+    # Diagonal( [ nₑ², nₒ², nₒ² ] )
+    SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
+                      0.,     nₒ²,    0.,
+                      0.,     0.,     nₒ², )
 end
 
 nₑ²_MgO_LiNbO₃(λ) = _nₑ²_MgO_LiNbO₃(λ)
@@ -131,5 +131,5 @@ gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvdₒ_MgO_
 gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency) = ( _gvdₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 
 
-MgO_LiNbO₃ = Material(SMatrix{3,3}(ε_MgO_LiNbO₃_sym))
+MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃)
 # MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym)

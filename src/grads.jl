@@ -19,6 +19,29 @@ function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{<:SVector
 	return ( reinterpret(reshape,type,A), Δ->( NO_FIELDS, ChainRulesCore.Zero(), ChainRulesCore.Zero(), reinterpret( reshape, eltype(A), Δ ) ) )
 end
 
+# AD rules for reinterpreting back and forth between N-D arrays of SMatrices and (N+2)-D arrays
+function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SMatrix{N1,N2,T2,N3},N4}) where {T1,T2,N1,N2,N3,N4}
+	# @show A
+	# @show eltype(A)
+	# @show type
+	# @show size(reinterpret(reshape,T1,A))
+	# @show N1*N2
+	# function f_pb(Δ)
+	# 	@show eltype(Δ)
+	# 	@show size(Δ)
+	# 	# @show Δ
+	# 	@show typeof(Δ)
+	# 	return ( NO_FIELDS, ChainRulesCore.Zero(), ChainRulesCore.Zero(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) )
+	# end
+	# return ( reinterpret(reshape,T1,A), Δ->f_pb(Δ) )
+	return ( reinterpret(reshape,T1,A), Δ->( NO_FIELDS, ChainRulesCore.Zero(), ChainRulesCore.Zero(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) ) )
+end
+function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{<:SMatrix{N1,N2,T1,N3}},A::AbstractArray{T1}) where {T1,T2,N1,N2,N3}
+	@show type
+	@show eltype(A)
+	return ( reinterpret(reshape,type,A), Δ->( NO_FIELDS, ChainRulesCore.Zero(), ChainRulesCore.Zero(), reinterpret( reshape, eltype(A), Δ ) ) )
+end
+
 # AD rules for fast norms of types SVector{2,T} and SVector{2,3}
 
 function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Real
@@ -265,16 +288,17 @@ update_k_pb(M̂::HelmholtzMap{T},kz::T) where T<:Real = update_k_pb(M̂,SVector{
 function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny, Nz)
 	# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+	eīf = flat(eī)
 	@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
 		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
-			eī[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+			eīf[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
 		end
 		for a2=1:2 # loop over first off diagonal
-			eī[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+			eīf[a2,a2+1,ix,iy,iz] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
 		end
 		# a = 1, set 1,3 and 3,1, second off-diagonal
-		eī[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+		eīf[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
 	end
 	return eī
 end
@@ -290,8 +314,8 @@ function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
 	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
 end
 
-function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};
-		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
+function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
+		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 	ω²,H⃗ = solve_ω²(ms,ε⁻¹; nev, eigind, maxiter, tol, log)
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
@@ -330,9 +354,9 @@ function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{T},k::Union{T
     return ((ω², H⃗), solve_ω²_pullback)
 end
 
-function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{T},ω::T,ε⁻¹::AbstractArray{T,5};
-		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where T<:Real
-	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log ,ω²_tol)
+function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
+		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
 	end

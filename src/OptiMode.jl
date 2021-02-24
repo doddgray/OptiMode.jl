@@ -13,7 +13,7 @@ using LinearAlgebra, LinearMaps, ArrayInterface, StaticArrays, HybridArrays, Str
 using ModelingToolkit, Unitful #, Latexify
 using StaticArrays: Dynamic, SVector
 using Zygote: Buffer, bufferfrom, @ignore, dropgrad
-using Plots: plot, heatmap, plot!, heatmap!
+# using Plots: plot, heatmap, plot!, heatmap!
 # using MaxwellFDM: kottke_avg_param
 ## Exports ##
 export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3

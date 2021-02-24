@@ -1,14 +1,35 @@
-export Geometry, ridge_wg, circ_wg, demo_shapes
+export Geometry, ridge_wg, circ_wg, demo_shapes, εs, fεs, fεs!
 
 struct Geometry{N}
 	shapes::Vector{Shape{N}}
+
 end
-Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
+# Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
 materials(geom::Geometry) = materials(geom.shapes)#geom.materials
+εs(geom::Geometry) = getfield.(materials(geom),:ε)
+fεs(geom::Geometry) = getfield.(materials(geom),:fε)
+εs(geom::Geometry,lm::Real) = map(f->f(lm),fεs(geom))
+# fεs(geom::Geometry) = build_function(εs(geom),λ;expression=Val{false})[1]
+# fεs!(geom::Geometry) = build_function(εs(geom),λ;expression=Val{false})[2]
+
+
+materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = materials(geom.shapes)#geom.materials
+εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
+fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fε)
+εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fεs(shapes))
+
+# fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[1]
+# fεs!(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[2]
+
+
+# fes = map(fε,mats)
+# feis = map(fε⁻¹,mats)
+# εs = [fe(lm) for fe in fes]
+# ε⁻¹s = [fei(lm) for fei in feis]
 
 # Specific Geometry Cases
 
-function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real)::Geometry{2}
+function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     # ε_core = ε_tensor(n_core)
@@ -18,13 +39,15 @@ function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core
     tc_half = t_core / 2
     # verts =     [   wt_half     -wt_half     -wb_half    wb_half
     #                 tc_half     tc_half    -tc_half      -tc_half    ]'
-	verts = [   wt_half     tc_half
-				-wt_half    tc_half
-				-wb_half    -tc_half
-				wb_half     -tc_half    ]
+	# verts = [   wt_half     tc_half
+	# 			-wt_half    tc_half
+	# 			-wb_half    -tc_half
+	# 			wb_half     -tc_half    ]
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
     core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
-                    SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
-                    mat_core,					                                    # data: any type, data associated with box shape
+                    # SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
+					verts,
+					mat_core,					                                    # data: any type, data associated with box shape
                 )
     ax = [      1.     0.
                 0.     1.      ]
@@ -34,7 +57,8 @@ function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core
                     ax,	    		        	# axes: box axes
                     mat_subs,					 # data: any type, data associated with box shape
                 )
-    return Geometry([core,b_subs])
+    # return Geometry{2}([core,b_subs])
+	return [core,b_subs]
 end
 
 function demo_shapes(p::T) where T<:Real
@@ -61,7 +85,8 @@ function demo_shapes(p::T) where T<:Real
         ε₃,						# data: any type, data associated with triangle
         )
 
-    return Geometry([ t, s, b ])
+    # return Geometry([ t, s, b ])
+	return [ t, s, b ]
 end
 
 
@@ -84,5 +109,6 @@ function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::
                     ax,	    		        # axes: box axes
                     ε_subs,					        # data: any type, data associated with box shape
                 )
-    return Geometry([b_core,b_subs])
+    # return Geometry([b_core,b_subs])
+	return [b_core,b_subs]
 end

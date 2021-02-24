@@ -1,4 +1,4 @@
-export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, matinds
+export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, matinds, _εₛ⁻¹_init, _εₛ_init
 export make_εₛ⁻¹, make_εₛ⁻¹_fwd, make_KDTree # legacy junk to remove or update
 export εₘₐₓ, ñₘₐₓ, nₘₐₓ # utility functions for automatic good guesses, move to geometry or solve?
 
@@ -74,7 +74,7 @@ function proc_sinds(corner_sinds::AbstractArray{Int,2})
 	return sinds_proc
 end
 
-function proc_sinds!(sinds_proc::AbstractArray{Int,2},corner_sinds::AbstractArray{Int,2})
+function proc_sinds!(sinds_proc::AbstractArray{T,2},corner_sinds::AbstractArray{Int,2}) where T
 	unq = [0,0]
 	@inbounds for I ∈ CartesianIndices(sinds_proc)
 	 	unq = [		corner_sinds[I],
@@ -121,7 +121,7 @@ function proc_sinds(corner_sinds::AbstractArray{Int,3})
 	return sinds_proc
 end
 
-function proc_sinds!(sinds_proc::AbstractArray{Int,3},corner_sinds::AbstractArray{Int,3})
+function proc_sinds!(sinds_proc::AbstractArray{T,3},corner_sinds::AbstractArray{Int,3}) where T
 	unq = [0,0]
 	@inbounds for I ∈ CartesianIndices(sinds_proc)
 	 	unq = [		corner_sinds[I],
@@ -145,8 +145,10 @@ function proc_sinds!(sinds_proc::AbstractArray{Int,3},corner_sinds::AbstractArra
 	end
 end
 
-matinds(geom::Geometry) = vcat(map(s->findfirst(m->isequal(s.data,m), materials(geom.shapes)),geom.shapes),length(geom.shapes)+1)
-matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(s.data,m), mats),shapes),length(shapes)+1)
+# matinds(geom::Geometry) = vcat(map(s->findfirst(m->isequal(s.data,m), materials(geom.shapes)),geom.shapes),length(geom.shapes)+1)
+matinds(geom::Geometry) = vcat(map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)), materials(geom)),geom.shapes),length(geom.shapes)+1)
+matinds(geom::Vector{<:Shape}) = vcat(map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)), materials(geom)),geom),length(geom)+1)
+matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)),mats),shapes),length(shapes)+1)
 
 _get_ε(shapes,ind) = ind>lastindex(shapes) ? SMatrix{3,3}(1.,0.,0.,0.,1.,0.,0.,0.,1.) : shapes[ind].data
 _get_ε(εs,ind,matinds) = ind>lastindex(shapes) ? SMatrix{3,3}(1.,0.,0.,0.,1.,0.,0.,0.,1.) : εs[matinds[ind]]
@@ -158,14 +160,14 @@ function n_rvol(shape,xyz,vxl_min,vxl_max)
 	return _V3(n⃗),rvol
 end
 
-function normcart(n0::AbstractVector{T})::SMatrix{3,3,T,9} where T<:Real
+function normcart(n0::AbstractVector{T}) where T<:Real #::SMatrix{3,3,T,9} where T<:Real
 	# Create `S`, a local Cartesian coordinate system from a surface-normal
 	# 3-vector n0 (pointing outward) from shape
 	n = n0 / norm(n0)
 	# Pick `h` to be a vector that is not along n.
 	h = any(iszero.(n)) ? n × normalize(iszero.(n)) :  n × SVector(1., 0. , 0.)
 	v = n × h
-	S = [n h v]  # unitary
+	S = SMatrix{3,3,T,9}([n h v])  # unitary
 end
 
 function _S_rvol(sinds_proc,xyz,vxl_min,vxl_max,shapes)
@@ -185,15 +187,31 @@ function S_rvol(sinds_proc,xyz,vxl_min,vxl_max,shapes)
 	map(f,sinds_proc,xyz,vxl_min,vxl_max)
 end
 
+function vxl_min(x⃗c::AbstractArray{T,2}) where T
+	@view x⃗c[1:max((end-1),1),1:max((end-1),1)]
+end
+
+function vxl_min(x⃗c::AbstractArray{T,3}) where T
+	@view x⃗c[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+end
+
+function vxl_max(x⃗c::AbstractArray{T,2}) where T
+	@view x⃗c[min(2,end):end,min(2,end):end]
+end
+
+function vxl_max(x⃗c::AbstractArray{T,3}) where T
+	@view x⃗c[min(2,end):end,min(2,end):end,min(2,end):end]
+end
+
 function S_rvol(shapes;ms::ModeSolver)
-	Zygote.@ignore(corner_sinds!(ms.corner_sinds,shapes,ms.M̂.xyz,ms.M̂.xyzc))
+	xyz = Zygote.@ignore(x⃗(ms.grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(ms.grid))
+	Zygote.@ignore(corner_sinds!(ms.corner_sinds,shapes,xyz,xyzc))
 	Zygote.@ignore(proc_sinds!(ms.sinds_proc,ms.corner_sinds))
-	vxl_min = @view ms.M̂.xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
-	vxl_max = @view ms.M̂.xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
 	f(sp,x,vn,vp) = let s=shapes
 		_S_rvol(sp,x,vn,vp,s)
 	end
-	map(f,ms.sinds_proc,ms.M̂.xyz,vxl_min,vxl_max)
+	map(f,ms.sinds_proc,xyz,vxl_min(xyzc),vxl_max(xyzc))
 end
 
 function _εₛ(εs,sinds_proc,matinds,Srvol)
@@ -213,6 +231,35 @@ function εₛ(εs,sinds_proc,matinds,Srvol)
 	map(f,sinds_proc,Srvol)
 end
 
+function εₛ(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
+	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(gr))
+	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
+	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+	mats = Zygote.@ignore(materials(geom))
+	minds = Zygote.@ignore(matinds(geom,mats))
+	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
+	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
+	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
+	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
+	εₛ(εs,sinds_proc,minds,Srvol)
+end
+
+function _εₛ_init(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
+	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(gr))
+	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
+	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+	mats = Zygote.@ignore(materials(geom))
+	minds = Zygote.@ignore(matinds(geom,mats))
+	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
+	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
+	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
+	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
+	εsm = εₛ(εs,sinds_proc,minds,Srvol)
+	return (sinds,sinds_proc,Srvol,mats,minds,εsm)
+end
+
 function _εₛ⁻¹(εs,ε⁻¹s,sinds_proc,matinds,Srvol)
 	iszero(sinds_proc[2]) && return ε⁻¹s[matinds[sinds_proc[1]]]
 	iszero(sinds_proc[3]) && return inv(avg_param(	εs[matinds[sinds_proc[1]]],
@@ -228,6 +275,50 @@ function εₛ⁻¹(εs,ε⁻¹s,sinds_proc,matinds,Srvol)
 		_εₛ⁻¹(es,eis,sp,mi,srv)
 	end
 	map(f,sinds_proc,Srvol)
+end
+
+function εₛ⁻¹(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
+	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(gr))
+	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
+	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+	mats = Zygote.@ignore(materials(geom))
+	minds = Zygote.@ignore(matinds(geom,mats))
+	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
+	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
+	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
+	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
+	ε⁻¹s = inv.(εs)
+	εₛ⁻¹(εs,ε⁻¹s,sinds_proc,minds,Srvol)
+end
+
+function εₛ⁻¹(ω,Srvol::AbstractArray{Tuple{SMatrix{3,3,T,9},T}};ms::ModeSolver) where T
+	es = vcat(εs(ms.geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+end
+
+function εₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
+	Srvol = S_rvol(geom;ms)
+	es = vcat(εs(ms.geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+end
+
+function _εₛ⁻¹_init(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
+	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(gr))
+	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
+	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+	mats = Zygote.@ignore(materials(geom))
+	minds = Zygote.@ignore(matinds(geom,mats))
+	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
+	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
+	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
+	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
+	ε⁻¹s = inv.(εs)
+	εism = εₛ⁻¹(εs,ε⁻¹s,sinds_proc,minds,Srvol)
+	return (sinds,sinds_proc,Srvol,mats,minds,εism)
 end
 
 ##### Utilities for good guesses, should move elsewhere (solve?)

@@ -56,12 +56,12 @@ _ε_SiO₂_λT, _ε_SiO₂_λT! = eval.(build_function(ε_SiO₂_λT_sym,λ,T))
 _ε_SiO₂,_ε_SiO₂! = eval.(build_function(ε_SiO₂_sym,λ))
 
 function ε_SiO₂(λ::T) where T<:Real
-    _n²_SiO₂(λ) * I
+    # _n²_SiO₂(λ) * I
     # Diagonal(fill(_n²_SiO₂(λ),3))
-    # n² = _n²_SiO₂(λ)
-    # SMatrix{3,3,T,9}( n²,    0.,     0.,
-    #                   0.,     n²,    0.,
-    #                   0.,     0.,     n², )
+    n² = _n²_SiO₂(λ)
+    SMatrix{3,3,T,9}( n²,    0.,     0.,
+                      0.,     n²,    0.,
+                      0.,     0.,     n², )
 end
 
 n²_SiO₂(λ) = _n²_SiO₂(λ)
@@ -83,4 +83,5 @@ gvd_SiO₂(λ::Unitful.Length) = ( _gvd_SiO₂((λ|>u"μm").val)u"μm" / ( 2π *
 gvd_SiO₂(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvd_SiO₂(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 gvd_SiO₂(f::Unitful.Frequency) = ( _gvd_SiO₂(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 
-SiO₂ = Material(SMatrix{3,3}(ε_SiO₂_sym))
+# SiO₂ = Material(SMatrix{3,3}(ε_SiO₂_sym))
+SiO₂ = Material(ε_SiO₂_sym,ε_SiO₂)
