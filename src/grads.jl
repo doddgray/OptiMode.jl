@@ -285,6 +285,7 @@ end
 
 update_k_pb(M̂::HelmholtzMap{T},kz::T) where T<:Real = update_k_pb(M̂,SVector{3,T}(0.,0.,kz))
 
+# 3D
 function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny, Nz)
 	# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
@@ -299,6 +300,25 @@ function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny, Nz)
 		end
 		# a = 1, set 1,3 and 3,1, second off-diagonal
 		eīf[1,3,ix,iy,iz] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+	end
+	return eī
+end
+
+# 2D
+function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny)
+	# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
+	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
+	eīf = flat(eī)
+	@avx for iy=1:Ny,ix=1:Nx
+		q = (Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		for a=1:3 # loop over diagonal elements: {11, 22, 33}
+			eīf[a,a,ix,iy] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+		end
+		for a2=1:2 # loop over first off diagonal
+			eīf[a2,a2+1,ix,iy] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+		end
+		# a = 1, set 1,3 and 3,1, second off-diagonal
+		eīf[1,3,ix,iy] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
 	end
 	return eī
 end
@@ -363,9 +383,11 @@ function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε�
     function solve_k_pullback(ΔΩ)
 		k̄, H̄ = ΔΩ
 		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-		Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
-		H = reshape(H⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
-		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)))
+		# Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
+		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+		Nranges = (1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+		H = reshape(H⃗,(2,Ns...))
+		mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
 	    if typeof(k̄)==ChainRulesCore.Zero
 			k̄ = 0.
 		end
@@ -375,18 +397,18 @@ function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε�
 		else
 			ms.λ⃗ = ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H⃗
 		end
-		λ = reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		λ = reshape(ms.λ⃗,(2,Ns...))
 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
 		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
-		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), ms.M̂.Nx, ms.M̂.Ny, ms.M̂.Nz)
+		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd),Ns...)
 		λ -= ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H
 		ms.λd -= ( ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * ms.M̂.N ) * ms.M̂.d
 		ms.λd *=  ms.M̂.Ninv
 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
 		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
 		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
-		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
 		k̄_kx = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
 		# if !(typeof(k)<:SVector)

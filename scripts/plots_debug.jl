@@ -67,6 +67,9 @@ esm1N[] = [SMatrix{3,3}(rand(3,3)) for i=1:128,j=1:128]
 
 fig
 
+@recipe
+
+
 
 
 @recipe(EpsilonHeatmap, gr, ε) do scene

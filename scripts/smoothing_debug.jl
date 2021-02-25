@@ -10,10 +10,81 @@ p = [
                ];
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 gr = Grid(Δx,Δy,Nx,Ny)
-rwg(p) = ridge_wg(p[1],p[2],p[3],p[4],MgO_LiNbO₃,SiO₂,Δx,Δy)
-ms = ModeSolver(1.45, rwg(p), gr)
+rwg(x) = ridge_wg(x[1],x[2],x[3],x[4],MgO_LiNbO₃,SiO₂,Δx,Δy)
+geom = rwg(p)
+ms = ModeSolver(1.45, geom, gr)
+
 
 ##
+println("### εₛ: ")
+println("## primal: ")
+esm = εₛ(0.8,geom,gr)
+@btime εₛ(0.8,$geom,$gr) # 2.352 ms (66436 allocations: 7.75 MiB)
+println("## gradients: ")
+println("# Zygote: ")
+@show Zygote.gradient(x->sum(sum(εₛ(x,rwg(p),gr))),0.9)[1]
+@show Zygote.gradient(x->sum(sum(εₛ(0.8,rwg(x),gr))),p)[1]
+@btime Zygote.gradient(x->sum(sum(εₛ(x,rwg($p),$gr))),0.9)[1]
+@btime Zygote.gradient(x->sum(sum(εₛ(0.8,rwg(x),$gr))),$p)[1]
+println("# ForwardDiff: ")
+@show ForwardDiff.derivative(x->sum(sum(εₛ(x,rwg(p),gr))),0.9)
+@show ForwardDiff.gradient(x->sum(sum(εₛ(0.8,rwg(x),gr))),p)
+@btime ForwardDiff.derivative(x->sum(sum(εₛ(x,rwg($p),$gr))),0.9)
+@btime ForwardDiff.gradient(x->sum(sum(εₛ(0.8,rwg(x),$gr))),$p)
+println("# ForwardDiff over Zygote (2nd order): ")
+@show ForwardDiff.derivative(y->Zygote.gradient(x->sum(sum(εₛ(x,rwg(p),gr))),y)[1],0.8)
+@show ForwardDiff.gradient(y->Zygote.gradient(x->sum(sum(εₛ(0.8,rwg(x),gr))),y)[1],p)
+@btime ForwardDiff.derivative(y->Zygote.gradient(x->sum(sum(εₛ(x,rwg($p),$gr))),y)[1],0.8)
+@btime ForwardDiff.gradient(y->Zygote.gradient(x->sum(sum(εₛ(0.8,rwg(x),$gr))),y)[1],$p)
+
+
+println("### εₛ⁻¹: ")
+println("## primal: ")
+eism = εₛ⁻¹(0.8,geom,gr)
+@btime εₛ⁻¹(0.8,$geom,$gr) # 2.439 ms (66439 allocations: 7.75 MiB)
+println("## gradients: ")
+println("# Zygote: ")
+@show Zygote.gradient(x->sum(sum(εₛ⁻¹(x,rwg(p),gr))),0.9)[1]
+@show Zygote.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),gr))),p)[1]
+@btime Zygote.gradient(x->sum(sum(εₛ⁻¹(x,rwg($p),$gr))),0.9)[1]
+@btime Zygote.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),$gr))),$p)[1]
+println("# ForwardDiff: ")
+@show ForwardDiff.derivative(x->sum(sum(εₛ⁻¹(x,rwg(p),gr))),0.9)
+@show ForwardDiff.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),gr))),p)
+@btime ForwardDiff.derivative(x->sum(sum(εₛ⁻¹(x,rwg($p),$gr))),0.9)
+@btime ForwardDiff.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),$gr))),$p)
+println("# ForwardDiff over Zygote (2nd order): ")
+@show ForwardDiff.derivative(y->Zygote.gradient(x->sum(sum(εₛ⁻¹(x,rwg(p),gr))),y)[1],0.8)
+@show ForwardDiff.gradient(y->Zygote.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),gr))),y)[1],p)
+@btime ForwardDiff.derivative(y->Zygote.gradient(x->sum(sum(εₛ⁻¹(x,rwg($p),$gr))),y)[1],0.8)
+@btime ForwardDiff.gradient(y->Zygote.gradient(x->sum(sum(εₛ⁻¹(0.8,rwg(x),$gr))),y)[1],$p)
+
+SMatrix
+using ChainRulesCore: NO_FIELDS
+ChainRulesCore.rrule(T::Type{<:SMatrix}, x::AbstractMatrix) = ( T(x), dv -> (NO_FIELDS, dv) )
+ChainRulesCore.rrule(T::Type{<:SMatrix}, xs::Number...) = ( T(xs...), dv -> (NO_FIELDS, dv...) )
+
+@Zygote.adjoint (T::Type{<:SMatrix})(xs::Number...) = T(xs...), dv -> (nothing, dv...)
+@Zygote.adjoint (T::Type{<:SMatrix})(x::AbstractMatrix) = T(x), dv -> (nothing, dv)
+@Zygote.adjoint (T::Type{SMatrix{2,2,Float64,4}})(x::AbstractMatrix) = T(x), dv -> (nothing, dv)
+
+ChainRules.refresh_rules()
+Zygote.refresh()
+Zygote.gradient(x->sum(sum(εₛ(0.8,rwg(x),gr))),p)[1]
+Zygote.hessian(x->sum(sum(εₛ(0.8,rwg(x),gr))),p)[1]
+
+##
+
+
+
+Zygote.gradient(x->Zygote.forwarddiff(y->sum(sum(εₛ(y...))),[0.8,rwg(x),gr]),p)
+Zygote.forwarddiff(y->sum(sum(εₛ(y...))),[0.8,rwg(p),gr])
+Zygote.gradient(x->sum(sum(εₛ(0.8,Zygote.forwarddiff(rwg,x),gr))),p)
+ForwardDiff.gradient(x->sum(sum(εₛ(0.8,rwg(x),gr))),p)
+
+f1(lm,p) = εₛ(lm,rwg(p),gr)
+f1(0.8,p)
+Zygote.gradient(x->sum(sum(f1(0.8,x))),p)
 
 shapes1 = rwg3(p)
 geom2 = rwg2(p)

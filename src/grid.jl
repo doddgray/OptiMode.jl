@@ -1,4 +1,4 @@
-export Grid, δx, δy, δz, x, y, z, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes
+export Grid, δx, δy, δz, δ, x, y, z, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, Nranges, ∫
 
 struct Grid{ND,T}
 	Δx::T
@@ -27,13 +27,24 @@ Grid(Δx::T, Δy::T, Nx::Int, Ny::Int) where {T<:Real} = Grid{2,T}(
     1,
 )
 
-Base.size(gr::Grid{3}) = (gr.Nx, gr.Ny, gr.Nz)
-Base.size(gr::Grid{2}) = (gr.Nx, gr.Ny)
+function Base.size(gr::Grid{3})::NTuple{3,Int}
+	(gr.Nx, gr.Ny, gr.Nz)
+end
+function Base.size(gr::Grid{2})::NTuple{2,Int}
+	(gr.Nx, gr.Ny)
+end
 Base.size(gr::Grid,d::Int) = Base.size(gr)[d]
+
 
 δx(g::Grid) = g.Δx / g.Nx
 δy(g::Grid) = g.Δy / g.Ny
 δz(g::Grid) = g.Δz / g.Nz
+
+δ(g::Grid{2}) = g.Δx * g.Δy / ( g.Nx * g.Ny )
+δ(g::Grid{3}) = g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
+
+∫(intgnd;g::Grid) = sum(intgnd)*δ(g)	# integrate a scalar field over the grid
+
 # voxel/pixel center positions
 function x(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
  	( ( g.Δx / g.Nx ) .* (0:(g.Nx-1))) .- g.Δx/2.
@@ -69,7 +80,11 @@ function x⃗c(g::Grid{3,T})::Array{SVector{3,T},3}  where T<:Real
 end
 
 # grid size
-N(g::Grid)::Int = *(size(g)...)
+@inline N(g::Grid)::Int = *(size(g)...)
+
+import Base: eachindex
+@inline eachindex(g::Grid) = (1:NN for NN in size(g))
+
 
 # reciprocal lattice vectors (from fftfreqs)
 function g⃗(gr::Grid{3,T})::Array{SVector{3, T}, 3} where T<:Real

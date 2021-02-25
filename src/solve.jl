@@ -273,8 +273,6 @@ function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},shapes::Vector{<:Shape};nev=
 	return ( copy(k), copy(H) )
 end
 
-
-
 """
 ################################################################################
 #																			   #

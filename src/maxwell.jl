@@ -1,7 +1,7 @@
 export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, update_k, update_k!
-export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc, ε⁻¹_dot
-export ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!, kxinv_tc!
-export ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, _d2ẽ!, _H2d!
+export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc
+export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
+export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, tc, ct
 
 """
 ################################################################################
@@ -12,6 +12,20 @@ export ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, _d2ẽ!, _H2d!
 """
 
 # 3D
+
+"""
+    tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
+"""
+function tc(H::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
+    @tullio h[a,i,j,k] := H[b,i,j,k] * mn[a,b,i,j,k]
+end
+
+"""
+    ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
+"""
+function ct(h::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
+    @tullio H[a,i,j,k] := h[b,i,j,k] * mn[b,a,i,j,k]
+end
 
 """
     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
@@ -46,7 +60,8 @@ end
     ε⁻¹_dot_t: e⃗  = ε⁻¹ ⋅ d⃗ (transverse vectors)
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,4},ε⁻¹) where T
-	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * fft(d⃗,(2:4))[b,i,j,k]  #fastmath=false
+	eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j,k] :=  eif[a,b,i,j,k] * fft(d⃗,(2:4))[b,i,j,k]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -54,7 +69,8 @@ end
     ε⁻¹_dot: e⃗  = ε⁻¹ ⋅ d⃗ (cartesian vectors)
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,4},ε⁻¹) where T
-	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
+	eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j,k] :=  eif[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
 end
 
 function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
@@ -64,7 +80,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Re
 	# @tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	# return abs(out[1])
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(ε⁻¹)), (2:4)),mn,mag) ) )
 end
 
 function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
@@ -75,6 +91,20 @@ end
 
 
 # 2D
+
+"""
+    tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
+"""
+function tc(H::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
+    @tullio h[a,i,j] := H[b,i,j] * mn[b,a,i,j]
+end
+
+"""
+    ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
+"""
+function ct(h::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
+    @tullio H[a,i,j] := h[b,i,j] * mn[a,b,i,j]
+end
 
 """
     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
@@ -109,7 +139,8 @@ end
     ε⁻¹_dot_t: e⃗  = ε⁻¹ ⋅ d⃗ (transverse vectors)
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,3},ε⁻¹) where T
-	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * fft(d⃗,(2:4))[b,i,j]  #fastmath=false
+	eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j] :=  eif[a,b,i,j] * fft(d⃗,(2:4))[b,i,j]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -117,7 +148,8 @@ end
     ε⁻¹_dot: e⃗  = ε⁻¹ ⋅ d⃗ (cartesian vectors)
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,3},ε⁻¹) where T
-	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * d⃗[b,i,j]  #fastmath=false
+	eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j] :=  eif[a,b,i,j] * d⃗[b,i,j]  #fastmath=false
 end
 
 function H_Mₖ_H(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
@@ -127,7 +159,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Re
 	# @tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	# return abs(out[1])
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(flat(ε⁻¹))), (2:3)),mn,mag) ) )
+	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
@@ -390,22 +422,6 @@ function _M!(Hout::AbstractArray{Complex{T},N}, Hin::AbstractArray{Complex{T},N}
     eid!(e,ε⁻¹,d);
     mul!(e.data,𝓕⁻¹!,e.data);
     kx_ct!(Hout,e,m,n,mag,Ninv)
-end
-
-function _H2d!(d::AbstractArray{Complex{T},N}, Hin::AbstractArray{Complex{T},N},
-	m::AbstractArray{T,N}, n::AbstractArray{T,N}, mag::AbstractArray{T},
-	𝓕!::FFTW.cFFTWPlan)::AbstractArray{Complex{T},N} where {T<:Real,N}
-    kx_tc!(d,Hin,m,n,mag);
-    mul!(d.data,𝓕!,d.data);
-	return d
-end
-
-function _d2ẽ!(e::AbstractArray{Complex{T},N}, d::AbstractArray{Complex{T},N},
-	ε⁻¹,m::AbstractArray{T,N}, n::AbstractArray{T,N}, mag::AbstractArray{T},
-	𝓕⁻¹!::FFTW.cFFTWPlan)::AbstractArray{Complex{T},N} where {T<:Real,N}
-    eid!(e,ε⁻¹,d);
-    mul!(e.data,𝓕⁻¹!,e.data);
-	return e
 end
 
 """
@@ -878,42 +894,6 @@ LinearAlgebra.ldiv!(P̂::HelmholtzPreconditioner,b) = mul!(b,P̂,b)
 
 mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
 mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
-
-"""
-################################################################################
-#																			   #
-#							  Field Conversion 								   #
-#																			   #
-################################################################################
-"""
-
-function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
-	ms::ModeSolver{3,T})::AbstractArray{Complex{T},4} where T<:Real
-    kx_tc!(d,Hin,ms.M̂.m,ms.M̂.n,ms.M̂.mag);
-    mul!(d.data,ms.M̂.𝓕!,d.data);
-	return d
-end
-
-function _d2ẽ!(e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4},
-	ms::ModeSolver{3,T})::AbstractArray{Complex{T},4} where T<:Real
-    eid!(e,ms.M̂.ε⁻¹,d);
-    mul!(e.data,ms.M̂.𝓕⁻¹!,e.data);
-	return e
-end
-
-function _H2d!(d::AbstractArray{Complex{T},3}, Hin::AbstractArray{Complex{T},3},
-	ms::ModeSolver{2,T})::AbstractArray{Complex{T},3} where T<:Real
-    kx_tc!(d,Hin,ms.M̂.m,ms.M̂.n,ms.M̂.mag);
-    mul!(d.data,ms.M̂.𝓕!,d.data);
-	return d
-end
-
-function _d2ẽ!(e::AbstractArray{Complex{T},3}, d::AbstractArray{Complex{T},3},
-	ms::ModeSolver{2,T})::AbstractArray{Complex{T},3} where T<:Real
-    eid!(e,ms.M̂.ε⁻¹,d);
-    mul!(e.data,ms.M̂.𝓕⁻¹!,e.data);
-	return e
-end
 
 
 """
