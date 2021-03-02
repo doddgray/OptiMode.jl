@@ -321,6 +321,23 @@ function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny)
 		eīf[1,3,ix,iy] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
 	end
 	return eī
+
+	# eīM = Matrix.(eī)
+	# for iy=1:Ny,ix=1:Nx
+	# 	q = (Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+	# 	for a=1:3 # loop over diagonal elements: {11, 22, 33}
+	# 		eīM[ix,iy][a,a] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
+	# 	end
+	# 	for a2=1:2 # loop over first off diagonal
+	# 		eīM[ix,iy][a2,a2+1] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+	# 	end
+	# 	# a = 1, set 1,3 and 3,1, second off-diagonal
+	# 	eīM[ix,iy][1,3] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+	# end
+	# ēM = inv.(eīM)
+	# eīMH = inv.( ( ēM .+ ēM' ) ./ 2 )
+	# eī .= SMatrix{3,3}.( eīMH  ) # SMatrix{3,3}.(eīM)
+	# return eī
 end
 
 function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
@@ -336,15 +353,16 @@ end
 
 function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
-	ω²,H⃗ = solve_ω²(ms,ε⁻¹; nev, eigind, maxiter, tol, log)
+	ω²,H⃗ = solve_ω²(ms,k,ε⁻¹; nev, eigind, maxiter, tol, log)
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
 	end
     function solve_ω²_pullback(ΔΩ)
 		ω̄sq, H̄ = ΔΩ
-		Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
-		H = reshape(H⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
-		mn2 = vcat(reshape(ms.M̂.m,(1,3,Nx,Ny,Nz)),reshape(ms.M̂.n,(1,3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)))
+		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+		Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+		H = reshape(H⃗,(2,Ns...))
+		# mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
 		if typeof(ω̄sq)==ChainRulesCore.Zero
 			ω̄sq = 0.
 		end
@@ -354,16 +372,16 @@ function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Unio
 		else
 			ms.λ⃗ = -ω̄sq * H⃗
 		end
-		λ = reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz))
+		λ = reshape(ms.λ⃗,(2,Ns...))
 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
 		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
-		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), ms.M̂.Nx, ms.M̂.Ny, ms.M̂.Nz)
+		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), Ns...)
 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
 		ms.λd *=  ms.M̂.Ninv
 		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
 		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,:,:,:)) .+ ẽ .* conj.(view(λ,2,:,:,:)) )
-		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,:,:,:)) .+ ẽ .* conj.(view(λ,1,:,:,:)) )
+		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
 		k̄ = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
 		# if !(typeof(k)<:SVector)
@@ -374,6 +392,64 @@ function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Unio
     return ((ω², H⃗), solve_ω²_pullback)
 end
 
+# function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
+# 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+# 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
+#
+# 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
+# 	# 	mag_m_n(x,dropgrad(ms.M̂.g⃗))
+# 	# end
+#
+# 	ω²err, ω²err_pb = Zygote.pullback(ω, ε⁻¹) do om, einv
+# 	    omsq,HH = solve_ω²(dropgrad(ms),real(k),einv)
+# 	    omsq_err = real(omsq) - real(om)^2
+# 	end
+#
+# 	# ω²errH, ω²errH_pb = Zygote.pullback(ω, k, ε⁻¹) do om, kk, einv
+# 	#     omsq_out,HH = solve_ω²(dropgrad(ms),real(kk),einv)
+# 	#     omsq_err = real(omsq_out) - real(om)^2
+# 	# 	return (omsq_err, HH)
+# 	# end
+#
+# 	omsqH, omsqH_pb = Zygote.pullback(k, ε⁻¹) do kk, einv
+# 	    omsq,HH = solve_ω²(dropgrad(ms),real(kk),einv)
+# 	end
+#
+# 	# Zygote.pullback((om,pp)->real(solve_ω²(dropgrad(ms),real(k[1]),εₛ⁻¹(om,rwg(pp);ms))[1]) - real(om)^2, 1/1.55, p)
+#
+#     function solve_k_pb(ΔΩ)
+# 		k̄, H̄ = ΔΩ
+# 		# @show k̄
+# 		# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
+# 		# ms.ε⁻¹_bar = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
+# 		eī = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
+# 	    if typeof(k̄)==ChainRulesCore.Zero
+# 			k̄ = 0.
+# 		end
+# 		if typeof(H̄) != ChainRulesCore.Zero
+# 			k̄ₕ,eīₕ = omsqH_pb( ( 0.0, H̄ ) )  # convert pulled back H̄ to k̄, eī components
+# 			# ω̄ₕ,k̄ₕ,eīₕ = ω²errH_pb( ( 0.0, H̄ ) )  # convert pulled back H̄ to k̄, eī components
+# 			k̄ += k̄ₕ
+# 			# ms.ε⁻¹_bar += eīₕ
+# 			eī += eīₕ
+# 			# k̄ₕ = k̄( λ = solve_adj(H̄) )
+# 			# eīₕ = eī( λ = solve_adj(H̄) )
+# 		end
+# 		ω̄ , eīₖ = ω²err_pb( -k̄ / ms.∂ω²∂k[1]  ) # combine k̄ terms and scale by -∂k/∂ω² = -(∂ω²/∂k)⁻¹
+# 		# ω̄ = 2ω * k̄ₜₒₜ / ms.∂ω²∂k[1] = 2ω * (k̄ + k̄ₕ ) / ms.∂ω²∂k[1]
+# 		# eīₖ = eī( λ = (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] )
+# 		# eī = eīₕ + eīₖ =  eī( λₕ + λₖ ) = eī( solve_adj(H̄)  + (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] )
+#
+# 		# ω̄ , k̄ₖ, eīₖ = ω²errH_pb( (-k̄ / ms.∂ω²∂k[1] , nothing ) ) # combine k̄ terms and scale by -∂k/∂ω² = -(∂ω²/∂k)⁻¹
+# 		# ms.ε⁻¹_bar += eīₖ
+# 		eī += eīₖ
+# 		ms.ε⁻¹_bar = eī
+# 		ms.ω̄ = ω̄
+# 		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
+#     end
+#     return ((k, H⃗), solve_k_pb)
+# end
+
 function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
@@ -382,45 +458,126 @@ function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε�
 	end
     function solve_k_pullback(ΔΩ)
 		k̄, H̄ = ΔΩ
+		# @show k̄
 		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
 		# Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
 		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-		Nranges = (1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+		Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
 		H = reshape(H⃗,(2,Ns...))
-		mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
+		# mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
 	    if typeof(k̄)==ChainRulesCore.Zero
 			k̄ = 0.
 		end
 		if typeof(H̄) != ChainRulesCore.Zero
-			solve_adj!(ms,H̄,eigind) 											 # overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
-			ms.λ⃗ += ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] - dot(H⃗,ms.λ⃗) ) * H⃗[:,eigind]
+			solve_adj!(ms,H̄,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
+			ms.λ⃗ -= dot(H⃗,ms.λ⃗) * H⃗[:,eigind]
+			λ = reshape(ms.λ⃗,(2,Ns...))
+			d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
+			λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+			ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd), Ns...)
+			eīₕ = copy(ms.ε⁻¹_bar)
+			# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+			ms.λd *=  ms.M̂.Ninv
+			λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
+			ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+			ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+			ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
+			ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
+			k̄ₕ = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
 		else
-			ms.λ⃗ = ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H⃗
+			eīₕ = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
+			k̄ₕ = 0.0
 		end
+
+		# combine k̄ₕ with k̄, scale by ( 2ω / ms.∂ω²∂k[eigind] ) and calculate ω̄ and eīₖ
+		ms.λ⃗ = (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] #( -( k̄ + k̄ₕ ) * ms.∂ω²∂k[eigind] ) * H⃗[:,eigind] # 1 / ( ms.∂ω²∂k[eigind] * ( k̄ + k̄ₕ ) ) * H⃗[:,eigind]  # ( -2ω * ( k̄ + k̄ₕ ) / ms.∂ω²∂k[eigind] ) * H⃗[:,eigind]  # ( -2ω / ms.∂ω²∂k[eigind] ) * ( k̄ + k̄ₕ ) * H⃗
 		λ = reshape(ms.λ⃗,(2,Ns...))
 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
 		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd),Ns...)
-		λ -= ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H
-		ms.λd -= ( ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * ms.M̂.N ) * ms.M̂.d
-		ms.λd *=  ms.M̂.Ninv
-		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
-		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
-		k̄_kx = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+		eīₖ = copy(ms.ε⁻¹_bar)
+		# # back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+		# ms.λd *=  ms.M̂.Ninv
+		# λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
+		# ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+		# ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+		# ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
+		# ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
+		# @show k̄ₖ = mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1]
+		ms.ω̄  =  2ω * (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
+		ms.ε⁻¹_bar = eīₖ + eīₕ
 		# if !(typeof(k)<:SVector)
 		# 	k̄_kx = k̄_kx[3]
 		# end
-		ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
+		# ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
 		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
     end
     return ((k, H⃗), solve_k_pullback)
 end
 
 
+# function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
+# 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+# 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
+# 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
+# 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
+# 	end
+#     function solve_k_pullback(ΔΩ)
+# 		k̄, H̄ = ΔΩ
+# 		# @show k̄
+# 		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
+# 		# Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
+# 		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+# 		Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+# 		H = reshape(H⃗,(2,Ns...))
+# 		# mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
+# 	    if typeof(k̄)==ChainRulesCore.Zero
+# 			k̄ = 0.
+# 		end
+# 		if typeof(H̄) != ChainRulesCore.Zero
+# 			solve_adj!(ms,H̄,eigind) 											 # overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
+# 			# ms.λ⃗ += ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] - dot(H⃗,ms.λ⃗) ) * H⃗[:,eigind]
+# 			ms.λ⃗ += ( k̄ / ms.∂ω²∂k[eigind] - dot(H⃗,ms.λ⃗) ) * H⃗[:,eigind]
+# 		else
+# 			# ms.λ⃗ = ( k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H⃗[:,eigind]
+# 			ms.λ⃗ =   k̄ / ms.∂ω²∂k[eigind] * H⃗[:,eigind]
+# 		end
+# 		λ = reshape(ms.λ⃗,(2,Ns...))
+# 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
+# 		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+# 		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd),Ns...)
+# 		# λ -= ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * H
+# 		# ms.λd -= ( ( 2k̄ / ms.∂ω²∂k[eigind] + ms.∂ω²∂k[eigind] ) * ms.M̂.N ) * ms.M̂.d
+# 		# ms.λd *=  ms.M̂.Ninv
+# 		λ -= ( 2k̄ / ms.∂ω²∂k[eigind] ) * H
+# 		ms.λd -= ( ( 2k̄ / ms.∂ω²∂k[eigind] ) * ms.M̂.N ) * ms.M̂.d
+# 		ms.λd *=  ms.M̂.Ninv
+# 		# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+# 		λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
+# 		ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+# 		ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+# 		ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
+# 		ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
+# 		k̄_kx = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+# 		# if !(typeof(k)<:SVector)
+# 		# 	k̄_kx = k̄_kx[3]
+# 		# end
+# 		ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
+# 		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
+#     end
+#     return ((k, H⃗), solve_k_pullback)
+# end
+
+
+
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
 # # old
 #
 # function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};

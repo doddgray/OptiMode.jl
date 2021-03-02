@@ -203,13 +203,14 @@ function vxl_max(x⃗c::AbstractArray{T,3}) where T
 	@view x⃗c[min(2,end):end,min(2,end):end,min(2,end):end]
 end
 
-function S_rvol(shapes;ms::ModeSolver)
+function S_rvol(geom;ms::ModeSolver)
+	Zygote.@ignore( ms.geom = geom )	# update ms.geom
 	xyz = Zygote.@ignore(x⃗(ms.grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
 	xyzc = Zygote.@ignore(x⃗c(ms.grid))
-	Zygote.@ignore(corner_sinds!(ms.corner_sinds,shapes,xyz,xyzc))
+	Zygote.@ignore(corner_sinds!(ms.corner_sinds,geom,xyz,xyzc))
 	Zygote.@ignore(proc_sinds!(ms.sinds_proc,ms.corner_sinds))
-	f(sp,x,vn,vp) = let s=shapes
-		_S_rvol(sp,x,vn,vp,s)
+	f(sp,x,vn,vp) = let g=geom
+		_S_rvol(sp,x,vn,vp,g)
 	end
 	map(f,ms.sinds_proc,xyz,vxl_min(xyzc),vxl_max(xyzc))
 end
@@ -273,6 +274,8 @@ end
 function εₛ⁻¹(εs,ε⁻¹s,sinds_proc,matinds,Srvol)
 	f(sp,srv) = let es=εs, eis=ε⁻¹s, mi=matinds
 		_εₛ⁻¹(es,eis,sp,mi,srv)
+		# ei_nonHerm = _εₛ(es,sp,mi,srv)
+		# inv( (ei_nonHerm' + ei_nonHerm) / 2 )
 	end
 	map(f,sinds_proc,Srvol)
 end
@@ -300,10 +303,19 @@ end
 
 function εₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
 	Srvol = S_rvol(geom;ms)
-	es = vcat(εs(ms.geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+	es = vcat(εs(geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
 	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
 end
+
+function εₛ⁻¹(geom::AbstractVector{<:Shape};ms::ModeSolver)
+	om_prev = Zygote.@ignore(sqrt(real(ms.ω²[1])))
+	Srvol = S_rvol(geom;ms)
+	es = vcat(εs(geom,( 1. / om_prev )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+end
+
 
 function _εₛ⁻¹_init(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
 	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers

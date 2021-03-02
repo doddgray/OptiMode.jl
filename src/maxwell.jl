@@ -60,8 +60,8 @@ end
     ε⁻¹_dot_t: e⃗  = ε⁻¹ ⋅ d⃗ (transverse vectors)
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,4},ε⁻¹) where T
-	eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j,k] :=  eif[a,b,i,j,k] * fft(d⃗,(2:4))[b,i,j,k]  #fastmath=false
+	# eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * fft(d⃗,(2:4))[b,i,j,k]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -69,8 +69,8 @@ end
     ε⁻¹_dot: e⃗  = ε⁻¹ ⋅ d⃗ (cartesian vectors)
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,4},ε⁻¹) where T
-	eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j,k] :=  eif[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
+	# eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
 end
 
 function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
@@ -80,7 +80,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Re
 	# @tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	# return abs(out[1])
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(ε⁻¹)), (2:4)),mn,mag) ) )
+	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
@@ -139,8 +139,8 @@ end
     ε⁻¹_dot_t: e⃗  = ε⁻¹ ⋅ d⃗ (transverse vectors)
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,3},ε⁻¹) where T
-	eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j] :=  eif[a,b,i,j] * fft(d⃗,(2:4))[b,i,j]  #fastmath=false
+	# eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * fft(d⃗,(2:4))[b,i,j]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -148,8 +148,8 @@ end
     ε⁻¹_dot: e⃗  = ε⁻¹ ⋅ d⃗ (cartesian vectors)
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,3},ε⁻¹) where T
-	eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j] :=  eif[a,b,i,j] * d⃗[b,i,j]  #fastmath=false
+	# eif = flat(ε⁻¹)
+	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * d⃗[b,i,j]  #fastmath=false
 end
 
 function H_Mₖ_H(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
@@ -159,7 +159,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Re
 	# @tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	# return abs(out[1])
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(flat(ε⁻¹))), (2:3)),mn,mag) ) )
 end
 
 function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real

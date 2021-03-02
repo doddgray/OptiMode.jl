@@ -1,10 +1,143 @@
 # using CairoMakie, AbstractPlotting
 using GLMakie, AbstractPlotting
 using AbstractPlotting.GeometryBasics
+import Colors: JULIA_LOGO_COLORS
+logocolors = JULIA_LOGO_COLORS
+AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+plottype(::GeometryPrimitives.Polygon) = Poly
+AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+plottype(::GeometryPrimitives.Box) = Poly
+
+AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
+plottype(::Geometry) = Poly
 
 # noto_sans = "../assets/NotoSans-Regular.ttf"
 # noto_sans_bold = "../assets/NotoSans-Bold.ttf"
+##
+fig = Figure(resolution = (1200, 700))
+ms_N = Node(ms)
 
+ps_N = lift(ms_N) do x
+    getindex.(convert_arguments.(getfield(x,:geom)),1)
+end
+
+S_N = lift(ms_N) do x
+    S⃗z(x)
+end
+
+E_N = lift(ms_N) do x
+    real(Ey_norm(x))
+end
+
+n_N = lift(ms_N) do x
+    ei = getfield(getfield(x,:M̂),:ε⁻¹)
+    sqrt.(view(flat(inv.(ei)),1,1,:,:))
+end
+
+ax11 = fig[1, 1] = Axis(fig)
+ax12 = fig[1, 2] = Axis(fig)
+ax21 = fig[2, 1] = Axis(fig)
+ax22 = fig[2, 2] = Axis(fig)
+linkaxes!(ax11,ax12,ax21,ax22)
+
+hm_n = heatmap!(
+    ax12,
+    x(ms_N[].grid),
+    y(ms_N[].grid),
+    n_N,
+    colormap=:lightrainbow,
+)
+cb_n = Colorbar(fig[1, 2][1, 2], hm_n, label="n₁", width=20) # vertical=false, height=20) #width = 20)
+
+polycolors = [logocolors[:red],logocolors[:blue]]
+for i = 1:length(ps_N[])
+    poly!(
+        ax11,
+        ps_N[][i],
+        color = polycolors[i],
+        strokecolor=:black,
+        strokewidth=1,
+        # axis = (backgroundcolor=logocolors[:purple]),
+    )
+end
+ax11.backgroundcolor[] = logocolors[:purple]
+
+hm_Sz = heatmap!(
+    ax22,
+    x(ms_N[].grid),
+    y(ms_N[].grid),
+    S_N,
+    colormap=:inferno,
+)
+cb_Sz = Colorbar(fig[2, 2][1, 2], hm_Sz, label="S⃗z", width=20) #vertical=false, height=20, label="S⃗z") #width = 20)
+
+Emagmax = maximum(abs.(E_N[]))
+hm_E = heatmap!(
+    ax21,
+    x(ms_N[].grid),
+    y(ms_N[].grid),
+    E_N,
+    colormap=:RdBu_5,
+    colorrange = (-1,1),
+)
+cb_E = Colorbar(
+    fig[2, 1][1, 2],
+    hm_E,
+    label="E⃗y",
+    width=20,
+    # limits=(-1,1),
+) #vertical=false, height=20, label="S⃗z") #width = 20)
+
+fig
+##
+# fig[1,1] = laxis = LAxis(scene, title="workspace")
+# mouseposition(laxis.scene)
+
+mp11 = on(ax11.scene.events.mouseposition) do mp
+    area = pixelarea(ax11.scene)[]
+    mp = Point2f0(mp) .- minimum(area)
+    r = [Point2f0(AbstractPlotting.to_world(ax11.scene, mp))]
+    scatter!(ax11, mp11; markersize=3)
+    # return r
+end
+
+# scatter!(ax11, mp11; markersize=3)
+
+
+fig
+##
+geom_N = lift(x->getfield(x,:geom),ms_N)
+ℋ_N = lift(x->getfield(x,:H⃗),ms_N)
+ε⁻¹_N = lift(x->getfield(getfield(x,:M̂),:ε⁻¹),ms_N)
+grid_N = lift(x->getfield(x,:grid),ms_N)
+xs_N = lift(x,grid_N)
+ys_N = lift(y,grid_N)
+Ex_N = lift(E⃗x,ms_N)
+Sx_N = lift(S⃗x,ms_N)
+
+# zs_N[]
+zs_n = lift(ε⁻¹_N) do ei
+     [sqrt(eemm[1,1]) for eemm in inv.(ei) ]
+ end
+
+zs_E = lift()
+
+ax_n, hm_n = heatmap(fig[1, 1],
+    xs_N,
+    ys_N,
+    zs_n,
+    colormap=:rainbow,
+)
+
+ax_S, hm_S = heatmap(fig[2, 2],
+    xs_N,
+    ys_N,
+    zs_n,
+    colormap=:rainbow,
+)
+
+
+##
 esm1N = Node(esm1)
 grN = Node(gr)
 ##
@@ -35,13 +168,7 @@ fig
 ##
 
 
-AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = ([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]],)
-plottype(::GeometryPrimitives.Polygon) = Poly
-AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),)
-plottype(::GeometryPrimitives.Box) = Poly
 
-AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
-plottype(::Geometry) = Poly
 
 poly!(pgn1,color=:blue,strokecolor=:black,strokewidth=1)
 poly!(rect1,color=:red,strokecolor=:black,strokewidth=1)
@@ -66,10 +193,119 @@ esm1N[] = copy(esm2)
 esm1N[] = [SMatrix{3,3}(rand(3,3)) for i=1:128,j=1:128]
 
 fig
+##
+@recipe(MSplot,ms) do scene
+    Attributes(
+        colormap_n = :lightrainbow,
+        colormap_E = :RdBu_5,
+        colormap_I = :inferno,
+    )
+end
 
-@recipe
+function AbstractPlotting.plot!(msp::MSplot{<:Tuple{<:ModeSolver}})
+    # Nodes
+    ms = msp[:ms]
+    # geom = lift(x->getfield(x,:geom),ms)
+    # ℋ = lift(x->getfield(x,:H⃗),ms)
+    # ε⁻¹ = getfield(getfield(ms,:M̂),:ε⁻¹)
+    # grid = lift(x->getfield(x,:grid),ms)
+    # xs = lift(x,gr)
+    # ys = lift(y,gr)
+
+    # update methods
+    # function update_grid(gr,ε)
+    #
+    #     xs[] = lift(x,gr)
+    #     ys[] = lift(y,gr)[]
+    #     # zs = lift(flat,hm[:ε])
+    #     zs_n[] = [sqrt(eemm[1,1]) for eemm in inv.(ε⁻¹[]) ]
+    # end
+
+    # function update_plots(gr,ε⁻¹)
+    #     zs_n[]
+    #     # xs[] = lift(x,gr)[]
+    #     # ys[] = lift(y,gr)[]
+    #     # zs = lift(flat,hm[:ε])
+    #     zs_n[] = [sqrt(eemm[1,1]) for eemm in inv.(ε⁻¹[]) ]
+    # end
+    #
+    # AbstractPlotting.Observables.onany(update_plot, geom, ε⁻¹, ℋ)
 
 
+    ps = lift(ms) do x
+        getindex.(convert_arguments.(getfield(x,:geom)),1)
+    end
+
+    S = lift(ms) do x
+        S⃗z(x)
+    end
+
+    E = lift(ms) do x
+        real(Ey_norm(x))
+    end
+
+    n = lift(ms) do x
+        ei = getfield(getfield(x,:M̂),:ε⁻¹)
+        sqrt.(view(flat(inv.(ei)),1,1,:,:))
+    end
+
+    # fig = Figure(resolution = (1200, 700))
+    ax11 = msp[1, 1] = Axis(msp)
+    ax12 = msp[1, 2] = Axis(msp)
+    ax21 = msp[2, 1] = Axis(msp)
+    ax22 = msp[2, 2] = Axis(msp)
+    linkaxes!(ax11,ax12,ax21,ax22)
+
+    hm_n = heatmap!(
+        ax12,
+        x(ms[].grid),
+        y(ms[].grid),
+        n,
+        colormap=msp.colormap_n,
+    )
+    cb_n = Colorbar(msp[1, 2][1, 2], hm_n, label="n₁", width=20) # vertical=false, height=20) #width = 20)
+
+    polycolors = [logocolors[:red],logocolors[:blue]]
+    for i = 1:length(ps[])
+        poly!(
+            ax11,
+            ps[][i],
+            color = polycolors[i],
+            strokecolor=:black,
+            strokewidth=1,
+            # axis = (backgroundcolor=logocolors[:purple]),
+        )
+    end
+    ax11.backgroundcolor[] = logocolors[:purple]
+
+    hm_Sz = heatmap!(
+        ax22,
+        x(ms[].grid),
+        y(ms[].grid),
+        S,
+        colormap=msp.colormap_I,
+    )
+    cb_Sz = Colorbar(msp[2, 2][1, 2], hm_Sz, label="S⃗z", width=20) #vertical=false, height=20, label="S⃗z") #width = 20)
+
+    Emagmax = maximum(abs.(E[]))
+    hm_E = heatmap!(
+        ax21,
+        x(ms[].grid),
+        y(ms[].grid),
+        E,
+        colormap=msp.colormap_E,
+        colorrange = (-1,1),
+    )
+    cb_E = Colorbar(
+        msp[2, 1][1, 2],
+        hm_E,
+        label="E⃗y",
+        width=20,
+        # limits=(-1,1),
+    ) #vertical=false, height=20, label="S⃗z") #width = 20)
+    msp
+end
+##
 
 
 @recipe(EpsilonHeatmap, gr, ε) do scene

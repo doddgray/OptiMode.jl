@@ -16,6 +16,11 @@ fεs(geom::Geometry) = getfield.(materials(geom),:fε)
 materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = materials(geom.shapes)#geom.materials
 εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
 fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fε)
+# εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(fεs(shapes)) do f
+# 		ee = f(lm)
+# 		eeH = ( ee + ee' ) / 2
+# 	end
+
 εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fεs(shapes))
 
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[1]

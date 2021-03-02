@@ -1,18 +1,327 @@
 using Revise
 using OptiMode
 using LinearAlgebra, Statistics, StaticArrays, HybridArrays, GeometryPrimitives, BenchmarkTools
-using ChainRules, Zygote, ForwardDiff
+using ChainRules, Zygote, ForwardDiff, FiniteDifferences
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
        π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-       0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+       # 0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
                ];
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
 gr = Grid(Δx,Δy,Nx,Ny)
-rwg(x) = ridge_wg(x[1],x[2],x[3],x[4],MgO_LiNbO₃,SiO₂,Δx,Δy)
+rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # fourth param is gap between modeled object and sidewalls
 geom = rwg(p)
 ms = ModeSolver(1.45, geom, gr)
+
+
+
+##
+# ωs = Node(Float64[])
+# ng1 = Node(Float64[])
+# n1 = Node(Float64[])
+λs = 0.7:0.05:1.1
+ωs = 1 ./ λs
+n1,ng1 = solve_n(ms,ωs,rwg(p))
+
+##
+λs = 1 ./ ωs
+fig,ax,sc1 = scatter(λs,ng1,color=logocolors[:red])
+lines!(ax,λs,ng1,color=logocolors[:red],lw=2)
+lines!(ax,λs,n1,color=logocolors[:blue],lw=2)
+scatter!(ax,λs,n1,color=logocolors[:blue])
+fig
+##
+function var_ng(ωs,p)
+    ng = solve_n(Zygote.dropgrad(ms),ωs,rwg(p))[2]
+    mean( abs2.( ng ) ) - abs2(mean(ng))
+end
+var_ng(ωs,p)
+@time ∂vng_RAD = Zygote.gradient(var_ng,ωs,p)
+
+@show ∂vng_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng(ωs,x),p)[1]
+@show ∂vng_err = abs.(∂vng_RAD[2] .- ∂vng_FD) ./ abs.(∂vng_FD)
+
+# @time ∂vng_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng(ωs,x),p)
+#
+# Zygote.gradient((x,y)->solve_n(ms,x,rwg(y))[2],1/0.85,p)
+# Zygote.gradient(ωs,p) do oms,x
+# 	ngs = solve_n(Zygote.dropgrad(ms),oms,rwg(x))[2]
+#     mean( abs2.( ngs ) ) - abs2(mean(ngs))
+# end
+
+## Define with constant indices
+
+rwg2(x) = ridge_wg(x[1],x[2],x[3],0.5,2.2,1.4,Δx,Δy) # fourth param is gap between modeled object and sidewalls
+n2, ng2 = solve_n(ms,ωs,rwg2(p))
+##
+fig,ax,sc1 = scatter(λs,ng2,color=logocolors[:red])
+lines!(ax,λs,ng2,color=logocolors[:red],lw=2)
+lines!(ax,λs,n2,color=logocolors[:blue],lw=2)
+scatter!(ax,λs,n2,color=logocolors[:blue])
+fig
+##
+function var_ng2(ωs,p)
+    ngs = solve_n(Zygote.dropgrad(ms),ωs,rwg2(p))[2]
+    mean( abs2.( ngs ) ) - abs2(mean(ngs))
+end
+var_ng2(ωs,p)
+
+@show ∂vng2_RAD = Zygote.gradient(var_ng2,ωs,p)
+@show ∂vng2_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng2(ωs,x),p)[1]
+@show ∂vng2_err = abs.(∂vng2_RAD[2] .- ∂vng2_FD) ./ abs.(∂vng2_FD)
+
+
+var_ng(ωs,p)
+@show ∂vng_RAD = Zygote.gradient(var_ng,ωs,p)
+@show ∂vng_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng(ωs,x),p)[1]
+@show ∂vng_err = abs.(∂vng_RAD[2] .- ∂vng_FD) ./ abs.(∂vng_FD)
+
+##
+
+∂n_RAD = zeros(length(ωs),3)
+∂n_FD = zeros(length(ωs),3)
+∂n_err = zeros(length(ωs),3)
+
+∂ng_RAD = zeros(length(ωs),3)
+∂ng_FD = zeros(length(ωs),3)
+∂ng_err = zeros(length(ωs),3)
+
+for omind in 1:length(ωs)
+    ∂n_RAD[omind,:] = Zygote.gradient(x->solve_n(ms,ωs[omind],rwg2(x))[1],p)[1]
+    ∂ng_RAD[omind,:] = Zygote.gradient(x->solve_n(ms,ωs[omind],rwg2(x))[2],p)[1]
+    ∂n_FD[omind,:] = FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,ωs[omind],rwg2(x))[1],p)[1]
+    ∂ng_FD[omind,:] = FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,ωs[omind],rwg2(x))[2],p)[1]
+end
+∂n_err = abs.(∂n_RAD .- ∂n_FD) ./ abs.(∂n_FD)
+∂ng_err = abs.(∂ng_RAD .- ∂ng_FD) ./ abs.(∂ng_FD)
+
+##
+ln = lines(collect(λs),∂n_err[:,1],color=logocolors[:green])
+lines!(collect(λs),∂n_err[:,2],color=logocolors[:blue])
+lines!(collect(λs),∂n_err[:,3],color=logocolors[:red])
+
+lng = lines(collect(λs),∂ng_err[:,1],color=logocolors[:green])
+lines!(collect(λs),∂ng_err[:,2],color=logocolors[:blue])
+lines!(collect(λs),∂ng_err[:,3],color=logocolors[:red])
+
+##
+ei2 = εₛ⁻¹(1/1.55,rwg2(p);ms)
+Zygote.gradient((x,y)->sum(sum(εₛ⁻¹(x,rwg2(y);ms))),1/1.55,p)
+
+
+
+@time ∂sumei_FD = FiniteDifferences.grad(central_fdm(3,1),x->sum(sum(εₛ⁻¹(1/1.55,rwg2(x);ms))),p)
+
+
+
+
+Zygote.gradient((x,y)->solve_n(ms,x,rwg2(y))[1],1/1.55,p)
+
+
+
+
+@time ∂n2_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,1/1.55,rwg2(x))[1],p)
+
+
+
+
+
+Zygote.gradient((x,y)->solve_n(ms,x,rwg2(y))[2],1/1.55,p)
+
+
+
+
+@time ∂ng2_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,1/1.55,rwg2(x))[2],p)
+
+
+
+
+
+omsq2,H2 = solve_ω²(ms,1.45,rwg2(p))
+summag4(HH) = sum(abs2.(HH).^2)
+
+@show ∂omsq_k_RAD = Zygote.gradient(x->solve_ω²(ms,x,rwg2(p))[1],1.45)[1]
+@show ∂omsq_k_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_ω²(ms,x,rwg2(p))[1],1.45)[1]
+@show ∂omsq_k_err = abs(∂omsq_k_RAD - ∂omsq_k_FD) / ∂omsq_k_FD
+
+@show ∂sm4_k_RAD = Zygote.gradient(x->summag4(solve_ω²(ms,x,rwg2(p))[2]),1.45)[1]
+@show ∂sm4_k_FD =  FiniteDifferences.grad(central_fdm(3,1),x->summag4(solve_ω²(ms,x,rwg2(p))[2]),1.45)[1]
+@show ∂omsq_k_err = abs( ∂sm4_k_RAD -  ∂sm4_k_FD) /  ∂sm4_k_FD
+
+@show ∂omsq_p_RAD =  Zygote.gradient(x->solve_ω²(ms,1.45,rwg2(x))[1],p)[1]
+@show ∂omsq_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_ω²(ms,1.45,rwg2(x))[1],p)[1]
+@show ∂omsq_p_err = abs.(∂omsq_p_RAD .- ∂omsq_p_FD) ./ ∂omsq_p_FD
+
+# @show ∂omsq_p_RAD =  Zygote.gradient(x->solve_ω²(ms,1.45,rwg(x))[1],p)[1]
+# @show ∂omsq_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_ω²(ms,1.45,rwg(x))[1],p)[1]
+# @show ∂omsq_p_err = abs.(∂omsq_p_RAD .- ∂omsq_p_FD) ./ ∂omsq_p_FD
+
+@show ∂sm4_p_RAD = Zygote.gradient(x->summag4(solve_ω²(ms,1.45,rwg2(x))[2]),p)[1]
+@show ∂sm4_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->summag4(solve_ω²(ms,1.45,rwg2(x))[2]),p)[1]
+@show ∂sm4_p_err = abs.(∂sm4_p_RAD .- ∂sm4_p_FD) ./ ∂sm4_p_FD
+
+k2,H22 = solve_k(ms,0.7,rwg2(p))
+
+@show ∂k_om_RAD = Zygote.gradient(x->solve_k(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂k_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_k(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂k_om_err = abs(∂k_om_RAD - ∂k_om_FD) / abs(∂k_om_FD)
+
+@show ∂sm4_om_RAD = Zygote.gradient(x->summag4(solve_k(ms,x,rwg2(p))[2]),0.7)[1]
+@show ∂sm4_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->summag4(solve_k(ms,x,rwg2(p))[2]),0.7)[1]
+@show ∂sm4_om_err = abs( ∂sm4_om_RAD -  ∂sm4_om_FD) /  abs(∂sm4_om_FD)
+
+@show ∂k_p_RAD =  Zygote.gradient(x->solve_k(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂k_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_k(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂k_p_err = abs.(∂k_p_RAD .- ∂k_p_FD) ./ abs.(∂k_p_FD)
+
+@show ∂k_p_RAD =  Zygote.gradient(x->solve_k(ms,0.7,rwg(x))[1],p)[1]
+@show ∂k_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_k(ms,0.7,rwg(x))[1],p)[1]
+@show ∂k_p_err = abs.(∂k_p_RAD .- ∂k_p_FD) ./ abs.(∂k_p_FD)
+
+@show ∂sm4k_p_RAD = Zygote.gradient(x->summag4(solve_k(ms,0.7,rwg2(x))[2]),p)[1]
+@show ∂sm4k_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->summag4(solve_k(ms,0.7,rwg2(x))[2]),p)[1]
+@show ∂sm4k_p_err = abs.(∂sm4k_p_RAD .- ∂sm4k_p_FD) ./ ∂sm4k_p_FD
+
+@show ∂sm4k_p_RAD = Zygote.gradient(x->summag4(solve_k(ms,0.7,rwg(x))[2]),p)[1]
+@show ∂sm4k_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->summag4(solve_k(ms,0.7,rwg(x))[2]),p)[1]
+@show ∂sm4k_p_err = abs.(∂sm4k_p_RAD .- ∂sm4k_p_FD) ./ ∂sm4k_p_FD
+
+@show ∂sm4k_p_RAD = Zygote.gradient(x->summag4(solve_k(ms,0.7,rwg(x))[2]),p)[1]
+@show ∂sm4k_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->summag4(solve_k(ms,0.7,rwg(x))[2]),p)[1]
+@show ∂sm4k_p_err = abs.(∂sm4k_p_RAD .- ∂sm4k_p_FD) ./ ∂sm4k_p_FD
+
+neff1,ng1 = solve_n(ms,0.7,rwg(p))
+neff2,ng2 = solve_n(ms,0.7,rwg2(p))
+
+@show ∂n_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
+
+@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
+@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
+@show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
+
+@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg(p))[2],0.7)[1]
+@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(5,1),x->solve_n(ms,x,rwg(p))[2],0.7)[1]
+@show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
+
+@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
+
+@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[1],p)[1]
+@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg(x))[1],p)[1]
+@show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
+
+@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
+@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
+@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+
+@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[2],p)[1]
+@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg(x))[2],p)[1]
+@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+
+@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.8,rwg(x))[2],p)[1]
+@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.8,rwg(x))[2],p)[1]
+@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+
+
+neff1,ng1 = solve_n(ms,0.7,rwg(p))
+neff2,ng2 = solve_n(ms,0.7,rwg2(p))
+
+@show ∂n_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
+@show ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
+
+@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
+@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
+@show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
+
+@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg(p))[2],0.7)[1]
+@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(5,1),x->solve_n(ms,x,rwg(p))[2],0.7)[1]
+@show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
+
+@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
+@show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
+
+@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[1],p)[1]
+@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg(x))[1],p)[1]
+@show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
+
+@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
+@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
+@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+
+@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[2],p)[1]
+@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->solve_n(ms,0.7,rwg(x))[2],p)[1]
+@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+
+
+f1(om,pp) = sum(sum(εₛ⁻¹(om,rwg(pp);ms)))
+f1(0.7,p)
+@show ∂f1_om_RAD = Zygote.gradient(x->f1(x,p),0.7)[1]
+@show ∂f1_om_FD =  FiniteDifferences.grad(central_fdm(5,1),x->f1(x,p),0.7)[1]
+@show ∂f1_om_err = abs( ∂f1_om_RAD -  ∂f1_om_FD) /  abs(∂f1_om_FD)
+
+@show ∂f1_p_RAD =  Zygote.gradient(x->f1(0.7,x),p)[1]
+@show ∂f1_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->f1(0.7,x),p)[1]
+@show ∂f1_p_err = abs.(∂f1_p_RAD .- ∂f1_p_FD) ./ abs.(∂f1_p_FD)
+
+using Zygote: dropgrad
+function f2(om,pp)
+    ε⁻¹ = εₛ⁻¹(om,rwg(pp);ms)
+    k, H⃗ = solve_k(ms,om,ε⁻¹)
+    (mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
+    om / H_Mₖ_H(H⃗[:,1],ε⁻¹,real(mag),real(reinterpret(reshape,Float64,m⃗)),real(reinterpret(reshape,Float64,n⃗)))
+end
+f2(0.7,p)
+@show ∂f2_om_RAD = Zygote.gradient(x->f2(x,p),0.7)[1]
+@show ∂f2_om_FD =  FiniteDifferences.grad(central_fdm(5,1),x->f2(x,p),0.7)[1]
+@show ∂f2_om_err = abs( ∂f2_om_RAD -  ∂f2_om_FD) /  abs(∂f2_om_FD)
+
+@show ∂f2_p_RAD =  Zygote.gradient(x->f2(0.7,x),p)[1]
+@show ∂f2_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->f2(0.7,x),p)[1]
+@show ∂f2_p_err = abs.(∂f2_p_RAD .- ∂f2_p_FD) ./ abs.(∂f2_p_FD)
+
+
+
+∂omsq_p_RAD = Zygote.gradient(x->solve_k(ms,0.7,rwg2(x))[1],p)
+
+
+
+
+∂omsq_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_ω²(ms,1.45,rwg2(x))[1],p)
+
+
+
+
+
+
+
+
+
+
+∂omsq_p_RAD = Zygote.gradient(x->solve_k(ms,0.65,rwg2(x))[1],p)
+
+
+
+
+∂omsq_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_k(ms,0.65,rwg2(x))[1],p)
+
+
+
+
+
+∂smm_p_RAD = Zygote.gradient(x->summag4(solve_k(ms,0.65,rwg2(x))[2]),p)[1]
+
+
+
+
+∂smm_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->summag4(solve_k(ms,0.65,rwg2(x))[2]),p)
+
 
 
 ##

@@ -1,40 +1,58 @@
 using LinearAlgebra, StaticArrays, HybridArrays, ArrayInterface, LoopVectorization, Tullio, ChainRules, Zygote, GeometryPrimitives, OptiMode, Optim
 using Zygote: dropgrad
 using Statistics: mean
-# p = [
+# # p = [
+# #     1.7,                #   top ridge width         `w_top`         [μm]
+# #     0.7,                #   ridge thickness         `t_core`        [μm]
+# #     π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+# #     # 2.4,                #   core index              `n_core`        [1]
+# #     # 1.4,                #   substrate index         `n_subs`        [1]
+# #     # 0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+# # ]
+#
+# p0 = [
 #     1.7,                #   top ridge width         `w_top`         [μm]
 #     0.7,                #   ridge thickness         `t_core`        [μm]
 #     π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-#     # 2.4,                #   core index              `n_core`        [1]
-#     # 1.4,                #   substrate index         `n_subs`        [1]
-#     # 0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
 # ]
-
-p0 = [
-    1.7,                #   top ridge width         `w_top`         [μm]
-    0.7,                #   ridge thickness         `t_core`        [μm]
-    π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-]
-
+#
 p_lower = [0.4, 0.3, 0.]
 p_upper = [2., 1.8, π/4.]
+#
+# Δx,Δy,Δz,Nx,Ny,Nz = 6., 4., 1., 128, 128, 1
+# rwg(p) = ridge_wg(p[1],p[2],p[3],0.5,2.4,1.4,Δx,Δy)
+# @show ωs = collect(0.625:0.025:0.7)
+# ms = ModeSolver(1.45, rwg(p0), Δx, Δy, Δz, Nx, Ny, Nz)
+# shapes = rwg(p0)
 
-Δx,Δy,Δz,Nx,Ny,Nz = 6., 4., 1., 128, 128, 1
-rwg(p) = ridge_wg(p[1],p[2],p[3],0.5,2.4,1.4,Δx,Δy)
-@show ωs = collect(0.625:0.025:0.7)
-ms = ModeSolver(1.45, rwg(p0), Δx, Δy, Δz, Nx, Ny, Nz)
-shapes = rwg(p0)
+
+p = [
+       1.7,                #   top ridge width         `w_top`         [μm]
+       0.7,                #   ridge thickness         `t_core`        [μm]
+       π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+       # 0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+               ];
+Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+gr = Grid(Δx,Δy,Nx,Ny)
+rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy)
+geom = rwg(p)
+ms = ModeSolver(1.45, geom, gr)
+λs = 0.7:0.05:1.1
+ωs = 1 ./ λs
+n1,ng1 = solve_n(ms,ωs,rwg(p))
+##
 
 function var_ng(ωs,p)
-    ng = solve_n(dropgrad(ms),ωs,rwg(p))[2]
-    mean( abs2.( ng ) ) - abs2(mean(ng))
+    ngs = solve_n(dropgrad(ms),ωs,rwg(p))[2]
+    mean( abs2.( ngs ) ) - abs2(mean(ngs))
 end
 
 # warmup
-# println("warmup function runs")
-# @show var_ng(ωs,p0)
-# @show vng0, vng0_pb = Zygote.pullback(x->var_ng(ωs,x),p0)
-# @show grad_vng0 = vng0_pb(1)
+println("warmup function runs")
+p0 = copy(p)
+@show var_ng(ωs,p0)
+@show vng0, vng0_pb = Zygote.pullback(x->var_ng(ωs,x),p0)
+@show grad_vng0 = vng0_pb(1)
 
 # define function that computes value and gradient of function `f` to be optimized
 # according to https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/
@@ -51,11 +69,12 @@ function fg!(F,G,x)
     end
 end
 
-# @show fg!(0.,[0.,0.,0.],p0)
 
-opts =  Optim.Options(  g_tol = 1e-6,
-                        outer_iterations = 10,
-                        iterations = 4,
+@show fg!(0.,[0.,0.,0.],p0)
+##
+opts =  Optim.Options(
+                        outer_iterations = 4,
+                        iterations = 1,
                         store_trace = true,
                         show_trace = true,
                         show_every = 1,
@@ -64,7 +83,7 @@ opts =  Optim.Options(  g_tol = 1e-6,
 
 
 
-inner_optimizer = GradientDescent() # Optim.LBFGS()
+inner_optimizer = Optim.BFGS() # GradientDescent() #
 
 # results = optimize(f, g!, lower, upper, initial_x, Fminbox(inner_optimizer))
 res = optimize( Optim.only_fg!(fg!),

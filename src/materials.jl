@@ -15,6 +15,7 @@ DT = Differential(T)
 ng(n_sym::Num) = n_sym - λ * expand_derivatives(Dλ(n_sym))
 gvd(n_sym::Num) = λ^3 * expand_derivatives(Dλ(Dλ(n_sym))) # gvd = uconvert( ( 1 / ( 2π * c^2) ) * _gvd(lm_um,T_C)u"μm", u"fs^2 / mm" )
 
+
 struct Material{T}
 	ε::SMatrix{3,3,T,9}
 	fε::Function
@@ -24,6 +25,7 @@ end
 # Material(x::Number) = Material(ε_tensor(x))
 # Material(x::Tuple) = Material(ε_tensor(x))
 Material(x,f) = Material(ε_tensor(x),f)
+Material(x) = Material(ε_tensor(x),lm->ε_tensor(x))
 Material(mat::Material) = mat	# maybe
 # import Base.convert
 # convert(::Type{Material}, x) = Material(x)
@@ -71,11 +73,14 @@ gvd(mat::Material,axind::Int) = gvd(n(mat,axind))
 
 
 # # Fallback methods for fixed-index Materials
-# ng(mat::Material{T} where T<:Real) = zeros(T,3)
-# ng(mat::Material{T},axind::Int) where T<:Real = zero(T)
-# gvd(mat::Material{T} where T<:Real) = zeros(T,3)
-# gvd(mat::Material{T},axind::Int) where T<:Real = zero(T)
-#
+ng(mat::Material{<:Real}) = n(mat)
+ng(mat::Material{<:Real},axind::Int) = n(mat,axind)
+function gvd(mat::Material{T})  where T<:Real
+	zeros(T,3)
+end
+function gvd(mat::Material{T},axind::Int) where T<:Real
+	zero(T)
+end
 # fε(mat::Material) = x->ε(mat)
 # fε⁻¹(mat::Material) = x->ε⁻¹(mat)
 # fn(mat::Material) = x->n(mat)

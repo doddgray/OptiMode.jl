@@ -82,7 +82,7 @@ function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=3000,tol=1e-8,lo
 		return (real(ms.ω²[eigind]), ms.H⃗[:,eigind])
 end
 
-function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{T,5};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
+function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 		# nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
 	@ignore(update_k!(ms,k))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
@@ -91,10 +91,8 @@ end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 		# nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
-	ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
-	@ignore(update_k!(ms,k))
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_ω²(ms; nev, eigind, maxiter, tol, log)
+	ε⁻¹ = εₛ⁻¹(shapes;ms=dropgrad(ms))
+	solve_ω²(ms,k,ε⁻¹; nev, eigind, maxiter, tol, log)
 end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}};
@@ -207,6 +205,17 @@ function _solve_Δω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ωₜ::T;ne
 	ms.∂ω²∂k[eigind] = 2 * H_Mₖ_H(ms.H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
     return Δω² , Δω² / ms.∂ω²∂k[eigind]
 end
+
+# function _solve_Δω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ωₜ::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real} #,ω²_tol=1e-6)
+# 	# ε⁻¹ = εₛ⁻¹(ω,geom;ms)
+# 	# ω²,H⃗ = solve_ω²(ms,k,ε⁻¹; nev, eigind, maxiter, tol, log)
+# 	# Δω² = ω²[eigind] - ωₜ^2
+# 	f(k,ωₜ,ε⁻¹) = solve_ω²(dropgrad(ms),k,ε⁻¹; nev, eigind, maxiter, tol, log)[1] - ωₜ^2
+#
+# 	ms.∂ω²∂k[eigind] = 2 * H_Mₖ_H(ms.H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
+#     return Δω² , Δω² / ms.∂ω²∂k[eigind]
+# end
+
 # 	∂ω²∂k, ∂ω²∂k_pb = Zygote.pullback(ms.H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) do H,ei,mag,m,n
 # 		2 * H_Mₖ_H(H,ei,mag,m,n)
 # 	end
@@ -230,8 +239,8 @@ end
 
 function solve_k(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms) # make_εₛ⁻¹(shapes,dropgrad(ms))
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_k(ms, ω; nev, eigind, maxiter, tol, log)
+	# @ignore(update_ε⁻¹(ms,ε⁻¹))
+	solve_k(ms, ω, ε⁻¹; nev, eigind, maxiter, tol, log)
 end
 
 function solve_k(ms::ModeSolver{ND,T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
@@ -349,7 +358,7 @@ function solve_n(ω::T,shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1
 	solve_n(ms,ω,shapes;nev,eigind,maxiter,tol,log)
 end
 
-function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
+function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
 	# ε⁻¹ = make_εₛ⁻¹(shapes,dropgrad(ms))
 	# @ignore(update_ε⁻¹(ms,ε⁻¹))
 	# ms_copies = [ deepcopy(ms) for om in 1:length(ωs) ]
@@ -358,12 +367,20 @@ function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},shapes::Vector{<:Shape};nev
 	# nng = pmap(x->solve_n(x,shapes), ωs)
 	# n = [res[1] for res in nng]
 	# ng = [res[2] for res in nng]
-	update_corner_sinds!(ms,shapes)
+
+	Srvol = S_rvol(geom;ms)
+
+
 	nω = length(ωs)
 	n_buff = Buffer(ωs,nω)
 	ng_buff = Buffer(ωs,nω)
 	for ωind=1:nω
-		nng = solve_n(ms,ωs[ωind],shapes; nev, eigind, maxiter, tol, log)
+		# calculate ε⁻¹ for current ω
+		es = vcat(εs(ms.geom,( 1. / ωs[ωind] )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+		eis = inv.(es)
+		ε⁻¹_ω = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)
+		# solve for n, ng with new ε⁻¹
+		nng = solve_n(ms,ωs[ωind],ε⁻¹_ω; nev, eigind, maxiter, tol, log)
 		# nng = solve_n(ms_copies[ωind],ω[ωind],ε⁻¹; nev, eigind, maxiter, tol, log)
 		n_buff[ωind] = nng[1]
 		ng_buff[ωind] = nng[2]

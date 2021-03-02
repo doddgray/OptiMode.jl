@@ -120,6 +120,36 @@ p0 = [
     0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
 ]
 
+function calc_kpg(kz::T,g⃗::Array{Array{T,1},3})::Tuple{Array{T,3},Array{T,5}} where T <: Real
+	g⃗ₜ_zero_mask = Zygote.@ignore( [ sum(abs2.(gg[1:2])) for gg in g⃗ ] .> 0. );
+	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+
+	ŷ = [0.; 1. ;0.]
+	k⃗ = [0.;0.;kz]
+	# @tullio kpg[a,i,j,k] := k⃗[a] - g⃗[i,j,k][a] nograd=g⃗ fastmath=false
+	@tullio kpg[a,i,j,k] := k⃗[a] - g⃗[i,j,k][a] fastmath=false
+	@tullio kpg_mag[i,j,k] := sqrt <| kpg[a,i,j,k]^2 fastmath=false
+	zxinds = [2; 1; 3]
+	zxscales = [-1; 1. ;0.] #[[0. -1. 0.]; [-1. 0. 0.]; [0. 0. 0.]]
+	@tullio kpg_nt[a,i,j,k] := zxscales[a] * kpg[zxinds[a],i,j,k] * g⃗ₜ_zero_mask[i,j,k] + ŷ[a] * g⃗ₜ_zero_mask![i,j,k]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
+	@tullio kpg_nmag[i,j,k] := sqrt <| kpg_nt[a,i,j,k]^2 fastmath=false
+	@tullio kpg_n[a,i,j,k] := kpg_nt[a,i,j,k] / kpg_nmag[i,j,k] fastmath=false
+	xinds1 = [2; 3; 1]
+	xinds2 = [3; 1; 2]
+	@tullio kpg_mt[a,i,j,k] := kpg_n[xinds1[a],i,j,k] * kpg[xinds2[a],i,j,k] - kpg[xinds1[a],i,j,k] * kpg_n[xinds2[a],i,j,k] nograd=(xinds1,xinds2) fastmath=false
+	@tullio kpg_mmag[i,j,k] := sqrt <| kpg_mt[a,i,j,k]^2 fastmath=false
+	@tullio kpg_m[a,i,j,k] := kpg_mt[a,i,j,k] / kpg_mmag[i,j,k] fastmath=false
+	kpg_mn_basis = [[1. 0.] ; [0. 1.]]
+	@tullio kpg_mn[a,b,i,j,k] := kpg_mn_basis[b,1] * kpg_m[a,i,j,k] + kpg_mn_basis[b,2] * kpg_n[a,i,j,k] nograd=kpg_mn_basis fastmath=false
+	return kpg_mag, kpg_mn
+end
+
+function calc_kpg(kz::T,Δx::T,Δy::T,Δz::T,Nx::Int64,Ny::Int64,Nz::Int64)::Tuple{Array{T,3},Array{T,5}} where T <: Real
+	g⃗ = Zygote.@ignore( [ [gx;gy;gz] for gx in collect(fftfreq(Nx,Nx/Δx)), gy in collect(fftfreq(Ny,Ny/Δy)), gz in collect(fftfreq(Nz,Nz/Δz))] )
+	# g⃗ = [ [gx;gy;gz] for gx in fftfreq(Nx,Nx/Δx), gy in fftfreq(Ny,Ny/Δy), gz in fftfreq(Nz,Nz/Δz)]
+	calc_kpg(kz,Zygote.dropgrad(g⃗))
+end
+
 function kxt2c_matrix(mag,mn) #; Nx = 16, Ny = 16, Nz = 1)
     Nx, Ny, Nz = size(mag)
     kxt2c_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(2*Nx*Ny*Nz)))
@@ -201,9 +231,9 @@ function ei_dot_rwg(p = p0;
                     Nz = 1)
     kz, w, t_core, θ, n_core, n_subs, edge_gap = p
     # (w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy,Δz,Nx,Ny,Nz)
-    grid = OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
+    grid = Grid(Δx, Δy, Δz, Nx, Ny, Nz) #OptiMode.make_MG(Δx, Δy, Δz, Nx, Ny, Nz)
     shapes = ridge_wg(w,t_core,θ,edge_gap,n_core,n_subs,Δx,Δy)
-    ei_field = make_εₛ⁻¹(shapes,grid)
+    ei_field = flat(εₛ⁻¹(1.55,shapes,gr)) #wl doesnt affect anything for constant indices  #make_εₛ⁻¹(shapes,grid)
     # ei_matrix_buf = Zygote.bufferfrom(zeros(Float64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
     ei_matrix_buf = Zygote.bufferfrom(zeros(ComplexF64,(3*Nx*Ny*Nz),(3*Nx*Ny*Nz)))
     for i=1:Nx,j=1:Ny,a=1:3,b=1:3
