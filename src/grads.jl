@@ -1,6 +1,6 @@
 using Zygote: @adjoint, Numeric, literal_getproperty, accum
 using ChainRules: Thunk, @non_differentiable
-export sum2, jacobian
+export sum2, jacobian, ε⁻¹_bar!
 
 # AD rules for array Constructors
 ChainRulesCore.rrule(T::Type{<:SArray}, xs::Number...) = ( T(xs...), dv -> (nothing, dv...) )
@@ -351,6 +351,17 @@ function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
 	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
 end
 
+function solve_adj!(ms::ModeSolver,H̄,ω²,H⃗,eigind::Int)
+	ms.adj_itr = bicgstabl_iterator!(
+		ms.adj_itr.x,	# recycle previous soln as initial guess
+		ms.M̂ - real(ω²[eigind])*I, # A
+		H̄[:,eigind] - H⃗[:,eigind] * dot(H⃗[:,eigind],H̄[:,eigind]), # b,
+		3;	# l = number of GMRES iterations per CG iteration
+		Pl = ms.P̂) # left preconditioner
+	for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
+	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+end
+
 function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where {ND,T<:Real}
 	ω²,H⃗ = solve_ω²(ms,k,ε⁻¹; nev, eigind, maxiter, tol, log)
@@ -392,85 +403,36 @@ function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Unio
     return ((ω², H⃗), solve_ω²_pullback)
 end
 
-# function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
-# 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
-# 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
-#
-# 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
-# 	# 	mag_m_n(x,dropgrad(ms.M̂.g⃗))
-# 	# end
-#
-# 	ω²err, ω²err_pb = Zygote.pullback(ω, ε⁻¹) do om, einv
-# 	    omsq,HH = solve_ω²(dropgrad(ms),real(k),einv)
-# 	    omsq_err = real(omsq) - real(om)^2
-# 	end
-#
-# 	# ω²errH, ω²errH_pb = Zygote.pullback(ω, k, ε⁻¹) do om, kk, einv
-# 	#     omsq_out,HH = solve_ω²(dropgrad(ms),real(kk),einv)
-# 	#     omsq_err = real(omsq_out) - real(om)^2
-# 	# 	return (omsq_err, HH)
-# 	# end
-#
-# 	omsqH, omsqH_pb = Zygote.pullback(k, ε⁻¹) do kk, einv
-# 	    omsq,HH = solve_ω²(dropgrad(ms),real(kk),einv)
-# 	end
-#
-# 	# Zygote.pullback((om,pp)->real(solve_ω²(dropgrad(ms),real(k[1]),εₛ⁻¹(om,rwg(pp);ms))[1]) - real(om)^2, 1/1.55, p)
-#
-#     function solve_k_pb(ΔΩ)
-# 		k̄, H̄ = ΔΩ
-# 		# @show k̄
-# 		# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-# 		# ms.ε⁻¹_bar = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
-# 		eī = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
-# 	    if typeof(k̄)==ChainRulesCore.Zero
-# 			k̄ = 0.
-# 		end
-# 		if typeof(H̄) != ChainRulesCore.Zero
-# 			k̄ₕ,eīₕ = omsqH_pb( ( 0.0, H̄ ) )  # convert pulled back H̄ to k̄, eī components
-# 			# ω̄ₕ,k̄ₕ,eīₕ = ω²errH_pb( ( 0.0, H̄ ) )  # convert pulled back H̄ to k̄, eī components
-# 			k̄ += k̄ₕ
-# 			# ms.ε⁻¹_bar += eīₕ
-# 			eī += eīₕ
-# 			# k̄ₕ = k̄( λ = solve_adj(H̄) )
-# 			# eīₕ = eī( λ = solve_adj(H̄) )
-# 		end
-# 		ω̄ , eīₖ = ω²err_pb( -k̄ / ms.∂ω²∂k[1]  ) # combine k̄ terms and scale by -∂k/∂ω² = -(∂ω²/∂k)⁻¹
-# 		# ω̄ = 2ω * k̄ₜₒₜ / ms.∂ω²∂k[1] = 2ω * (k̄ + k̄ₕ ) / ms.∂ω²∂k[1]
-# 		# eīₖ = eī( λ = (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] )
-# 		# eī = eīₕ + eīₖ =  eī( λₕ + λₖ ) = eī( solve_adj(H̄)  + (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] )
-#
-# 		# ω̄ , k̄ₖ, eīₖ = ω²errH_pb( (-k̄ / ms.∂ω²∂k[1] , nothing ) ) # combine k̄ terms and scale by -∂k/∂ω² = -(∂ω²/∂k)⁻¹
-# 		# ms.ε⁻¹_bar += eīₖ
-# 		eī += eīₖ
-# 		ms.ε⁻¹_bar = eī
-# 		ms.ω̄ = ω̄
-# 		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
-#     end
-#     return ((k, H⃗), solve_k_pb)
-# end
-
 function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
-	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log) # ,ω²_tol)
+	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log)
+	# k, H⃗ = copy.(solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log)) # ,ω²_tol)	 # returned data are refs to fields in ms struct. copy to preserve result for (possibly delayed) pullback closure.
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 		mag_m_n(x,dropgrad(ms.M̂.g⃗))
 	end
+	# ∂ω²∂k = copy(ms.∂ω²∂k[eigind])
+	# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+	# Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
     function solve_k_pullback(ΔΩ)
 		k̄, H̄ = ΔΩ
-		# @show k̄
-		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-		# Nx,Ny,Nz = ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz
+		# update_k!(ms,k)
+		# update_ε⁻¹(ms,ε⁻¹)
+		# copyto!(ms.ω², [ω^2])
+		# copyto!(ms.H⃗, H⃗)
+		# copyto!(ms.∂ω²∂k[eigind], ∂ω²∂k)
+		# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
+		∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
 		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-		Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+		Nranges = eachindex(ms.grid)
+		
 		H = reshape(H⃗,(2,Ns...))
-		# mn2 = vcat(reshape(ms.M̂.m,(1,3,Ns...)),reshape(ms.M̂.n,(1,3,Ns...)))
 	    if typeof(k̄)==ChainRulesCore.Zero
 			k̄ = 0.
 		end
 		if typeof(H̄) != ChainRulesCore.Zero
 			solve_adj!(ms,H̄,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = H̄ - dot(H⃗,H̄)*H⃗
-			ms.λ⃗ -= dot(H⃗,ms.λ⃗) * H⃗[:,eigind]
+			# solve_adj!(ms,H̄,ω^2,H⃗,eigind)
+			ms.λ⃗ -= dot(H⃗[:,eigind],ms.λ⃗) * H⃗[:,eigind]
 			λ = reshape(ms.λ⃗,(2,Ns...))
 			d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
 			λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
@@ -488,29 +450,20 @@ function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε�
 			eīₕ = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
 			k̄ₕ = 0.0
 		end
-
-		# combine k̄ₕ with k̄, scale by ( 2ω / ms.∂ω²∂k[eigind] ) and calculate ω̄ and eīₖ
-		ms.λ⃗ = (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] * H⃗[:,eigind] #( -( k̄ + k̄ₕ ) * ms.∂ω²∂k[eigind] ) * H⃗[:,eigind] # 1 / ( ms.∂ω²∂k[eigind] * ( k̄ + k̄ₕ ) ) * H⃗[:,eigind]  # ( -2ω * ( k̄ + k̄ₕ ) / ms.∂ω²∂k[eigind] ) * H⃗[:,eigind]  # ( -2ω / ms.∂ω²∂k[eigind] ) * ( k̄ + k̄ₕ ) * H⃗
+		# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω̄ and eīₖ
+		copyto!(ms.λ⃗, ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * H⃗[:,eigind] )
 		λ = reshape(ms.λ⃗,(2,Ns...))
 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
 		λd = _H2d!(ms.λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(ms.λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 		ε⁻¹_bar!(ms.ε⁻¹_bar, vec(ms.M̂.d), vec(ms.λd),Ns...)
 		eīₖ = copy(ms.ε⁻¹_bar)
-		# # back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-		# ms.λd *=  ms.M̂.Ninv
-		# λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.λẽ , ms.λd  ,ms ) )
-		# ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-		# ms.kx̄_m⃗ .= real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-		# ms.kx̄_n⃗ .=  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-		# ms.māg .= dot.(n⃗, ms.kx̄_n⃗) + dot.(m⃗, ms.kx̄_m⃗)
-		# @show k̄ₖ = mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1]
-		ms.ω̄  =  2ω * (k̄ + k̄ₕ ) / ms.∂ω²∂k[1] #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
-		ms.ε⁻¹_bar = eīₖ + eīₕ
+		ω̄  =  2ω * (k̄ + k̄ₕ ) / ∂ω²∂k #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
+		ε⁻¹_bar = eīₖ + eīₕ
 		# if !(typeof(k)<:SVector)
 		# 	k̄_kx = k̄_kx[3]
 		# end
 		# ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
-		return (NO_FIELDS, ChainRulesCore.Zero(), ms.ω̄  , ms.ε⁻¹_bar)
+		return (NO_FIELDS, ChainRulesCore.Zero(), ω̄  , ε⁻¹_bar)
     end
     return ((k, H⃗), solve_k_pullback)
 end

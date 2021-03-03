@@ -2,6 +2,8 @@ using Revise
 using OptiMode
 using LinearAlgebra, Statistics, StaticArrays, HybridArrays, GeometryPrimitives, BenchmarkTools
 using ChainRules, Zygote, ForwardDiff, FiniteDifferences
+using UnicodePlots
+using Zygote: @ignore, dropgrad
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
@@ -11,19 +13,43 @@ p = [
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 # Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
 gr = Grid(Δx,Δy,Nx,Ny)
-rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # fourth param is gap between modeled object and sidewalls
+rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # dispersive material model version
+rwg2(x) = ridge_wg(x[1],x[2],x[3],0.5,2.2,1.4,Δx,Δy) # constant index version
+
 geom = rwg(p)
 ms = ModeSolver(1.45, geom, gr)
+ωs = [0.65, 0.75]
 
-
-
+n1,ng1 = solve_n(ms,0.9,rwg(p))
+ns1,ngs1 = solve_n(ms,ωs,rwg(p))
+n2, ng2 = solve_n(ms,0.8,rwg2(p))
+ns2, ngs2 = solve_n(ms,ωs,rwg2(p))
 ##
-# ωs = Node(Float64[])
-# ng1 = Node(Float64[])
-# n1 = Node(Float64[])
-λs = 0.7:0.05:1.1
-ωs = 1 ./ λs
-n1,ng1 = solve_n(ms,ωs,rwg(p))
+
+# λs = 0.7:0.05:1.1
+# ωs = 1 ./ λs
+
+
+
+let oms = [0.65, 0.75], m = ModeSolver(1.45, geom, gr), ps=p
+    nng = map(oms) do oms
+        solve_n(m,oms,rwg(ps))
+    end
+    n = [res[1] for res in nng]
+	ng = [res[2] for res in nng]
+	return n, ng
+end
+
+f1(oms,ps) = let oms = oms, m = ModeSolver(1.45, geom, gr), ps=ps
+    nng = map(x->solve_n(m,x,rwg(ps)), oms)
+    n = [res[1] for res in nng]
+	ng = [res[2] for res in nng]
+	return n, ng
+end
+
+f1(ωs,p)
+sum(solve_n(ωs[1],rwg(p),gr)[2])
+Zygote.gradient(x->sum(solve_n(ωs[1],rwg(x),gr)[2]),p)
 
 ##
 λs = 1 ./ ωs
@@ -34,14 +60,41 @@ scatter!(ax,λs,n1,color=logocolors[:blue])
 fig
 ##
 function var_ng(ωs,p)
-    ng = solve_n(Zygote.dropgrad(ms),ωs,rwg(p))[2]
-    mean( abs2.( ng ) ) - abs2(mean(ng))
+    # m = ModeSolver(1.45, geom, gr) # @ignore(ModeSolver(1.45, geom, gr))
+    # m =  ModeSolver(1.45, geom, gr)
+    # ngs = real(solve_n(ms,ωs,rwg(p))[2])
+	ms_copies = @ignore( [ deepcopy(ms) for om in 1:length(ωs) ] )
+	nng = map((x,y)->solve_n(y,x,rwg(p);tol=1e-11), ωs, ms_copies)
+	# nng = map(x->solve_n(ms,x,rwg(p)), ωs)
+	ngs = [res[2] for res in nng]
+    mean(  ngs.^2  ) - mean(ngs)^2
 end
-var_ng(ωs,p)
-@time ∂vng_RAD = Zygote.gradient(var_ng,ωs,p)
 
+function var_ng3(ωs,p)
+    # m = ModeSolver(1.45, geom, gr) # @ignore(ModeSolver(1.45, geom, gr))
+    m =  @ignore(ModeSolver(1.45, geom, gr))
+    ng1 = solve_n(m,ωs[1],rwg(p))[2]
+    ng2 = solve_n(m,ωs[2],rwg(p))[2]
+    (ng1^2 + ng2^2) / 2. - ( (ng1 + ng2) / 2. )^2
+end
+
+var_ng(ωs,p)
+@show ∂vng_RAD = Zygote.gradient(var_ng,ωs,p)
 @show ∂vng_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng(ωs,x),p)[1]
 @show ∂vng_err = abs.(∂vng_RAD[2] .- ∂vng_FD) ./ abs.(∂vng_FD)
+
+var_ng3(ωs,p)
+@show ∂vng3_RAD = Zygote.gradient(var_ng3,ωs,p)
+@show ∂vng3_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng3(ωs,x),p)[1]
+@show ∂vng3_err = abs.(∂vng3_RAD[2] .- ∂vng3_FD) ./ abs.(∂vng3_FD)
+
+@show ∂sumng_RAD = Zygote.gradient(x->sum(solve_n(ms,[0.6,0.7],rwg(x))[2]),p)[1]
+@show ∂sumng_FD = FiniteDifferences.grad(central_fdm(3,1),x->sum(solve_n(ms,[0.6,0.7],rwg(x))[2]),p)[1]
+@show ∂sumng_err = abs.(∂sumng_RAD[2] .- ∂sumng_FD) ./ abs.(∂sumng_FD)
+
+@show ∂sumng_RAD = Zygote.gradient(x->sum([solve_n(ms,om,rwg(x))[2] for om in [0.6,0.7] ]),p)[1]
+@show ∂sumng_FD = FiniteDifferences.grad(central_fdm(3,1),x->sum([solve_n(ms,om,rwg(x))[2] for om in [0.6,0.7] ]),p)[1]
+@show ∂sumng_err = abs.(∂sumng_RAD[2] .- ∂sumng_FD) ./ abs.(∂sumng_FD)
 
 # @time ∂vng_FD = FiniteDifferences.grad(central_fdm(3,1),x->var_ng(ωs,x),p)
 #
@@ -53,8 +106,7 @@ var_ng(ωs,p)
 
 ## Define with constant indices
 
-rwg2(x) = ridge_wg(x[1],x[2],x[3],0.5,2.2,1.4,Δx,Δy) # fourth param is gap between modeled object and sidewalls
-n2, ng2 = solve_n(ms,ωs,rwg2(p))
+
 ##
 fig,ax,sc1 = scatter(λs,ng2,color=logocolors[:red])
 lines!(ax,λs,ng2,color=logocolors[:red],lw=2)
@@ -192,43 +244,57 @@ k2,H22 = solve_k(ms,0.7,rwg2(p))
 @show ∂sm4k_p_FD =  FiniteDifferences.grad(central_fdm(5,1),x->summag4(solve_k(ms,0.7,rwg(x))[2]),p)[1]
 @show ∂sm4k_p_err = abs.(∂sm4k_p_RAD .- ∂sm4k_p_FD) ./ ∂sm4k_p_FD
 
-neff1,ng1 = solve_n(ms,0.7,rwg(p))
-neff2,ng2 = solve_n(ms,0.7,rwg2(p))
+## solve_n gradient checks
 
-@show ∂n_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
-@show ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[1],0.7)[1]
+@show ω0 = 0.8
+neff1,ng1 = solve_n(ms,ω0+rand()*0.1,rwg(p))
+neff2,ng2 = solve_n(ms,ω0+rand()*0.1,rwg2(p))
+
+om = ω0+rand()*0.1
+∂n_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[1],om)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[1],om)[1]
 @show ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
 
-@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
-@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[2],0.7)[1]
+om = ω0+rand()*0.1
+∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[2],om)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg2(p))[2],om)[1]
 @show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
 
-@show ∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg(p))[2],0.7)[1]
-@show ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(5,1),x->solve_n(ms,x,rwg(p))[2],0.7)[1]
+om = ω0+rand()*0.1
+∂ng_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg(p))[2],om)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,x,rwg(p))[2],om)[1]
 @show ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
 
-@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
-@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg2(x))[1],p)[1]
+om = ω0+rand()*0.1
+∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,om,rwg2(x))[1],p)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,om,rwg2(x))[1],p)[1]
 @show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
 
-@show ∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[1],p)[1]
-@show ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg(x))[1],p)[1]
+om = ω0+rand()*0.1
+∂n_p_RAD =  Zygote.gradient(x->solve_n(ms,om,rwg(x))[1],p)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,om,rwg(x))[1],p)[1]
 @show ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
 
-@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
-@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg2(x))[2],p)[1]
+om = ω0+rand()*0.1
+∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,om,rwg2(x))[2],p)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,om,rwg2(x))[2],p)[1]
 @show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
 
-@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.7,rwg(x))[2],p)[1]
-@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.7,rwg(x))[2],p)[1]
+om = ω0+rand()*0.1
+∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,om,rwg(x))[2],p)[1]
+solve_n(ms,om+rand()*0.2,rwg(p))
+∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,om,rwg(x))[2],p)[1]
 @show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
 
-@show ∂ng_p_RAD = Zygote.gradient(x->solve_n(ms,0.8,rwg(x))[2],p)[1]
-@show ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(ms,0.8,rwg(x))[2],p)[1]
-@show ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
 
-
-neff1,ng1 = solve_n(ms,0.7,rwg(p))
+##
+neff1,ng1 = solve_n(ms,om,rwg(p))
 neff2,ng2 = solve_n(ms,0.7,rwg2(p))
 
 @show ∂n_om_RAD = Zygote.gradient(x->solve_n(ms,x,rwg2(p))[1],0.7)[1]

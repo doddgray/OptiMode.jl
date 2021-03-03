@@ -1,6 +1,6 @@
 export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, matinds, _εₛ⁻¹_init, _εₛ_init
 export make_εₛ⁻¹, make_εₛ⁻¹_fwd, make_KDTree # legacy junk to remove or update
-export εₘₐₓ, ñₘₐₓ, nₘₐₓ # utility functions for automatic good guesses, move to geometry or solve?
+export εₘₐₓ, ñₘₐₓ, nₘₐₓ, kguess # utility functions for automatic good guesses, move to geometry or solve?
 
 function τ_trans(ε::AbstractMatrix{T}) where T<:Real
     return @inbounds SMatrix{3,3,T,9}(
@@ -280,26 +280,37 @@ function εₛ⁻¹(εs,ε⁻¹s,sinds_proc,matinds,Srvol)
 	map(f,sinds_proc,Srvol)
 end
 
-function εₛ⁻¹(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
-	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
-	xyzc = Zygote.@ignore(x⃗c(gr))
-	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
-	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
-	mats = Zygote.@ignore(materials(geom))
-	minds = Zygote.@ignore(matinds(geom,mats))
-	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
-	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
-	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
-	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
-	ε⁻¹s = inv.(εs)
-	εₛ⁻¹(εs,ε⁻¹s,sinds_proc,minds,Srvol)
-end
+# function εₛ⁻¹(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPrimitives.Shape
+# 	xyz = Zygote.@ignore(x⃗(gr))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+# 	xyzc = Zygote.@ignore(x⃗c(gr))
+# 	sinds = Zygote.@ignore(corner_sinds(geom,xyz,xyzc))  	# shape indices at pixel/voxel corners,
+# 	sinds_proc = Zygote.@ignore(proc_sinds(sinds))  		# processed corner shape index lists for each pixel/voxel, should efficiently indicate whether averaging is needed and which ε⁻¹ to use otherwise
+# 	mats = Zygote.@ignore(materials(geom))
+# 	minds = Zygote.@ignore(matinds(geom,mats))
+# 	vxl_min = Zygote.@ignore( @view xyzc[1:max((end-1),1),1:max((end-1),1)] )
+# 	vxl_max = Zygote.@ignore( @view xyzc[min(2,end):end,min(2,end):end] )
+# 	Srvol = S_rvol(sinds_proc,xyz,vxl_min,vxl_max,geom)
+# 	εs = vcat([mm.fε.(lm) for mm in mats],[εᵥ,])
+# 	ε⁻¹s = inv.(εs)
+# 	εₛ⁻¹(εs,ε⁻¹s,sinds_proc,minds,Srvol)
+# end
 
 function εₛ⁻¹(ω,Srvol::AbstractArray{Tuple{SMatrix{3,3,T,9},T}};ms::ModeSolver) where T
 	es = vcat(εs(ms.geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
 	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
 end
+
+# function εₛ⁻¹(ω::Real,ps::AbstractVector{<:Real},geomfn::Function;ms::ModeSolver)
+# 	forwarddiff(vcat(ω,ps)) do omps
+# 		om = omps[1]
+# 		geom = geomfn(omps[2:end])
+# 		Srvol = S_rvol(geom;ms)
+# 		es = vcat(εs(geom,( 1. / om )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+# 		eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+# 		ei_new = εₛ⁻¹(es,eis,ms.sinds_proc,ms.minds,Srvol)  # new spatially smoothed ε⁻¹ tensor array
+# 	end
+# end
 
 function εₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
 	Srvol = S_rvol(geom;ms)
@@ -334,70 +345,88 @@ function _εₛ⁻¹_init(lm::Real,geom::Vector{S},gr::Grid) where S<:GeometryPr
 end
 
 ##### Utilities for good guesses, should move elsewhere (solve?)
-function εₘₐₓ(shapes::AbstractVector{<:GeometryPrimitives.Shape})
-    maximum(vec([shapes[i].data[j,j] for j=1:3,i=1:size(shapes)[1]]))
-end
-ñₘₐₓ(ε⁻¹)::Float64 = √(maximum(3 ./ tr.(ε⁻¹)))
-nₘₐₓ(ε)::Float64 = √(maximum(reinterpret(Float64,ε)))
+"""
+################################################################################
+#																			   #
+#							    Utility methods					   			   #
+#																			   #
+################################################################################
+"""
+
+
+ñₘₐₓ(ε⁻¹::AbstractArray{<:SMatrix})::Float64 = √(maximum(3 ./ tr.(ε⁻¹)))
+nₘₐₓ(ε::AbstractArray{<:SMatrix})::Float64 = √(maximum(reinterpret(Float64,ε)))
+
+
+"""
+################################################################################
+#																			   #
+#							   Plotting methods					   			   #
+#																			   #
+################################################################################
+"""
 
 
 ##### Legacy code, please remove soon
 
-function εₛ(shapes::AbstractVector{<:GeometryPrimitives.Shape{2}},x::Real,y::Real;tree::KDTree,δx::Real,δy::Real,npix_sm::Int=1)
-    s1 = @ignore(findfirst(SVector(x+δx/2.,y+δy/2.),tree))
-    s2 = @ignore(findfirst(SVector(x+δx/2.,y-δy/2.),tree))
-    s3 = @ignore(findfirst(SVector(x-δx/2.,y-δy/2.),tree))
-    s4 = @ignore(findfirst(SVector(x-δx/2.,y+δy/2.),tree))
-
-    ε1 = isnothing(s1) ? εᵥ : s1.data
-    ε2 = isnothing(s2) ? εᵥ : s2.data
-    ε3 = isnothing(s3) ? εᵥ : s3.data
-    ε4 = isnothing(s4) ? εᵥ : s4.data
-
-    if (ε1==ε2==ε3==ε4)
-        return ε1
-    else
-        sinds = @ignore ( [ isnothing(ss) ? length(shapes)+1 : findfirst(isequal(ss),shapes) for ss in [s1,s2,s3,s4]] )
-        n_unique = @ignore( length(unique(sinds)) )
-        if n_unique==2
-            s_fg = @ignore(shapes[minimum(dropgrad(sinds))])
-            r₀,nout = surfpt_nearby([x; y], s_fg)
-            rvol = volfrac((SVector{2}(x-δx/2.,y-δy/2.), SVector{2}(x+δx/2.,y+δy/2.)),nout,r₀)
-            sind_bg = @ignore(maximum(dropgrad(sinds))) #max(sinds...)
-            ε_bg = sind_bg > length(shapes) ? εᵥ : shapes[sind_bg].data
-            return avg_param(
-                    s_fg.data,
-                    ε_bg,
-                    [nout[1];nout[2];0],
-                    rvol,)
-        else
-            return +(ε1,ε2,ε3,ε4)/4.
-        end
-    end
-end
-
-make_KDTree(shapes::AbstractVector{<:Shape}) = (tree = @ignore (KDTree(shapes)); tree)::KDTree
-
-function make_εₛ⁻¹(shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int,
-	 	δx=Δx/Nx, δy=Δy/Ny, δz=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
-		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where N
-    tree = make_KDTree(shapes)
-    eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
-	# eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
-    for i=1:Nx,j=1:Ny,kk=1:Nz
-		# eps = εₛ(shapes,Zygote.dropgrad(tree),Zygote.dropgrad(g.x[i]),Zygote.dropgrad(g.y[j]),Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy))
-		eps = εₛ(shapes,x[i],y[j];tree,δx,δy)
-		epsi = inv(eps) # inv( (eps' + eps) / 2) # Hermitian(inv(eps))  # inv(Hermitian(eps)) #   # inv(eps)
-        eibuf[:,:,i,j,kk] = epsi #(epsi' + epsi) / 2
-    end
-    # return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},T,5,5,Array{T,5}}( real(copy(eibuf)) )
-	return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()}}( real(copy(eibuf)) )
-end
-
-function make_εₛ⁻¹_fwd(shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int,
-	 	δx=Δx/Nx, δy=Δy/Ny, δz=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
-		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where N
-    Zygote.forwarddiff(shapes) do shapes
-		make_εₛ⁻¹(shapes;Δx,Δy,Δz,Nx,Ny,Nz,δx,δy,δz,x,y,z)
-	end
-end
+# make_KDTree(shapes::AbstractVector{<:Shape}) = (tree = @ignore (KDTree(shapes)); tree)::KDTree
+#
+# function εₛ(shapes::AbstractVector{<:GeometryPrimitives.Shape{2}},x::Real,y::Real; δx::Real,δy::Real,npix_sm::Int=1)
+# 	tree = make_KDTree(shapes)
+# 	s1 = @ignore(findfirst(SVector(x+δx/2.,y+δy/2.),tree))
+#     s2 = @ignore(findfirst(SVector(x+δx/2.,y-δy/2.),tree))
+#     s3 = @ignore(findfirst(SVector(x-δx/2.,y-δy/2.),tree))
+#     s4 = @ignore(findfirst(SVector(x-δx/2.,y+δy/2.),tree))
+#
+#     ε1 = isnothing(s1) ? εᵥ : s1.data
+#     ε2 = isnothing(s2) ? εᵥ : s2.data
+#     ε3 = isnothing(s3) ? εᵥ : s3.data
+#     ε4 = isnothing(s4) ? εᵥ : s4.data
+#
+#     if (ε1==ε2==ε3==ε4)
+#         return ε1
+#     else
+#         sinds = @ignore ( [ isnothing(ss) ? length(shapes)+1 : findfirst(isequal(ss),shapes) for ss in [s1,s2,s3,s4]] )
+#         n_unique = @ignore( length(unique(sinds)) )
+#         if n_unique==2
+#             s_fg = @ignore(shapes[minimum(dropgrad(sinds))])
+#             r₀,nout = surfpt_nearby([x; y], s_fg)
+#             rvol = volfrac((SVector{2}(x-δx/2.,y-δy/2.), SVector{2}(x+δx/2.,y+δy/2.)),nout,r₀)
+#             sind_bg = @ignore(maximum(dropgrad(sinds))) #max(sinds...)
+#             ε_bg = sind_bg > length(shapes) ? εᵥ : shapes[sind_bg].data
+#             return avg_param(
+#                     s_fg.data,
+#                     ε_bg,
+#                     [nout[1];nout[2];0],
+#                     rvol,)
+#         else
+#             return +(ε1,ε2,ε3,ε4)/4.
+#         end
+#     end
+# end
+#
+#
+#
+# function make_εₛ⁻¹(shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int,
+# 	 	δx=Δx/Nx, δy=Δy/Ny, δz=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
+# 		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where N
+#     tree = make_KDTree(shapes)
+#     eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
+# 	# eibuf = Buffer(bounds(shapes[1])[1],3,3,Nx,Ny,Nz)
+#     for i=1:Nx,j=1:Ny,kk=1:Nz
+# 		# eps = εₛ(shapes,Zygote.dropgrad(tree),Zygote.dropgrad(g.x[i]),Zygote.dropgrad(g.y[j]),Zygote.dropgrad(g.δx),Zygote.dropgrad(g.δy))
+# 		eps = εₛ(shapes,x[i],y[j];tree,δx,δy)
+# 		epsi = inv(eps) # inv( (eps' + eps) / 2) # Hermitian(inv(eps))  # inv(Hermitian(eps)) #   # inv(eps)
+#         eibuf[:,:,i,j,kk] = epsi #(epsi' + epsi) / 2
+#     end
+#     # return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()},T,5,5,Array{T,5}}( real(copy(eibuf)) )
+# 	return HybridArray{Tuple{3,3,Dynamic(),Dynamic(),Dynamic()}}( real(copy(eibuf)) )
+# end
+#
+# function make_εₛ⁻¹_fwd(shapes::Vector{<:Shape{N}};Δx::Real,Δy::Real,Δz::Real,Nx::Int,Ny::Int,Nz::Int,
+# 	 	δx=Δx/Nx, δy=Δy/Ny, δz=Δz/Nz, x=( ( δx .* (0:(Nx-1))) .- Δx/2. ),
+# 		y=( ( δy .* (0:(Ny-1))) .- Δy/2. ), z=( ( δz .* (0:(Nz-1))) .- Δz/2. ) ) where N
+#     Zygote.forwarddiff(shapes) do shapes
+# 		make_εₛ⁻¹(shapes;Δx,Δy,Δz,Nx,Ny,Nz,δx,δy,δz,x,y,z)
+# 	end
+# end

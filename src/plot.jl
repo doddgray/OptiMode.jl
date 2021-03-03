@@ -1,27 +1,21 @@
 # using Plots: plot, plot!, heatmap, heatmap!, @layout, cgrad
-using Plots.PlotMeasures
-# using Plots.grid
-using Plots: plot, plot!, heatmap, @layout, cgrad, grid, heatmap!
+# using Plots.PlotMeasures
+# # using Plots.grid
+# using Plots: plot, plot!, heatmap, @layout, cgrad, grid, heatmap!
+# using AbstractPlotting, # GLMakie
+# using UnicodePlots
 
-export plot_ε, compare_fields, plot_field, plot_d⃗
+export plot_ε, compare_fields, plot_field, plot_d⃗, ylims
+
+################################################################################
+#                              Utility Functions                               #
+################################################################################
 
 
-# shape plotting functions
-function shape(b::Box)
-    xc,yc = b.c
-    r1,r2 = b.r
-    A = inv(b.p) .* b.r'
-    e1 = A[:,1] / √sum([a^2 for a in A[:,1]])
-    e2 = A[:,2] / √sum([a^2 for a in A[:,2]])
-    pts = [  r1*e1 + r2*e2,
-             r1*e1 - r2*e2,
-            -r1*e1 - r2*e2,
-            -r1*e1 + r2*e2,
-        ]
-    b_shape = Plots.Shape([Tuple(pt) for pt in pts])
-end
-shape(p::GeometryPrimitives.Polygon) = Plots.Shape([Tuple(p.v[i,:]) for i in range(1,length(p.v[:,1]),step=1)])
-shape(s::GeometryPrimitives.Sphere) = Plots.partialcircle(0, 2π, 100, s.r)
+
+
+
+
 
 
 # ε plotting functions
@@ -121,7 +115,12 @@ function plot_ε(shapes::AbstractVector{GeometryPrimitives.Shape{2,4,D}},g::Maxw
 	plot_ε(εₛ(shapes,g),g.x,g.y,outlines=outlines,cmap=cmap)
 end
 
-# Modesolver result plotting functions
+
+################################################################################
+#                        Modesolver plotting functions                         #
+################################################################################
+
+
 
 function compare_fields(f_mpb,f,ds)
 	xlim = (minimum(ds.x),maximum(ds.x))

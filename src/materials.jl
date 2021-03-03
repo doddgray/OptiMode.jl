@@ -1,12 +1,16 @@
 # Dispersion models for NLO-relevant materials adapted from
 # https://github.com/doddgray/optics_modeling/blob/master/nlo/NLO_tools.py
 
+"""
 ################################################################################
-#            Temperature Dependent Index, Group Index and GVD models           #
-#                        for phase-matching calculations                       #
+#																			   #
+#							Physical Material Models						   #
+#																			   #
 ################################################################################
+"""
+
 # ng(fₙ::Function) = λ -> ( (n,n_pb) = Zygote.pullback(fₙ,λ); ( n - λ * n_pb(1)[1] ) )
-export λ, Material, materials, n, ng, gvd, ε, ε⁻¹ # , fn, fng, fgvd, fε, fε⁻¹,
+export λ, Material, materials, n, ng, gvd, ε, ε⁻¹, unique_axes, plot_data #, fn, fng, fgvd, fε, fε⁻¹,
 
 c = Unitful.c0      # Unitful.jl speed of light
 @parameters λ, T
@@ -90,6 +94,69 @@ end
 # fgvd(mat::Material) = x->gvd(mat)
 # fgvd(mat::Material,axind::Int) = x->gvd(mat,axind)
 
+"""
+################################################################################
+#																			   #
+#							    Utility methods					   			   #
+#																			   #
+################################################################################
+"""
+
+function unique_axes(mat::Material)
+	e11,e22,e33 = diag(getfield(mat,:ε))
+	if isequal(e11,e22)
+		isequal(e11,e33) ? (return ( [1,], [""] )) : (return ( [1,3], ["₁,₂","₃"] )) # 1 == 2 == 3 (isotropic) : 1 == 2 != 3 (uniaxial)
+	elseif isequal(e22,e33)
+		return ( [1,2], ["₁","₂,₃"] )	# 1 != 2 == 3 (uniaxial)
+	else
+		isequal(e11,e33) ? (return ( [1,2], ["₁,₃","₂"] )) : (return ( [1,2,3], ["₁","₂","₃"] )) # 1 == 3 != 2 (uniaxial) : 1 != 2 != 3 (biaxial)
+	end
+end
+
+"""
+################################################################################
+#																			   #
+#							   Plotting methods					   			   #
+#																			   #
+################################################################################
+"""
+
+function plot_data(mats::AbstractVector{<:Material})
+	fes = getfield.(mats,:fε)
+	axind_axstr_unq = unique_axes.(mats)
+	axind_unq = getindex.(axind_axstr_unq,1)
+	axstr_unq = getindex.(axind_axstr_unq,2)
+	fns = vcat(map((ff,as)->[(x->sqrt(ff(x)[a,a])) for a in as ], fes, axind_unq)...)
+	mat_names = chop.(String.(nameof.(fes)),head=2,tail=0)	# remove "ε_" from function names
+	names = "n" .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...) # "n, n_i or n_i,j (Material)" for all unique axes and materials
+	return fns, names
+end
+plot_data(mat::Material) = plot_data([mat,])
+plot_data(mats::NTuple{N,<:Material} where N) = plot_data([mats...])
+
+function uplot(x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Material} };
+		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n")  where N
+	fns, name = plot_data(x)
+	UnicodePlots.lineplot(fns, xlim[1], xlim[2];
+	 	xlim,
+		ylim=map((a,b)->a(b,digits=1),(floor,ceil),ylims(fns;xlims=xlim)),
+		name,
+		xlabel,
+		ylabel,
+		)
+end
+
+function uplot!(plt::UnicodePlots.Plot,x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Material} };
+		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n")  where N
+	fns, name = plot_data(x)
+	UnicodePlots.lineplot!(plt, fns; name ) #, xlim[1], xlim[2];
+	 	# xlim,
+		# ylim=round.( ylims(plt,ylims(fns;xlims=xlim)) ,digits=1),
+		# name,
+		# xlabel,
+		# ylabel,
+		# )
+end
 
 ################################################################################
 #                                Load Materials                                #

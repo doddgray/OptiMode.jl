@@ -38,3 +38,12 @@ end
 function flat(ε::AbstractArray{TA}) where TA<:SMatrix{3,3,T} where T<:Real
     reshape(reinterpret(reshape,T,ε),(3,3,size(ε)...))
 end
+
+
+"""
+################################################################################
+#																			   #
+#							   Plotting methods					   			   #
+#																			   #
+################################################################################
+"""

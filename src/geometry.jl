@@ -1,9 +1,10 @@
-export Geometry, ridge_wg, circ_wg, demo_shapes, εs, fεs, fεs!
+export Geometry, ridge_wg, circ_wg, demo_shapes, εs, fεs, fεs!, kguess
+export εₘₐₓ, nₘₐₓ #TODO: generalize these methods for materials and ε data
 
 struct Geometry{N}
 	shapes::Vector{Shape{N}}
-
 end
+
 # Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
 materials(geom::Geometry) = materials(geom.shapes)#geom.materials
 εs(geom::Geometry) = getfield.(materials(geom),:ε)
@@ -21,7 +22,25 @@ fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(s
 # 		eeH = ( ee + ee' ) / 2
 # 	end
 
+"""
+################################################################################
+#																			   #
+#							    Utility methods					   			   #
+#																			   #
+################################################################################
+"""
+
 εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fεs(shapes))
+
+function εₘₐₓ(ω::T,geom::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
+    maximum(reinterpret(T,diag.(εs(geom,inv(ω)))))
+end
+
+function nₘₐₓ(ω::T,geom::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
+    sqrt( εₘₐₓ(ω,geom) )
+end
+
+kguess(ω,geom) = nₘₐₓ(ω,geom) * ω
 
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[1]
 # fεs!(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[2]
@@ -32,7 +51,14 @@ fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(s
 # εs = [fe(lm) for fe in fes]
 # ε⁻¹s = [fei(lm) for fei in feis]
 
-# Specific Geometry Cases
+#
+"""
+################################################################################
+#																			   #
+#					      Parametric Geometry Methods					  	   #
+#																			   #
+################################################################################
+"""
 
 function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
     t_subs = (Δy -t_core - edge_gap )/2.
@@ -94,8 +120,6 @@ function demo_shapes(p::T) where T<:Real
 	return [ t, s, b ]
 end
 
-
-
 function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::Vector{<:GeometryPrimitives.Shape} where T<:Real
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
@@ -117,3 +141,37 @@ function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::
     # return Geometry([b_core,b_subs])
 	return [b_core,b_subs]
 end
+
+"""
+################################################################################
+#																			   #
+#							   Plotting methods					   			   #
+#																			   #
+################################################################################
+"""
+
+################################################################################
+#                Plotting conversions for geometry components                  #
+################################################################################
+AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+plottype(::GeometryPrimitives.Polygon) = Poly
+AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+plottype(::GeometryPrimitives.Box) = Poly
+AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
+plottype(::Geometry) = Poly
+
+# function shape(b::Box)
+#     xc,yc = b.c
+#     r1,r2 = b.r
+#     A = inv(b.p) .* b.r'
+#     e1 = A[:,1] / √sum([a^2 for a in A[:,1]])
+#     e2 = A[:,2] / √sum([a^2 for a in A[:,2]])
+#     pts = [  r1*e1 + r2*e2,
+#              r1*e1 - r2*e2,
+#             -r1*e1 - r2*e2,
+#             -r1*e1 + r2*e2,
+#         ]
+#     b_shape = Plots.Shape([Tuple(pt) for pt in pts])
+# end
+# shape(p::GeometryPrimitives.Polygon) = Plots.Shape([Tuple(p.v[i,:]) for i in range(1,length(p.v[:,1]),step=1)])
+# shape(s::GeometryPrimitives.Sphere) = Plots.partialcircle(0, 2π, 100, s.r)
