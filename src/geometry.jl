@@ -1,4 +1,4 @@
-export Geometry, ridge_wg, circ_wg, demo_shapes, εs, fεs, fεs!, kguess
+export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, kguess, fngs, ngs
 export εₘₐₓ, nₘₐₓ #TODO: generalize these methods for materials and ε data
 
 struct Geometry{N}
@@ -17,6 +17,10 @@ fεs(geom::Geometry) = getfield.(materials(geom),:fε)
 materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = materials(geom.shapes)#geom.materials
 εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
 fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fε)
+fngs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fng)
+ngs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fngs(shapes))
+
+
 # εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(fεs(shapes)) do f
 # 		ee = f(lm)
 # 		eeH = ( ee + ee' ) / 2
@@ -92,6 +96,49 @@ function ridge_wg(wₜₒₚ::Real,t_core::Real,θ::Real,edge_gap::Real,mat_core
 	return [core,b_subs]
 end
 
+function ridge_wg_partial_etch(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+    # ε_core = ε_tensor(n_core)
+    # ε_subs = ε_tensor(n_subs)
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+
+	t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_unetch/2.
+    # verts =     [   wt_half     -wt_half     -wb_half    wb_half
+    #                 tc_half     tc_half    -tc_half      -tc_half    ]'
+	# verts = [   wt_half     tc_half
+	# 			-wt_half    tc_half
+	# 			-wb_half    -tc_half
+	# 			wb_half     -tc_half    ]
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
+                    # SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
+					verts,
+					mat_core,					                                    # data: any type, data associated with box shape
+                )
+    ax = [      1.     0.
+                0.     1.      ]
+
+	b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_unetch_y],           	# c: center
+                    [Δx - edge_gap, t_unetch ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_core,					 # data: any type, data associated with box shape
+                )
+
+	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_subs_y],           	# c: center
+                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_subs,					 # data: any type, data associated with box shape
+                )
+    # return Geometry{2}([core,b_subs])
+	return [core,b_unetch,b_subs]
+end
+
 function demo_shapes(p::T) where T<:Real
     ε₁, ε₂, ε₃ = test_εs(1.42,2.2,3.5)
     ax1b,ax2b = GeometryPrimitives.normalize.(([1.,0.2], [0.,1.]))
@@ -159,6 +206,12 @@ AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.
 plottype(::GeometryPrimitives.Box) = Poly
 AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
 plottype(::Geometry) = Poly
+
+
+# AbstractPlotting.convert_arguments(x::Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+# plottype(::Polygon) = Poly
+# AbstractPlotting.convert_arguments(x::Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# plottype(::Box) = Poly
 
 # function shape(b::Box)
 #     xc,yc = b.c

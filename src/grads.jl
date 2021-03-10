@@ -1,8 +1,109 @@
+using ForwardDiff
 using Zygote: @adjoint, Numeric, literal_getproperty, accum
 using ChainRules: Thunk, @non_differentiable
 export sum2, jacobian, ε⁻¹_bar!
 
-# AD rules for array Constructors
+### ForwardDiff Comoplex number support
+# ref: https://github.com/JuliaLang/julia/pull/36030
+# https://github.com/JuliaDiff/ForwardDiff.jl/pull/455
+Base.float(d::ForwardDiff.Dual{T}) where T = ForwardDiff.Dual{T}(float(d.value), d.partials)
+Base.prevfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(prevfloat(float(d.value)), d.partials)
+Base.nextfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(nextfloat(float(d.value)), d.partials)
+function Base.ldexp(x::T, e::Integer) where T<:ForwardDiff.Dual
+    if e >=0
+        x * (1<<e)
+    else
+        x / (1<<-e)
+    end
+end
+
+### ForwardDiff FFT support
+# ref: https://github.com/JuliaDiff/ForwardDiff.jl/pull/495/files
+# https://discourse.julialang.org/t/forwarddiff-and-zygote-cannot-automatically-differentiate-ad-function-from-c-n-to-r-that-uses-fft/52440/18
+ForwardDiff.value(x::Complex{<:ForwardDiff.Dual}) =
+    Complex(x.re.value, x.im.value)
+
+ForwardDiff.partials(x::Complex{<:ForwardDiff.Dual}, n::Int) =
+    Complex(ForwardDiff.partials(x.re, n), ForwardDiff.partials(x.im, n))
+
+ForwardDiff.npartials(x::Complex{<:ForwardDiff.Dual{T,V,N}}) where {T,V,N} = N
+ForwardDiff.npartials(::Type{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N} = N
+
+# AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = float.(x .+ 0im)
+AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.complexfloat.(x)
+AbstractFFTs.complexfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d) + 0im
+
+AbstractFFTs.realfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.realfloat.(x)
+AbstractFFTs.realfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d)
+
+for plan in [:plan_fft, :plan_ifft, :plan_bfft]
+    @eval begin
+
+        AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+            AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
+
+        AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, region=1:ndims(x)) =
+            AbstractFFTs.$plan(ForwardDiff.value.(x), region)
+
+    end
+end
+
+# rfft only accepts real arrays
+AbstractFFTs.plan_rfft(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+    AbstractFFTs.plan_rfft(ForwardDiff.value.(x), region)
+
+for plan in [:plan_irfft, :plan_brfft]  # these take an extra argument, only when complex?
+    @eval begin
+
+        AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+            AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
+
+        AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, d::Integer, region=1:ndims(x)) =
+            AbstractFFTs.$plan(ForwardDiff.value.(x), d, region)
+
+    end
+end
+
+for P in [:Plan, :ScaledPlan]  # need ScaledPlan to avoid ambiguities
+    @eval begin
+
+        Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:ForwardDiff.Dual}) =
+            _apply_plan(p, x)
+
+        Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}) =
+            _apply_plan(p, x)
+
+    end
+end
+
+function _apply_plan(p::AbstractFFTs.Plan, x::AbstractArray)
+    xtil = p * ForwardDiff.value.(x)
+    dxtils = ntuple(ForwardDiff.npartials(eltype(x))) do n
+        p * ForwardDiff.partials.(x, n)
+    end
+    map(xtil, dxtils...) do val, parts...
+        Complex(
+            ForwardDiff.Dual(real(val), map(real, parts)),
+            ForwardDiff.Dual(imag(val), map(imag, parts)),
+        )
+    end
+end
+
+# used with the ForwardDiff+FFTW code above, this Zygote.extract method
+# enables Zygote.hessian to work on real->real functions that internally use
+# FFTs (and thus complex numbers) 
+import Zygote: extract
+function Zygote.extract(xs::AbstractArray{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N}
+  J = similar(xs, complex(V), N, length(xs))
+  for i = 1:length(xs), j = 1:N
+    J[j, i] = xs[i].re.partials.values[j] + im * xs[i].im.partials.values[j]
+  end
+  x0 = ForwardDiff.value.(xs)
+  return x0, J
+end
+
+
+# AD rules for StaticArrays Constructors
 ChainRulesCore.rrule(T::Type{<:SArray}, xs::Number...) = ( T(xs...), dv -> (nothing, dv...) )
 ChainRulesCore.rrule(T::Type{<:SArray}, x::AbstractArray) = ( T(x), dv -> (nothing, dv) )
 ChainRulesCore.rrule(T::Type{<:SMatrix}, xs::Number...) = ( T(xs...), dv -> (nothing, dv...) )
@@ -153,6 +254,7 @@ end
 @adjoint function sum2(op,arr)
     return sum2(op,arr),Δ->sum2adj(Δ,op,arr)
 end
+
 
 # now-removed Zygote trick to improve stability of `norm` pullback
 # found referenced here: https://github.com/JuliaDiff/ChainRules.jl/issues/338
@@ -316,11 +418,13 @@ function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny)
 		end
 		for a2=1:2 # loop over first off diagonal
 			eīf[a2,a2+1,ix,iy] = real( -conj(λ⃗d[3*q-2+a2]) * d⃗[3*q-2+a2-1] - λ⃗d[3*q-2+a2-1] * conj(d⃗[3*q-2+a2]) )
+			eīf[a2+1,a2,ix,iy] = eīf[a2,a2+1,ix,iy]
 		end
 		# a = 1, set 1,3 and 3,1, second off-diagonal
 		eīf[1,3,ix,iy] = real( -conj(λ⃗d[3*q]) * d⃗[3*q-2] - λ⃗d[3*q-2] * conj(d⃗[3*q]) )
+		eīf[3,1,ix,iy] = eīf[1,3,ix,iy]
 	end
-	return eī
+	return eī # inv( (eps' + eps) / 2)
 
 	# eīM = Matrix.(eī)
 	# for iy=1:Ny,ix=1:Nx
@@ -340,6 +444,8 @@ function ε⁻¹_bar!(eī, d⃗, λ⃗d, Nx, Ny)
 	# return eī
 end
 
+uplot(ch::IterativeSolvers.ConvergenceHistory; kwargs...) = lineplot(log10.(ch.data[:resnorm]); name="log10(resnorm)", kwargs...)
+
 function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
 	ms.adj_itr = bicgstabl_iterator!(
 		ms.adj_itr.x,	# recycle previous soln as initial guess
@@ -349,17 +455,46 @@ function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
 		Pl = ms.P̂) # left preconditioner
 	for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
 	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	# λ₀, ch = bicgstabl(
+	# 	ms.adj_itr.x,	# recycle previous soln as initial guess
+	# 	ms.M̂ - real(ms.ω²[eigind])*I, # A
+	# 	H̄[:,eigind] - ms.H⃗[:,eigind] * dot(ms.H⃗[:,eigind],H̄[:,eigind]), # b,
+	# 	3;	# l = number of GMRES iterations per CG iteration
+	# 	Pl = ms.P̂, # left preconditioner
+	# 	reltol = 1e-10,
+	# 	log=true,
+	# 	)
+	# copyto!(ms.λ⃗,λ₀) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	# println("\t\tAdjoint Problem for kz = $( ms.M̂.k⃗[3] ) ###########")
+	# println("\t\t\tadj converged?: $ch")
+	# println("\t\t\titrs, mvps: $(ch.iters), $(ch.mvps)")
+	# uplot(ch;name="log10( adj. prob. res. )")
+	return ms.λ⃗
 end
 
 function solve_adj!(ms::ModeSolver,H̄,ω²,H⃗,eigind::Int)
-	ms.adj_itr = bicgstabl_iterator!(
-		ms.adj_itr.x,	# recycle previous soln as initial guess
+	# ms.adj_itr = bicgstabl_iterator!(
+	# 	ms.adj_itr.x,	# recycle previous soln as initial guess
+	# 	ms.M̂ - real(ω²[eigind])*I, # A
+	# 	H̄[:,eigind] - H⃗[:,eigind] * dot(H⃗[:,eigind],H̄[:,eigind]), # b,
+	# 	3;	# l = number of GMRES iterations per CG iteration
+	# 	Pl = ms.P̂) # left preconditioner
+	# for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
+	# copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	λ₀, ch = bicgstabl(
+		# ms.adj_itr.x,	# recycle previous soln as initial guess
 		ms.M̂ - real(ω²[eigind])*I, # A
 		H̄[:,eigind] - H⃗[:,eigind] * dot(H⃗[:,eigind],H̄[:,eigind]), # b,
 		3;	# l = number of GMRES iterations per CG iteration
-		Pl = ms.P̂) # left preconditioner
-	for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
-	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+		# Pl = ms.P̂, # left preconditioner
+		log=true,
+		)
+	copyto!(ms.λ⃗,λ₀) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	println("#########  Adjoint Problem for kz = $( ms.M̂.k⃗[3] ) ###########")
+	uplot(ch;name="log10( adj. prob. res. )")
+	println("\t\t\tadj converged?: $ch")
+	println("\t\t\titrs, mvps: $(ch.iters), $(ch.mvps)")
+	return λ₀
 end
 
 function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
@@ -403,28 +538,42 @@ function ChainRulesCore.rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Unio
     return ((ω², H⃗), solve_ω²_pullback)
 end
 
+
 function ChainRulesCore.rrule(::typeof(solve_k), ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};
 		nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	k, H⃗ = solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log)
 	# k, H⃗ = copy.(solve_k(ms,ω,ε⁻¹; nev, eigind, maxiter, tol, log)) # ,ω²_tol)	 # returned data are refs to fields in ms struct. copy to preserve result for (possibly delayed) pullback closure.
+	g⃗ = copy(ms.M̂.g⃗)
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
-		mag_m_n(x,dropgrad(ms.M̂.g⃗))
+		mag_m_n(x,dropgrad(g⃗))
 	end
-	# ∂ω²∂k = copy(ms.∂ω²∂k[eigind])
-	# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	# Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+	∂ω²∂k = copy(ms.∂ω²∂k[eigind])
+	Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+	Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+	# println("\tsolve_k:")
+	# println("\t\tω² (target): $(ω^2)")
+	# println("\t\tω² (soln): $(ms.ω²[eigind])")
+	# println("\t\tΔω² (soln): $(real(ω^2 - ms.ω²[eigind]))")
+	# println("\t\tk: $k")
+	# println("\t\t∂ω²∂k: $∂ω²∂k")
+	omsq_soln = ms.ω²[eigind]
+	ε⁻¹_copy = copy(ε⁻¹)
+	k_copy = copy(k)
+	H⃗ = copy(H⃗)
     function solve_k_pullback(ΔΩ)
 		k̄, H̄ = ΔΩ
-		# update_k!(ms,k)
-		# update_ε⁻¹(ms,ε⁻¹)
-		# copyto!(ms.ω², [ω^2])
-		# copyto!(ms.H⃗, H⃗)
-		# copyto!(ms.∂ω²∂k[eigind], ∂ω²∂k)
-		# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-		∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
-		Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-		Nranges = eachindex(ms.grid)
-		
+		# println("\tsolve_k_pullback:")
+		# println("k̄ (bar): $k̄")
+		update_k!(ms,k_copy)
+		update_ε⁻¹(ms,ε⁻¹_copy) #ε⁻¹)
+		ms.ω²[eigind] = omsq_soln # ω^2
+		ms.∂ω²∂k[eigind] = ∂ω²∂k
+		copyto!(ms.H⃗, H⃗)
+		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
+		# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
+		# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+		# Nranges = eachindex(ms.grid)
+
 		H = reshape(H⃗,(2,Ns...))
 	    if typeof(k̄)==ChainRulesCore.Zero
 			k̄ = 0.

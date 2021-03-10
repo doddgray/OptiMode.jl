@@ -661,7 +661,7 @@ function ModeSolver(k⃗::SVector{3,T}, geom::Vector{<:Shape{ND}}, gr::Grid{ND};
 	sinds,sinds_proc,Srvol,mats,minds,ε⁻¹ = _εₛ⁻¹_init( (1. / ω₀), geom, gr)
 	M̂ = HelmholtzMap(k⃗, ε⁻¹, gr)
 	P̂ = HelmholtzPreconditioner(M̂)
-	eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],1)),P̂,nothing)
+	eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],nev)),P̂,nothing)
 	λ⃗ = randn(Complex{T},2*M̂.N)
 	b⃗ = similar(λ⃗)
 	adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
@@ -876,6 +876,18 @@ LinearAlgebra.issymmetric(A::HelmholtzPreconditioner) = true # A._issymmetric
 LinearAlgebra.ishermitian(A::HelmholtzPreconditioner) = true # A._ishermitian
 LinearAlgebra.isposdef(A::HelmholtzPreconditioner)    = true # A._isposdef
 ismutating(A::HelmholtzPreconditioner) = true # A._ismutating
+
+import Base: *
+function Base.:(*)(M::HelmholtzMap,X::Matrix)
+	#if isequal(size(M),size(X)) # size check?
+	ncolsX = size(X)[2]
+	# @assert ncolsX == size(M)[1]
+	Y = similar(X)
+	for i in 1:ncolsX
+		@views Y[:,i] = M * X[:,i]
+	end
+	return Y
+end
 
 
 function LinearAlgebra.mul!(y::AbstractVecOrMat, M̂::HelmholtzMap, x::AbstractVector)

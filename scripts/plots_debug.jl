@@ -13,6 +13,69 @@ plottype(::Geometry) = Poly
 
 # noto_sans = "../assets/NotoSans-Regular.ttf"
 # noto_sans_bold = "../assets/NotoSans-Bold.ttf"
+## plot E⃗, H⃗, S⃗ fields
+
+fig = Figure(resolution = (1200, 700))
+eigind = 2
+# cm = :diverging_linear_bjr_30_55_c53_n256
+cm_E = :diverging_bkr_55_10_c35_n256
+cm_H = :diverging_gwv_55_95_c39_n256
+E = copy(E⃗(ms;svecs=false)[eigind])
+H = copy(H⃗(ms;svecs=false)[eigind])
+xs = x(ms.grid)
+ys = y(ms.grid)
+
+@show iEmagmax = argmax(abs2.(E))
+@show Emagmax = E[iEmagmax]
+Erel = E ./ Emagmax
+Hrel = H ./ Emagmax
+
+@show iHrelmagmax = argmax(abs2.(Hrel))
+@show Hrelmagmax = abs(H[iHrelmagmax])
+
+
+axes_Er = fig[1,1:3] = [Axis(fig,title=t) for t in "E⃗".*["x","y","z"].*"r" ]
+axes_Ei = fig[2,1:3] = [Axis(fig,title=t) for t in "E⃗".*["x","y","z"].*"i" ]
+axes_Hr = fig[3,1:3] = [Axis(fig,title=t) for t in "H⃗".*["x","y","z"].*"r" ]
+axes_Hi = fig[4,1:3] = [Axis(fig,title=t) for t in "H⃗".*["x","y","z"].*"i" ]
+
+# axes_fields = vcat(axes_Er,axes_Ei,axes_Hr,axes_Hi)
+
+# linkaxes!(axes_fields...)
+
+hms_Er = [ heatmap!(ax,xs,ys,real(Erel[i,:,:]),colorrange=(-1,1),colormap=cm_E) for (i,ax) in enumerate(axes_Er)]
+hms_Ei = [ heatmap!(ax,xs,ys,imag(Erel[i,:,:]),colorrange=(-1,1),colormap=cm_E) for (i,ax) in enumerate(axes_Ei)]
+hms_Hr = [ heatmap!(ax,xs,ys,real(Hrel[i,:,:]),colorrange=(-Hrelmagmax,Hrelmagmax),colormap=cm_H) for (i,ax) in enumerate(axes_Hr)]
+hms_Hi = [ heatmap!(ax,xs,ys,imag(Hrel[i,:,:]),colorrange=(-Hrelmagmax,Hrelmagmax),colormap=cm_H) for (i,ax) in enumerate(axes_Hi)]
+
+# hms_Er = [ heatmap!(ax,xs,ys,real(E[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_E) for (i,ax) in enumerate(axes_Er)]
+# hms_Ei = [ heatmap!(ax,xs,ys,imag(E[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_E) for (i,ax) in enumerate(axes_Ei)]
+# hms_Hr = [ heatmap!(ax,xs,ys,real(H[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_H) for (i,ax) in enumerate(axes_Hr)]
+# hms_Hi = [ heatmap!(ax,xs,ys,imag(H[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_H) for (i,ax) in enumerate(axes_Hi)]
+
+# fig 
+hms_E = vcat(hms_Er,hms_Ei)
+hms_H = vcat(hms_Hr,hms_Hi)
+hms_fields = vcat(hms_Er,hms_Ei,hms_Hr,hms_Hi)
+
+# for hm in hms_Er
+#     hm.colorange=(-1,1)
+# end
+
+cbar_E = fig[1:2,4] = Colorbar(fig,hms_E[1],label="relative field mag. [1]")
+cbar_E.width = 30
+cbar_H = fig[3:4,4] = Colorbar(fig,hms_H[1],label="relative field mag. [1]")
+cbar_H.width = 30
+# cb_E = Colorbar(
+#     fig[2, 1][1, 2],
+#     hm_E,
+#     label="E⃗y",
+#     width=20,
+#     # limits=(-1,1),
+# ) #vertical=false, height=20, label="S⃗z") #width = 20)
+
+fig
+
 ##
 fig = Figure(resolution = (1200, 700))
 ms_N = Node(ms)

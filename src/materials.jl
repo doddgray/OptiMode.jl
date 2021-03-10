@@ -10,7 +10,7 @@
 """
 
 # ng(fₙ::Function) = λ -> ( (n,n_pb) = Zygote.pullback(fₙ,λ); ( n - λ * n_pb(1)[1] ) )
-export λ, Material, materials, n, ng, gvd, ε, ε⁻¹, unique_axes, plot_data #, fn, fng, fgvd, fε, fε⁻¹,
+export λ, Material, materials, n, ng, gvd, ε, ε⁻¹, unique_axes, plot_data, nn̂g #, fn, fng, fgvd, fε, fε⁻¹,
 
 c = Unitful.c0      # Unitful.jl speed of light
 @parameters λ, T
@@ -23,13 +23,14 @@ gvd(n_sym::Num) = λ^3 * expand_derivatives(Dλ(Dλ(n_sym))) # gvd = uconvert( (
 struct Material{T}
 	ε::SMatrix{3,3,T,9}
 	fε::Function
+	fng::Function
 end
 
 # Material(x::AbstractArray) = Material(ε_tensor(x))
 # Material(x::Number) = Material(ε_tensor(x))
 # Material(x::Tuple) = Material(ε_tensor(x))
-Material(x,f) = Material(ε_tensor(x),f)
-Material(x) = Material(ε_tensor(x),lm->ε_tensor(x))
+Material(x,fe,fng) = Material(ε_tensor(x),fe,fng)
+Material(x) = Material(ε_tensor(x),lm->ε_tensor(x),lm->sqrt.(ε_tensor(x)))
 Material(mat::Material) = mat	# maybe
 # import Base.convert
 # convert(::Type{Material}, x) = Material(x)
@@ -47,7 +48,7 @@ materials(shapes::Vector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Ma
 ε⁻¹(mat::Material) = inv(mat.ε)
 n(mat::Material) = sqrt.(diag(mat.ε))
 n(mat::Material,axind::Int) = sqrt(mat.ε[axind,axind])
-
+nn̂g(mat::Material,lm::Real) = getfield(mat,:fng)(lm) * sqrt.(getfield(mat,:fε)(lm))
 
 #### Symbolic Material model methods ####
 ng(mat::Material) = ng.(n(mat))
@@ -135,7 +136,7 @@ plot_data(mat::Material) = plot_data([mat,])
 plot_data(mats::NTuple{N,<:Material} where N) = plot_data([mats...])
 
 function uplot(x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Material} };
-		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n")  where N
+		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n", kwargs...)  where N
 	fns, name = plot_data(x)
 	UnicodePlots.lineplot(fns, xlim[1], xlim[2];
 	 	xlim,
@@ -143,6 +144,7 @@ function uplot(x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Materia
 		name,
 		xlabel,
 		ylabel,
+		kwargs...
 		)
 end
 
@@ -157,6 +159,11 @@ function uplot!(plt::UnicodePlots.Plot,x::Union{Material, AbstractVector{<:Mater
 		# ylabel,
 		# )
 end
+
+import Base: show
+
+Base.show(io::IO, ::MIME"text/plain", mat::Material) = uplot(mat;title="MIME version") #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
+Base.show(io::IO, mat::Material) = uplot(mat) #print(io, m.x, '(', m.y, ')')
 
 ################################################################################
 #                                Load Materials                                #

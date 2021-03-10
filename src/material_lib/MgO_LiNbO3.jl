@@ -1,7 +1,7 @@
 ################################################################################
 #                                 MgO:LiNbO₃                                   #
 ################################################################################
-export ε_MgO_LiNbO₃,nₒ²_MgO_LiNbO₃,nₒ_MgO_LiNbO₃,ngₒ_MgO_LiNbO₃,gvdₒ_MgO_LiNbO₃,nₑ²_MgO_LiNbO₃,nₑ_MgO_LiNbO₃,ngₑ_MgO_LiNbO₃,gvdₑ_MgO_LiNbO₃, MgO_LiNbO₃
+export ε_MgO_LiNbO₃,nₒ²_MgO_LiNbO₃,nₒ_MgO_LiNbO₃,ngₒ_MgO_LiNbO₃,gvdₒ_MgO_LiNbO₃,nₑ²_MgO_LiNbO₃,nₑ_MgO_LiNbO₃,ngₑ_MgO_LiNbO₃,gvdₑ_MgO_LiNbO₃, ng_MgO_LiNbO₃, MgO_LiNbO₃
 
 """
 These functions create a symbolic representation (using ModelingToolkit) of the
@@ -77,20 +77,30 @@ _ngₒ_MgO_LiNbO₃ = eval(build_function(ng(nₒ_MgO_LiNbO₃_sym),λ)) # input
 _gvdₒ_MgO_LiNbO₃ = eval(build_function(gvd(nₒ_MgO_LiNbO₃_sym),λ)) # inputs (λ,T) in ([μm],[°C])
 
 ε_MgO_LiNbO₃_λT_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_λT_sym, nₒ²_MgO_LiNbO₃_λT_sym, nₒ²_MgO_LiNbO₃_λT_sym ] )
-ε_MgO_LiNbO₃_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym ] )
-# ε_MgO_LiNbO₃_sym = [ nₑ²_MgO_LiNbO₃_sym            0                0
-#                         0               nₒ²_MgO_LiNbO₃_sym          0
-#                         0                          0         nₒ²_MgO_LiNbO₃_sym ]
-_ε_MgO_LiNbO₃_λT, _ε_MgO_LiNbO₃_λT! = eval.(build_function(ε_MgO_LiNbO₃_sym,λ,T))
-_ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiNbO₃_sym,[T=>pₒ_MgO_LiNbO₃.T₀]),λ))
-function ε_MgO_LiNbO₃(λ::T) where T<:Real
-    nₑ² = _nₑ²_MgO_LiNbO₃(λ)
-    nₒ² = _nₒ²_MgO_LiNbO₃(λ)
-    # Diagonal( [ nₑ², nₒ², nₒ² ] )
-    SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
-                      0.,     nₒ²,    0.,
-                      0.,     0.,     nₒ², )
-end
+#TODO uncomment after trying out fake isotropic LN model
+# ε_MgO_LiNbO₃_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym ] )
+# # # ε_MgO_LiNbO₃_sym = [ nₑ²_MgO_LiNbO₃_sym            0                0
+# # #                         0               nₒ²_MgO_LiNbO₃_sym          0
+# # #                         0                          0         nₒ²_MgO_LiNbO₃_sym ]
+# _ε_MgO_LiNbO₃_λT, _ε_MgO_LiNbO₃_λT! = eval.(build_function(ε_MgO_LiNbO₃_sym,λ,T))
+# _ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiNbO₃_sym,[T=>pₒ_MgO_LiNbO₃.T₀]),λ))
+# function ε_MgO_LiNbO₃(λ::T) where T<:Real
+#     nₑ² = _nₑ²_MgO_LiNbO₃(λ)
+#     nₒ² = _nₒ²_MgO_LiNbO₃(λ)
+#     # Diagonal( [ nₑ², nₒ², nₒ² ] )
+#     SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
+#                       0.,     nₒ²,    0.,
+#                       0.,     0.,     nₒ², )
+# end
+#
+# function ng_MgO_LiNbO₃(λ::T) where T<:Real
+#     ngₑ = _ngₑ_MgO_LiNbO₃(λ)
+#     ngₒ = _ngₒ_MgO_LiNbO₃(λ)
+#     # Diagonal( [ nₑ², nₒ², nₒ² ] )
+#     SMatrix{3,3,T,9}( ngₑ,    0.,     0.,
+#                       0.,     ngₒ,    0.,
+#                       0.,     0.,     ngₒ, )
+# end
 
 nₑ²_MgO_LiNbO₃(λ) = _nₑ²_MgO_LiNbO₃(λ)
 nₑ_MgO_LiNbO₃(λ) = _nₑ_MgO_LiNbO₃(λ)
@@ -131,5 +141,33 @@ gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvdₒ_MgO_
 gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency) = ( _gvdₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 
 
-MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃)
+#### replace models with fake isotropic version for debugging:
+ε_MgO_LiNbO₃_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_sym, nₑ²_MgO_LiNbO₃_sym, nₑ²_MgO_LiNbO₃_sym ] )
+# ε_MgO_LiNbO₃_sym = [ nₑ²_MgO_LiNbO₃_sym            0                0
+#                         0               nₒ²_MgO_LiNbO₃_sym          0
+#                         0                          0         nₒ²_MgO_LiNbO₃_sym ]
+_ε_MgO_LiNbO₃_λT, _ε_MgO_LiNbO₃_λT! = eval.(build_function(ε_MgO_LiNbO₃_sym,λ,T))
+_ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiNbO₃_sym,[T=>pₒ_MgO_LiNbO₃.T₀]),λ))
+function ε_MgO_LiNbO₃(λ::T) where T<:Real
+    nₑ² = _nₑ²_MgO_LiNbO₃(λ)
+    # nₒ² = _nₒ²_MgO_LiNbO₃(λ)
+    # Diagonal( [ nₑ², nₒ², nₒ² ] )
+    SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
+                      0.,     nₑ²,    0.,
+                      0.,     0.,     nₑ², )
+end
+
+function ng_MgO_LiNbO₃(λ::T) where T<:Real
+    ngₑ = _ngₑ_MgO_LiNbO₃(λ)
+    # ngₒ = _ngₒ_MgO_LiNbO₃(λ)
+    # Diagonal( [ nₑ², nₒ², nₒ² ] )
+    SMatrix{3,3,T,9}( ngₑ,    0.,     0.,
+                      0.,     ngₑ,    0.,
+                      0.,     0.,     ngₑ, )
+end
+
+################################################################
+
+
+MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
 # MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym)

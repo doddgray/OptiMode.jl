@@ -3,33 +3,75 @@ using Distributed
 pids = addprocs(8)
 @show wp = CachingPool(workers()) #default_worker_pool()
 @everywhere begin
-	using Revise, Distributed, LinearAlgebra, Statistics, FFTW, StaticArrays, HybridArrays, ChainRules, Zygote, GeometryPrimitives, OptiMode
-	using Zygote: dropgrad
-	p = [
-	    1.7,                #   top ridge width         `w_top`         [μm]
-	    0.7,                #   ridge thickness         `t_core`        [μm]
-	    π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-	    2.4,                #   core index              `n_core`        [1]
-	    1.4,                #   substrate index         `n_subs`        [1]
-	    0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
-	]
-	Δx,Δy,Δz,Nx,Ny,Nz = 6., 4., 1., 128, 128, 1
-	rwg(p) = ridge_wg(p[1],p[2],p[3],p[6],p[4],p[5],Δx,Δy)
-	ωs = collect(0.725:0.025:0.8)
-	ms = ModeSolver(1.45, rwg(p), Δx, Δy, Δz, Nx, Ny, Nz)
-	shapes = rwg(p)
-	function var_ng1(ωs,p)
-		ng = solve_n(dropgrad(ms),ωs,rwg(p);wp)[2]
-		mean( abs2.( ng ) ) - abs2(mean(ng))
-	end
+	using Revise, Distributed, LinearAlgebra, Statistics, FFTW, StaticArrays, HybridArrays, ChainRules, Zygote, ForwardDiff, GeometryPrimitives, OptiMode
+	using Zygote: dropgrad, @ignore
+	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+	# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
+	gr = Grid(Δx,Δy,Nx,Ny)
+	p_pe = [
+	       1.7,                #   top ridge width         `w_top`         [μm]
+	       0.7,                #   ridge thickness         `t_core`        [μm]
+	       0.5,                #   top layer etch fraction `etch_frac`     [1]
+	       π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+	               ];
+	rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 
-	function var_ng2(ωs,p)
-		sum(solve_n(dropgrad(ms),ωs,rwg(p))[2])
-	end
+	geom_pe = rwg_pe(p_pe)
+	ms = ModeSolver(1.45, rwg_pe(p_pe), gr)
+	p_pe_lower = [0.4, 0.3, 0., 0.]
+	p_pe_upper = [2., 2., 1., π/4.]
+
+
+	λs = collect(reverse(1.45:0.02:1.65))
+	ωs = 1 ./ λs
+
+	n1F,ng1F = solve_n(ms,ωs,rwg_pe(p_pe)); n1S,ng1S = solve_n(ms,2*ωs,rwg_pe(p_pe))
 end
 
-var_ng2(ωs,p)
-# var_ng1(ωs,p)
+##
+
+function foo2()
+
+function _solve_n_parallel1(ωs::Vector{T},geom::Vector{<:Shape},gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
+	wp = CachingPool(workers())
+	nω = length(ωs)
+	ind0 = Int(ceil(nω/2))
+	ω0 = ωs[ind0]
+	ms = @ignore(ModeSolver(kguess(ω0,geom), geom, gr))
+	nng0 = solve_n(ms,ω0,geom)
+	ms_copies = [ deepcopy(ms) for om in 1:nω ]
+	geoms = [deepcopy(geom) for om in 1:nω ]
+	nng = pmap(wp,ms_copies,ωs,geoms) do m,om,s
+		@ignore( replan_ffts!(m) );
+		solve_n(m,om,s)
+	end
+	n = [res[1] for res in nng]; ng = [res[2] for res in nng]
+	return n, ng
+end
+
+function _solve_n_parallel2(ωs::Vector{T},geom::Vector{<:Shape},gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
+	wp = CachingPool(workers())
+	nω = length(ωs)
+	# ind0 = Int(ceil(nω/2))
+	# ω0 = ωs[ind0]
+	# ms = @ignore(ModeSolver(kguess(ω0,geom), geom, gr))
+	# nng0 = solve_n(ms,ω0,geom)
+	# ms_copies = [ deepcopy(ms) for om in 1:nω ]
+	geoms = [deepcopy(geom) for om in 1:nω ]
+	nng = pmap(wp,ωs,geoms) do om,s
+		@ignore( replan_ffts!(m) );
+		solve_n(om,s,gr)
+	end
+	n = [res[1] for res in nng]; ng = [res[2] for res in nng]
+	return n, ng
+end
+
+n1,ng1 = _solve_n_parallel1(ωs,rwg_pe(p_pe),gr)
+gr2 = Grid(6.0, 4.0, 256, 256)
+n2,ng2 = _solve_n_parallel1(ωs,rwg_pe(p_pe),gr2)
+
+n1,ng1 = _solve_n_parallel2(ωs,rwg_pe(p_pe),gr)
+
 ##
 gradient(var_ng2,ωs,p)
 
@@ -191,7 +233,7 @@ p̄_FD3 = FiniteDifferences.jacobian(central_fdm(3,1),x->calc_ng(x),p)[1][1,:]
 # https://discourse.julialang.org/t/passing-constructed-closures-to-child-processes/34723
 # where issues with closures are discussed
 using Distributed
-addprocs(10)
+addprocs(8)
 @everywhere begin
   using Zygote
   function f_pmap_zygote_solve(A, bs)
@@ -200,6 +242,6 @@ addprocs(10)
   end
 end
 wp = default_worker_pool()
-A = randn(10,10) #sprand(200, 200, 0.01) + 200*I
-b0s = [randn(10) for i=1:10]
+A = randn(8,8) #sprand(200, 200, 0.01) + 200*I
+b0s = [randn(8) for i=1:8]
 Zygote.gradient(f_pmap_zygote_solve, A, b0s)

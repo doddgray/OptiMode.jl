@@ -75,4 +75,4 @@ gvd_Si₃N₄(λ::Unitful.Length) = ( _gvd_Si₃N₄((λ|>u"μm").val)u"μm" / (
 gvd_Si₃N₄(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvd_Si₃N₄(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 gvd_Si₃N₄(f::Unitful.Frequency) = ( _gvd_Si₃N₄(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 
-Si₃N₄ = Material(ε_Si₃N₄_sym,ε_Si₃N₄)
+Si₃N₄ = Material(ε_Si₃N₄_sym,ε_Si₃N₄,x->ng_Si₃N₄(x)*I)

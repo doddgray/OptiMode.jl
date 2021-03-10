@@ -64,8 +64,9 @@ end
 
 @inline function unflat(f; ms::ModeSolver)
 	Ns = size(ms.grid)
-	ratio = length(f) //  N(ms.grid) |> Int # (length of vector) / (number of grid points)
-	reshape(f,(ratio,Ns...))
+	nev = size(f,2)
+	ratio = length(f) // ( nev * N(ms.grid) ) |> Int # (length of vector) / (number of grid points)
+	[reshape(f[:,i],(ratio,Ns...)) for i=1:nev]
 end
 
 mn(ms::ModeSolver) = vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
@@ -73,32 +74,36 @@ mn(ms::ModeSolver) = vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M�
 
 
 function H⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
-	Harr = fft( tc(unflat(ms.H⃗;ms),mn(ms)), (2:1+ND) ) #.* ms.M̂.Ninv
-	svecs ? reinterpret(reshape, SVector{3,Complex{T}},  Harr) : Harr
+	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],mn(ms)), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
+	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
 end
 H⃗x(ms::ModeSolver) = H⃗(ms;svecs=false)[1,eachindex(ms.grid)...]
 H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
 H⃗z(ms::ModeSolver) = H⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
 
 function E⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
-	Earr = ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms),mn(ms),ms.M̂.mag), (2:1+ND) ), ms.M̂.ε⁻¹ )
-	svecs ? reinterpret(reshape, SVector{3,Complex{T}},  Earr) : Earr
+	# eif = flat(ε⁻¹)
+	Earr = [ 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ ))) for eigind=1:size(ms.H⃗,2) ]
+	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Earr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Earr
 end
-E⃗x(ms::ModeSolver) = E⃗(ms;svecs=false)[1,eachindex(ms.grid)...]
-E⃗y(ms::ModeSolver) = E⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
-E⃗z(ms::ModeSolver) = E⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
+E⃗x(ms::ModeSolver) = [ E[1,eachindex(ms.grid)...] for E in E⃗(ms;svecs=false) ]
+E⃗y(ms::ModeSolver) = [ E[2,eachindex(ms.grid)...] for E in E⃗(ms;svecs=false) ]
+E⃗z(ms::ModeSolver) = [ E[3,eachindex(ms.grid)...] for E in E⃗(ms;svecs=false) ]
 
 import Base: abs2
 abs2(v::SVector) = real(dot(v,v))
 
 function S⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
-	Ssvs = real.( cross.( conj.(E⃗(ms)), H⃗(ms) ) )
-	svecs ? Ssvs : reshape( reinterpret( Complex{T},  Ssvs), (3,size(ms.grid)...))
+	# Ssvs = real.( cross.( conj.(E⃗(ms)), H⃗(ms) ) )
+	Ssvs = map((E,H)->real.( cross.( conj.(E), H) ), E⃗(ms), H⃗(ms) )
+	svecs ? Ssvs : [ reshape( reinterpret( Complex{T},  Ssvs[i]), (3,size(ms.grid)...)) for i in length(Ssvs) ]
 end
 
-S⃗x(ms::ModeSolver) = real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 1) )
-S⃗y(ms::ModeSolver) = real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 2) )
-S⃗z(ms::ModeSolver) = real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 3) )
+S⃗x(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 1)), E⃗(ms), H⃗(ms) ) #real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 1) )
+S⃗y(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 2)), E⃗(ms), H⃗(ms) ) #real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 2) )
+S⃗z(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 3)), E⃗(ms), H⃗(ms) ) #real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 3) )
+
+
 
 function normE!(ms)
 	E = E⃗(ms;svecs=false)
@@ -125,6 +130,16 @@ function Ey_norm(ms)
 	view(E,2,eachindex(ms.grid)...) * inv(Eperp[imagmax])
 end
 
+# function ngdisp1(ω,H,geom,mag,m,n)
+# 	ω = sqrt(real(ms.ω²[eigind]))
+# 	ω / H_Mₖ_H(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+# end
+#
+# function ngdisp1(ms,eigind)
+# 	ω = sqrt(real(ms.ω²[eigind]))
+# 	ω / H_Mₖ_H(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+# end
+# ( sum( dot.( ( inv.(ms.M̂.ε⁻¹) .* E⃗(ms)[1] ), E⃗(ms)[1]))*δ(ms.grid) ) ./ ( sum.(S⃗z(ms))*δ(ms.grid) )
 
 # sum( real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 3) ) )
 
