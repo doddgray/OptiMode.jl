@@ -168,6 +168,6 @@ end
 
 ################################################################
 
-
-MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
+# MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
+MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
 # MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym)

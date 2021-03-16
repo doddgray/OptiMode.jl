@@ -74,6 +74,29 @@ function proc_sinds(corner_sinds::AbstractArray{Int,2})
 	return sinds_proc
 end
 
+function proc_sinds(geom::Vector{<:Shape},grid::Grid{2})
+	csinds = corner_sinds(geom,x⃗(grid),x⃗c(grid))
+	unq = [0,0]
+	sinds_proc = fill((0,0,0,0),size(csinds).-1) #zeros(eltype(first(corner_sinds)),size(corner_sinds).-1)
+	@inbounds for I ∈ CartesianIndices(sinds_proc)
+	 	unq = [		csinds[I],
+								csinds[I+CartesianIndex(1,0)],
+								csinds[I+CartesianIndex(0,1)],
+								csinds[I+CartesianIndex(1,1)]
+			  				]
+		unique!( unq )
+		sinds_proc[I] = isone(lastindex(unq)) ? (unq[1],0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0) ) :
+				( 	csinds[I],
+					csinds[I+CartesianIndex(1,0,0)],
+					csinds[I+CartesianIndex(0,1,0)],
+					csinds[I+CartesianIndex(1,1,0)]
+				)
+		)
+	end
+	return sinds_proc
+end
+
 function proc_sinds!(sinds_proc::AbstractArray{T,2},corner_sinds::AbstractArray{Int,2}) where T
 	unq = [0,0]
 	@inbounds for I ∈ CartesianIndices(sinds_proc)
@@ -121,6 +144,33 @@ function proc_sinds(corner_sinds::AbstractArray{Int,3})
 	return sinds_proc
 end
 
+function proc_sinds(geom::Vector{<:Shape},grid::Grid{3})
+	csinds = corner_sinds(geom,x⃗(grid),x⃗c(grid))
+	unq = [0,0]
+	sinds_proc = fill((0,0,0,0,0,0,0,0),size(csinds).-1) #zeros(eltype(first(corner_sinds)),size(corner_sinds).-1)
+	@inbounds for I ∈ CartesianIndices(sinds_proc)
+	 	unq = [		csinds[I],
+								csinds[I+CartesianIndex(1,0,0)],
+								csinds[I+CartesianIndex(0,1,0)],
+								csinds[I+CartesianIndex(1,1,0)]
+			  				]
+		unique!( unq )
+		sinds_proc[I] = isone(lastindex(unq)) ? (unq[1],0,0,0,0,0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0,0,0,0,0) ) :
+				( 	csinds[I],
+					csinds[I+CartesianIndex(1,0,0)],
+					csinds[I+CartesianIndex(0,1,0)],
+					csinds[I+CartesianIndex(1,1,0)],
+					csinds[I+CartesianIndex(0,0,1)],
+					csinds[I+CartesianIndex(1,0,1)],
+					csinds[I+CartesianIndex(0,1,1)],
+					csinds[I+CartesianIndex(1,1,1)]
+				)
+		)
+	end
+	return sinds_proc
+end
+
 function proc_sinds!(sinds_proc::AbstractArray{T,3},corner_sinds::AbstractArray{Int,3}) where T
 	unq = [0,0]
 	@inbounds for I ∈ CartesianIndices(sinds_proc)
@@ -147,7 +197,8 @@ end
 
 # matinds(geom::Geometry) = vcat(map(s->findfirst(m->isequal(s.data,m), materials(geom.shapes)),geom.shapes),length(geom.shapes)+1)
 matinds(geom::Geometry) = vcat((matinds0 = map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)), materials(geom)),geom.shapes); matinds0),maximum(matinds0)+1)
-matinds(geom::Vector{<:Shape}) = vcat((matinds0 = map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)), materials(geom)),geom); matinds0),maximum(matinds0)+1)
+# matinds(geom::Vector{<:Shape}) = vcat((matinds0 = map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)), materials(geom)),geom); matinds0),maximum(matinds0)+1)
+matinds(geom::Vector{<:Shape}) = vcat((matinds0 = map(s->findfirst(m->isequal(getfield(Material(s.data),:fε),getfield(m,:fε)), materials(geom)),geom); matinds0),maximum(matinds0)+1)
 matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(ε(Material(s.data)),ε(m)),mats),shapes),length(shapes)+1)
 
 _get_ε(shapes,ind) = ind>lastindex(shapes) ? SMatrix{3,3}(1.,0.,0.,0.,1.,0.,0.,0.,1.) : shapes[ind].data
@@ -207,6 +258,17 @@ end
 
 function S_rvol(geom;ms::ModeSolver)
 	Zygote.@ignore( ms.geom = geom )	# update ms.geom
+	xyz = Zygote.@ignore(x⃗(ms.grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(ms.grid))
+	Zygote.@ignore(corner_sinds!(ms.corner_sinds,geom,xyz,xyzc))
+	Zygote.@ignore(proc_sinds!(ms.sinds_proc,ms.corner_sinds))
+	f(sp,x,vn,vp) = let g=geom
+		_S_rvol(sp,x,vn,vp,g)
+	end
+	map(f,ms.sinds_proc,xyz,vxl_min(xyzc),vxl_max(xyzc))
+end
+
+function S_rvol(geom,gr::Grid)
 	xyz = Zygote.@ignore(x⃗(ms.grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
 	xyzc = Zygote.@ignore(x⃗c(ms.grid))
 	Zygote.@ignore(corner_sinds!(ms.corner_sinds,geom,xyz,xyzc))

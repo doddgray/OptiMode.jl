@@ -321,7 +321,7 @@ function solve_k(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1
 end
 
 function solve_k(ω::T,geom::Vector{<:Shape},gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
-	ms = @ignore(ModeSolver(k, shapes, gr))
+	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr))
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms=dropgrad(ms))
 	solve_k(ms, ω, ε⁻¹; nev, eigind, maxiter, tol, log)
 end
@@ -364,7 +364,8 @@ function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},shapes::Vector{<:Shape};nev=
 end
 
 function solve_k(ω::Vector{T},shapes::Vector{<:Shape},gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
-	ms = @ignore(ModeSolver(k, shapes, gr))
+	# ms = @ignore(ModeSolver(k, shapes, gr))
+	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr))
 	solve_k(ms, ω, shapes; nev, eigind, maxiter, tol, log)
 end
 
@@ -397,17 +398,18 @@ function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3
     return ( k/ω, ng )
 end
 
-#new
-function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nnginv::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nnginv::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,ng_nodisp=false) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log) #ω²_tol)
-	# ng = ω / H_Mₖ_H(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n)
 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
-	# ng = ω / H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
-	ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
+	if ng_nodisp
+		ng = ω / H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))	# old, no material disp, TODO remove this after using for comparison
+	else
+		ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
+	end
     return ( k/ω, ng )
 end
-#new
+
 
 function solve_n(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms) # make_εₛ⁻¹(ω,shapes,dropgrad(ms))
@@ -479,7 +481,7 @@ end
 
 using Distributed
 
-function _solve_n_serial(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
+function _solve_n_serial(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing,ng_nodisp=false) where {ND,T<:Real}
 
 	nω = length(ωs)
 	ns = Buffer(ωs,nω)
@@ -505,14 +507,17 @@ function _solve_n_serial(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shap
 		# @ignore(update_ε⁻¹(ms,ε⁻¹_ω))
 		k, H⃗ = solve_k(ms, ωs[ωind], ε⁻¹_ω; nev, eigind, maxiter, tol, log) #ω²_tol)
 		(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
+		if ng_nodisp
 		### original, non-dispersive ng calculation ("geometric dispersion" only, material dispersion ignored)
-		# ng_ω =  ωs[ωind] / H_Mₖ_H(H⃗[:,eigind],ε⁻¹_ω,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
-		### dispersive ng calculation
-		nngs_ω = vcat( nn̂g.(materials(geom), ωinv) ,[εᵥ,]) # = √.(ε̂) .* nĝ (elementwise product of index and group index tensors) for each material, vacuum permittivity tensor appended
-		nngis_ω = inv.(nngs_ω)
-		nngi_ω = εₛ⁻¹(nngs_ω,nngis_ω,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)
-		# nnginv_ω_sm = real(inv.(εₛ(nngs_ω,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)))  # new spatially smoothed ε⁻¹ tensor array
-		ng_ω = ωs[ωind] / H_Mₖ_H(H⃗[:,eigind],nngi_ω,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new spatially smoothed ε⁻¹ tensor array
+			ng_ω =  ωs[ωind] / H_Mₖ_H(H⃗[:,eigind],ε⁻¹_ω,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
+		else
+			### dispersive ng calculation
+			nngs_ω = vcat( nn̂g.(materials(geom), ωinv) ,[εᵥ,]) # = √.(ε̂) .* nĝ (elementwise product of index and group index tensors) for each material, vacuum permittivity tensor appended
+			nngis_ω = inv.(nngs_ω)
+			nngi_ω = εₛ⁻¹(nngs_ω,nngis_ω,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)
+			# nnginv_ω_sm = real(inv.(εₛ(nngs_ω,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)))  # new spatially smoothed ε⁻¹ tensor array
+			ng_ω = ωs[ωind] / H_Mₖ_H(H⃗[:,eigind],nngi_ω,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new spatially smoothed ε⁻¹ tensor array
+		end
 		ns[ωind] = k/ωs[ωind]
 		ngs[ωind] = ng_ω
 	end
@@ -523,13 +528,13 @@ end
 # 	solve_n_single(ms, ωs, geom; nev, eigind, maxiter, tol, log)
 # end
 
-function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
-	_solve_n_serial(ms, ωs, geom; nev, eigind, maxiter, tol, log)
+function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing,ng_nodisp=false) where {ND,T<:Real}
+	_solve_n_serial(ms, ωs, geom; nev, eigind, maxiter, tol, log, ng_nodisp)
 end
 
-function solve_n(ωs::Vector{T},geom::Vector{<:Shape},gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
+function solve_n(ωs::Vector{T},geom::Vector{<:Shape},gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing,ng_nodisp=false) where {ND,T<:Real}
 	ms = @ignore(ModeSolver(kguess(first(ωs),geom), geom, gr))
-	_solve_n_serial(ms,ωs, geom; nev, eigind, maxiter, tol, log)
+	_solve_n_serial(ms,ωs, geom; nev, eigind, maxiter, tol, log, ng_nodisp)
 end
 
 

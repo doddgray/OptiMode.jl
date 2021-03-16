@@ -84,4 +84,5 @@ gvd_SiO₂(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvd_SiO₂(((Unitful
 gvd_SiO₂(f::Unitful.Frequency) = ( _gvd_SiO₂(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
 
 # SiO₂ = Material(SMatrix{3,3}(ε_SiO₂_sym))
-SiO₂ = Material(ε_SiO₂_sym,ε_SiO₂,x->_ng_SiO₂(x)*I)
+# SiO₂ = Material(ε_SiO₂_sym,ε_SiO₂,x->_ng_SiO₂(x)*I)
+SiO₂ = Material(ε_SiO₂,x->_ng_SiO₂(x)*I)

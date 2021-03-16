@@ -28,8 +28,36 @@ function _d2ẽ!(e::AbstractArray{Complex{T},N}, d::AbstractArray{Complex{T},N},
     mul!(e.data,𝓕⁻¹!,e.data);
 	return e
 end
+##
+function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
+	M̂::HelmholtzMap{3,T})::AbstractArray{Complex{T},4} where T<:Real
+    kx_tc!(d,Hin,M̂.m,M̂.n,M̂.mag);
+    mul!(d.data,M̂.𝓕!,d.data);
+	return d
+end
 
+function _d2ẽ!(e::AbstractArray{Complex{T},4}, d::AbstractArray{Complex{T},4},
+	M̂::HelmholtzMap{3,T})::AbstractArray{Complex{T},4} where T<:Real
+    eid!(e,M̂.ε⁻¹,d);
+    mul!(e.data,M̂.𝓕⁻¹!,e.data);
+	return e
+end
 
+function _H2d!(d::AbstractArray{Complex{T},3}, Hin::AbstractArray{Complex{T},3},
+	M̂::HelmholtzMap{2,T})::AbstractArray{Complex{T},3} where T<:Real
+    kx_tc!(d,Hin,M̂.m,M̂.n,M̂.mag);
+    mul!(d.data,M̂.𝓕!,d.data);
+	return d
+end
+
+function _d2ẽ!(e::AbstractArray{Complex{T},3}, d::AbstractArray{Complex{T},3},
+	M̂::HelmholtzMap{2,T})::AbstractArray{Complex{T},3} where T<:Real
+    eid!(e,M̂.ε⁻¹,d);
+    mul!(e.data,M̂.𝓕⁻¹!,e.data);
+	return e
+end
+
+##
 function _H2d!(d::AbstractArray{Complex{T},4}, Hin::AbstractArray{Complex{T},4},
 	ms::ModeSolver{3,T})::AbstractArray{Complex{T},4} where T<:Real
     kx_tc!(d,Hin,ms.M̂.m,ms.M̂.n,ms.M̂.mag);

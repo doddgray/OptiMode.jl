@@ -1,5 +1,5 @@
 export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, update_k, update_k!
-export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc
+export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, kx_ct, kx_tc, zx_tc, zx_ct
 export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
 export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, H_Mₖ_H, tc, ct
 
@@ -54,6 +54,15 @@ function zx_tc(H::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,i,j,k] := zxscales[a] * H[b,i,j,k] * mn[b,zxinds[a],i,j,k] nograd=(zxscales,zxinds) # fastmath=false
+end
+
+"""
+    zx_c2t: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
+"""
+function zx_ct(e⃗::AbstractArray{T,4},mn) where T
+	zxinds = [2; 1; 3]
+	zxscales = [-1.; 1.; 0.]
+	@tullio zxe⃗[b,i,j,k] := zxscales[a] * e⃗[a,i,j,k] * mn[b,zxinds[a],i,j,k] nograd=(zxscales,zxinds) # fastmath=false
 end
 
 """
@@ -133,6 +142,15 @@ function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) # fastmath=false
+end
+
+"""
+    zx_c2t: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
+"""
+function zx_ct(e⃗::AbstractArray{T,3},mn) where T
+	zxinds = [2; 1; 3]
+	zxscales = [-1.; 1.; 0.]
+	@tullio zxe⃗[b,i,j] := zxscales[a] * e⃗[a,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) # fastmath=false
 end
 
 """
