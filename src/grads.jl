@@ -1,7 +1,7 @@
 using ForwardDiff
 using Zygote: @adjoint, Numeric, literal_getproperty, accum
 using ChainRules: Thunk, @non_differentiable
-export sum2, jacobian, ε⁻¹_bar!, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ
+export sum2, jacobian, ε⁻¹_bar!, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ, ∂²ω²∂k²
 
 ### ForwardDiff Comoplex number support
 # ref: https://github.com/JuliaLang/julia/pull/36030
@@ -644,39 +644,100 @@ end
 """
 solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
 """
-function ∂²ω²∂k²(M̂::HelmholtzMap{T},ω²,H⃗,ε⁻¹,mag,m,n;eigind=1,log=false) where T<:Real
+
+function ∂²ω²∂k²(ω²,H⃗,k,ε⁻¹,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+	M̂ = HelmholtzMap(k,ε⁻¹,grid)
+	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+	Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+	H = reshape(H⃗[:,eigind],(2,Ns...))
+	g⃗s = g⃗(dropgrad(grid))
+	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
+	m = M̂.m
+	n = M̂.n
+
+	HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,ε⁻¹,mag,m,n)
+	H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
+	m̄v2 = copy(reinterpret(reshape,SVector{3,T},real(m̄2)))
+	n̄v2 = copy(reinterpret(reshape,SVector{3,T},real(n̄2)))
+	∂ω²∂k = 2 * real(HMₖH[eigind])
+	# println("typeof(māg2): $(typeof(māg2))")
+	# println("typeof(m̄2): $(typeof(m̄2))")
+	# println("typeof(n̄2): $(typeof(n̄2))")
+	# println("size(māg2): $(size(māg2))")
+	# println("size(m̄2): $(size(m̄2))")
+	# println("size(n̄2): $(size(n̄2))")
+	k̄₁ = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
+	# k̄₁ = -mag_m_n_pb(( māg2, m̄2, n̄2 ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
+
+
+	mn = vcat(reshape(M̂.m,(1,size(M̂.m)...)),reshape(M̂.n,(1,size(M̂.m)...)))
 	H̄ = vec(Mₖᵀ_plus_Mₖ(H⃗[:,eigind],ε⁻¹,mag,m,n))
+
+	println("manual backsolve:")
+	println("man. Hbar_magmax = $(maximum(abs2.(H̄)))")
+	println("Hbar2_magmax = $(maximum(abs2.(H̄2)))")
+	# println("size(H̄): $(size(H̄))")
+	# println("size(H̄2): $(size(H̄2))")
+	H̄ = vec(H̄2)
 	adj_res = ∂ω²∂k_adj(M̂,ω²,H⃗,H̄;eigind,log)
-	λ⃗₀ = !log ? adj_res : adj_res[1]
-	λ⃗ = λ⃗₀ + H⃗[:,eigind]
-	Ns = size(M̂.mag)
-	Nranges = eachindex(mag)
+	if !log
+		λ⃗₀ = adj_res
+	else
+		show(adj_res[2])
+		println("")
+		# show(uplot(adj_res[2]))
+		# println("")
+		λ⃗₀ = adj_res[1]
+	end
+	# λ⃗₀ = !log ? adj_res : ( uplot(adj_res[2]); adj_res[1])
+	println("man. lm0_magmax = $(maximum(abs2.(λ⃗₀)))")
+	λ⃗ = λ⃗₀ - dot(H⃗[:,eigind],λ⃗₀) * H⃗[:,eigind] #+ H⃗[:,eigind]
+	println("man. lm_magmax = $(maximum(abs2.(λ⃗)))")
 	H = reshape(H⃗[:,eigind],(2,Ns...))
 	λ = reshape(λ⃗,(2,Ns...))
-	mn = vcat(reshape(M̂.m,(1,size(M̂.m)...)),reshape(M̂.n,(1,size(M̂.m)...)))
-	zxh = M̂.𝓕 * zx_tc(H,mn)  * M̂.Ninv
-	λd =  M̂.𝓕 * kx_tc(λ,mn,mag)
+	# zxh = M̂.𝓕 * kx_tc(H,mn,mag)  * M̂.Ninv # zx_tc(H,mn)  * M̂.Ninv
+	# λd =  M̂.𝓕 * kx_tc(λ,mn,mag)
 	eī = similar(ε⁻¹)
-	ε⁻¹_bar!(ε⁻¹_bar, vec(zxh), vec(λd), Ns...)
-	#TODO replace iffts below with pre-planned ifft carried by M̂
-	λẽf = ifft( ε⁻¹_dot( (λd * ms.M̂.Ninv), real(flat(ε⁻¹))), (2:3))
-	ẽf = ifft( ε⁻¹_dot( zxh, real(flat(ε⁻¹))), (2:3))
-	λẽ = reinterpret(reshape, SVector{3,Complex{T}}, λẽf )
-	ẽ = reinterpret(reshape, SVector{3,Complex{T}}, ẽf )
-	# scaling by mag or √mag may differ from normal case here, as one of the kx
-	# operators has been replaced by ẑx, so two of the four terms in the next two
-	# lines are a factor of mag smaller at each point in recip. space?
+	λd = similar(M̂.d)
+	λẽ = similar(M̂.d)
+	# ε⁻¹_bar!(eī, vec(zxh), vec(λd), Ns...)
+	# #TODO replace iffts below with pre-planned ifft carried by M̂
+	# λẽf = fft( ε⁻¹_dot( (λd * M̂.Ninv), real(flat(ε⁻¹))), (2:3))
+	# ẽf = fft( ε⁻¹_dot( zxh, real(flat(ε⁻¹))), (2:3))
+	# λẽ = reinterpret(reshape, SVector{3,Complex{T}}, λẽf )
+	# ẽ = reinterpret(reshape, SVector{3,Complex{T}}, ẽf )
+	# # scaling by mag or √mag may differ from normal case here, as one of the kx
+	# # operators has been replaced by ẑx, so two of the four terms in the next two
+	# # lines are a factor of mag smaller at each point in recip. space?
+	# kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
+	# kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
+	# māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+	d = _H2d!(M̂.d, H * M̂.Ninv, M̂) # =  M̂.𝓕 * kx_tc( H , mn2, mag )  * M̂.Ninv
+	λd = _H2d!(λd,λ,M̂) # M̂.𝓕 * kx_tc( reshape(λ⃗,(2,M̂.Nx,M̂.Ny,M̂.Nz)) , mn2, mag )
+	ε⁻¹_bar!(eī, vec(M̂.d), vec(λd), Ns...)
+	# eīₕ = copy(ε⁻¹_bar)
+	# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+	λd *=  M̂.Ninv
+	λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,M̂ ) )
+	ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(M̂.e,M̂.d,M̂) )
 	kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
 	kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 	māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
 	# almost there! need to replace this pullback with a Zygote compatible fn.
-	k̄ = -mag_m_n_pb(( ms.māg, ms.kx̄_m⃗.*mag, ms.kx̄_n⃗.*mag ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
+	k̄₂ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
+	println("k̄₁ = $(k̄₁)")
+	println("k̄₂ = $(k̄₂)")
+	k̄ = k̄₁ + k̄₂
+	ω̄  =  (2 * sqrt(ω²) * k̄) / ∂ω²∂k #2ω * k̄ₖ / ∂ω²∂k[eigind]
+	println("k̄ = k̄₁ + k̄₂ = $(k̄)")
+	println("ω̄ = $(ω̄ )")
+	return ω̄
 end
-
 
 
 function ∇solve_k(ΔΩ, Ω::Tuple{T,Matrix{Complex{T}}}, ∂ω²∂k::Vector{T}, ω, ε⁻¹, grid; eigind=1) where T<:Real
 	k̄, H̄ = ΔΩ
+	println("k̄ = $(k̄)")
 	k, H⃗ = Ω
 	M̂ = HelmholtzMap(k,ε⁻¹,grid)
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
@@ -694,7 +755,9 @@ function ∇solve_k(ΔΩ, Ω::Tuple{T,Matrix{Complex{T}}}, ∂ω²∂k::Vector{T
 		k̄ = 0.
 	end
 	if typeof(H̄) != ChainRulesCore.Zero
+		println("Hbar_magmax = $(maximum(abs2.(H̄)))")
 		solve_adj!(λ⃗,M̂,H̄,ω^2,H⃗,eigind)
+		println("lm0_magmax = $(maximum(abs2.(λ⃗)))")
 		λ⃗ -= dot(H⃗[:,eigind],λ⃗) * H⃗[:,eigind]
 		d = _H2d!(M̂.d, H * M̂.Ninv, M̂) # =  M̂.𝓕 * kx_tc( H , mn2, mag )  * M̂.Ninv
 		λd = _H2d!(λd,λ,M̂) # M̂.𝓕 * kx_tc( reshape(λ⃗,(2,M̂.Nx,M̂.Ny,M̂.Nz)) , mn2, mag )
@@ -708,6 +771,7 @@ function ∇solve_k(ΔΩ, Ω::Tuple{T,Matrix{Complex{T}}}, ∂ω²∂k::Vector{T
 		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
 		k̄ₕ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+		println("k̄ₕ = $(k̄ₕ)")
 	else
 		eīₕ = fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
 		k̄ₕ = 0.0
@@ -720,6 +784,8 @@ function ∇solve_k(ΔΩ, Ω::Tuple{T,Matrix{Complex{T}}}, ∂ω²∂k::Vector{T
 	ε⁻¹_bar!(ε⁻¹_bar, vec(M̂.d), vec(λd),Ns...)
 	eīₖ = copy(ε⁻¹_bar)
 	ω̄  =  2ω * (k̄ + k̄ₕ ) / ∂ω²∂k[eigind] #2ω * k̄ₖ / ∂ω²∂k[eigind]
+	println("k̄ + k̄ₕ = $(k̄+k̄ₕ)")
+	println("ω̄ = $(ω̄ )")
 	ε⁻¹_bar = eīₖ + eīₕ
 	# if !(typeof(k)<:SVector)
 	# 	k̄_kx = k̄_kx[3]

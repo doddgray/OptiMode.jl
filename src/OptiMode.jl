@@ -85,6 +85,7 @@ include("fields.jl")
 include("smooth.jl")
 include("solve.jl")
 include("grads.jl")
+include("explicit.jl")
 # include("optimize.jl")
 
 

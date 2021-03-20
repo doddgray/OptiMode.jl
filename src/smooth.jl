@@ -1,4 +1,4 @@
-export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, matinds, _εₛ⁻¹_init, _εₛ_init, nngₛ
+export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, matinds, _εₛ⁻¹_init, _εₛ_init, nngₛ, nngₛ⁻¹
 export make_εₛ⁻¹, make_εₛ⁻¹_fwd, make_KDTree # legacy junk to remove or update
 export εₘₐₓ, ñₘₐₓ, nₘₐₓ, kguess # utility functions for automatic good guesses, move to geometry or solve?
 
@@ -88,9 +88,9 @@ function proc_sinds(geom::Vector{<:Shape},grid::Grid{2})
 		sinds_proc[I] = isone(lastindex(unq)) ? (unq[1],0,0,0) :
 			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0) ) :
 				( 	csinds[I],
-					csinds[I+CartesianIndex(1,0,0)],
-					csinds[I+CartesianIndex(0,1,0)],
-					csinds[I+CartesianIndex(1,1,0)]
+					csinds[I+CartesianIndex(1,0)],
+					csinds[I+CartesianIndex(0,1)],
+					csinds[I+CartesianIndex(1,1)]
 				)
 		)
 	end
@@ -268,15 +268,14 @@ function S_rvol(geom;ms::ModeSolver)
 	map(f,ms.sinds_proc,xyz,vxl_min(xyzc),vxl_max(xyzc))
 end
 
-function S_rvol(geom,gr::Grid)
-	xyz = Zygote.@ignore(x⃗(ms.grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
-	xyzc = Zygote.@ignore(x⃗c(ms.grid))
-	Zygote.@ignore(corner_sinds!(ms.corner_sinds,geom,xyz,xyzc))
-	Zygote.@ignore(proc_sinds!(ms.sinds_proc,ms.corner_sinds))
+function S_rvol(geom,grid::Grid)
+	xyz = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc = Zygote.@ignore(x⃗c(grid))
+	ps = Zygote.@ignore(proc_sinds(geom,grid))
 	f(sp,x,vn,vp) = let g=geom
 		_S_rvol(sp,x,vn,vp,g)
 	end
-	map(f,ms.sinds_proc,xyz,vxl_min(xyzc),vxl_max(xyzc))
+	map(f,ps,xyz,vxl_min(xyzc),vxl_max(xyzc))
 end
 
 function _εₛ(es,sinds_proc,minds,Srvol)
@@ -402,6 +401,15 @@ function εₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
 	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
 end
 
+function εₛ⁻¹(ω,geom::AbstractVector{<:Shape},grid::Grid)
+	Srvol = S_rvol(geom,grid)
+	ps = Zygote.@ignore(proc_sinds(geom,grid))
+	minds = Zygote.@ignore(matinds(geom))
+	es = vcat(εs(geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+	ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+end
+
 function nngₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
 	Srvol = S_rvol(geom;ms)
 	nngs0 = nn̂g.(materials(geom),( 1. / ω )) # = √.(ε̂) .* nĝ (elementwise product of index and group index tensors)
@@ -410,6 +418,15 @@ function nngₛ⁻¹(ω,geom::AbstractVector{<:Shape};ms::ModeSolver)
 	εₛ⁻¹(nngs,nngis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed nng⁻¹ tensor array
 end
 
+function nngₛ⁻¹(ω,geom::AbstractVector{<:Shape},grid::Grid)
+	Srvol = S_rvol(geom,grid)
+	ps = Zygote.@ignore(proc_sinds(geom,grid))
+	minds = Zygote.@ignore(matinds(geom))
+	nngs0 = nn̂g.(materials(geom),( 1. / ω )) # = √.(ε̂) .* nĝ (elementwise product of index and group index tensors)
+	nngs = vcat( nngs0 ,[εᵥ,]) # ( √dielectric tensor * ng tensor ) for each material, vacuum permittivity tensor appended
+	nngis = inv.(nngs)	# corresponding list of inverse dielectric tensors for each material
+	εₛ⁻¹(nngs,nngis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+end
 
 function εₛ⁻¹(geom::AbstractVector{<:Shape};ms::ModeSolver)
 	om_prev = Zygote.@ignore(sqrt(real(ms.ω²[1])))
