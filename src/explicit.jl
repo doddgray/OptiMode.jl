@@ -1,17 +1,39 @@
-export kx_tc_sp_coo, kx_tc_sp, kx_ct_sp, zx_tc_sp_coo, zx_tc_sp, zx_ct_sp, ε⁻¹_sp_coo,  ε⁻¹_sp, M̂_sp, M̂ₖ_sp
+export kx_tc_sp_coo, kx_tc_sp, kx_ct_sp, zx_tc_sp_coo, zx_tc_sp, zx_ct_sp, ε⁻¹_sp_coo,  ε⁻¹_sp, nng⁻¹_sp, M̂_sp, M̂ₖ_sp
 
 using SparseArrays
 using Zygote: Buffer
+
+# both rrules below copied from
+# https://discourse.julialang.org/t/how-to-efficiently-differentiate-backslash-operator-for-sparse-matrix/43778/18
+
+# function ChainRulesCore.rrule(::typeof(SparseArrays.SparseMatrixCSC),
+#     m::Integer, n::Integer, pp::Vector, ii::Vector, Av::Vector)
+#     A = SparseMatrixCSC(m,n,pp,ii,Av)
+#     function SparseMatrixCSC_pullback(dA)
+#         # Pick out the entries in `dA` corresponding to nonzeros in `A`
+#         dAv = Vector{eltype(dA)}(undef, length(Av))
+#         for j = 1:n, p = pp[j]:pp[j+1]-1
+#             dAv[p] = dA[ii[p],j]
+#         end
+#         return (NO_FIELDS, DoesNotExist(), DoesNotExist(), DoesNotExist(), DoesNotExist(), dAv)
+#     end
+#
+#     return A, SparseMatrixCSC_pullback
+# end
+
 function ChainRulesCore.rrule(::typeof(SparseArrays.SparseMatrixCSC),
     m::Integer, n::Integer, pp::Vector, ii::Vector, Av::Vector)
     A = SparseMatrixCSC(m,n,pp,ii,Av)
-    function SparseMatrixCSC_pullback(dA)
-        # Pick out the entries in `dA` corresponding to nonzeros in `A`
+    function SparseMatrixCSC_pullback(dA::AbstractMatrix)
         dAv = Vector{eltype(dA)}(undef, length(Av))
         for j = 1:n, p = pp[j]:pp[j+1]-1
             dAv[p] = dA[ii[p],j]
         end
         return (NO_FIELDS, DoesNotExist(), DoesNotExist(), DoesNotExist(), DoesNotExist(), dAv)
+    end
+    function SparseMatrixCSC_pullback(dA::SparseMatrixCSC)
+        @assert getproperty.(Ref(A), (:m,:n,:colptr,:rowval)) == getproperty.(Ref(dA), (:m,:n,:colptr,:rowval))
+        return (NO_FIELDS, DoesNotExist(), DoesNotExist(), DoesNotExist(), DoesNotExist(), dA.nzval)
     end
 
     return A, SparseMatrixCSC_pullback
@@ -221,31 +243,50 @@ function ε⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vect
     )
 end
 
+function nng⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
+	nnginv = nngₛ⁻¹(ω,geom,grid)
+	Ns = size(grid)
+    NN = N(grid)
+    V = Buffer([3.2],0)
+	for iy=1:Ns[2], ix=1:Ns[1] #,a=1:3,b=1:3
+		push!(V,nnginv[ix,iy]...) #[a,b])
+	end
+	SparseMatrixCSC(
+    	3*NN,	# m
+    	3*NN,	# n
+    	collect(Int32,1:3:9*NN+3), # colptr
+    	convert(Vector{Int32},repeat(0:NN-1,inner=9).*3 .+ repeat([1,2,3,1,2,3,1,2,3],NN)), # rowval
+    	copy(V),	# nzval
+    )
+end
+
 function M̂_sp(ω,k,geom,grid::Grid{2})
 	Ns = size(grid)
+	Ninv = 1. / N(grid)
 	kxtcsp = kx_tc_sp(k,grid)
 	eisp = ε⁻¹_sp(ω,geom,grid)
 	𝓕 = Zygote.ignore() do
-        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(fft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=false,ismutating=false)
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(fft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
     end
     𝓕⁻¹ = Zygote.ignore() do
-        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(ifft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=false,ismutating=false)
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(bfft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
     end
-	kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * kxtcsp
+	Ninv * kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * kxtcsp
 end
 
 function M̂ₖ_sp(ω,k,geom,grid::Grid{2})
 	Ns = size(grid)
+	Ninv = 1. / N(grid)
 	kxtcsp = kx_tc_sp(k,grid)
 	zxtcsp = zx_tc_sp(k,grid)
-	eisp = ε⁻¹_sp(ω,geom,grid)
+	eisp = nng⁻¹_sp(ω,geom,grid) #ε⁻¹_sp(ω,geom,grid)
 	𝓕 = Zygote.ignore() do
-        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(fft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=false,ismutating=false)
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(fft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
     end
     𝓕⁻¹ = Zygote.ignore() do
-        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(ifft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=false,ismutating=false)
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(bfft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
     end
-	kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * zxtcsp
+	Ninv * kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * zxtcsp
 end
 
 

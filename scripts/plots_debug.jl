@@ -15,8 +15,9 @@ plottype(::Geometry) = Poly
 # noto_sans_bold = "../assets/NotoSans-Bold.ttf"
 ## plot E⃗, H⃗, S⃗ fields
 
-fig = Figure(resolution = (1200, 700))
-eigind = 2
+fig_fields = Figure(resolution = (1200, 700))
+eigind = 1
+ms = ms_jank
 # cm = :diverging_linear_bjr_30_55_c53_n256
 cm_E = :diverging_bkr_55_10_c35_n256
 cm_H = :diverging_gwv_55_95_c39_n256
@@ -34,10 +35,10 @@ Hrel = H ./ Emagmax
 @show Hrelmagmax = abs(H[iHrelmagmax])
 
 
-axes_Er = fig[1,1:3] = [Axis(fig,title=t) for t in "E⃗".*["x","y","z"].*"r" ]
-axes_Ei = fig[2,1:3] = [Axis(fig,title=t) for t in "E⃗".*["x","y","z"].*"i" ]
-axes_Hr = fig[3,1:3] = [Axis(fig,title=t) for t in "H⃗".*["x","y","z"].*"r" ]
-axes_Hi = fig[4,1:3] = [Axis(fig,title=t) for t in "H⃗".*["x","y","z"].*"i" ]
+axes_Er = fig_fields[1,1:3] = [Axis(fig_fields,title=t) for t in "E⃗".*["x","y","z"].*"r" ]
+axes_Ei = fig_fields[2,1:3] = [Axis(fig_fields,title=t) for t in "E⃗".*["x","y","z"].*"i" ]
+axes_Hr = fig_fields[3,1:3] = [Axis(fig_fields,title=t) for t in "H⃗".*["x","y","z"].*"r" ]
+axes_Hi = fig_fields[4,1:3] = [Axis(fig_fields,title=t) for t in "H⃗".*["x","y","z"].*"i" ]
 
 # axes_fields = vcat(axes_Er,axes_Ei,axes_Hr,axes_Hi)
 
@@ -53,7 +54,7 @@ hms_Hi = [ heatmap!(ax,xs,ys,imag(Hrel[i,:,:]),colorrange=(-Hrelmagmax,Hrelmagma
 # hms_Hr = [ heatmap!(ax,xs,ys,real(H[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_H) for (i,ax) in enumerate(axes_Hr)]
 # hms_Hi = [ heatmap!(ax,xs,ys,imag(H[i,:,:]./Emagmax),colorrange=(-1,1),colormap=cm_H) for (i,ax) in enumerate(axes_Hi)]
 
-# fig 
+# fig_fields
 hms_E = vcat(hms_Er,hms_Ei)
 hms_H = vcat(hms_Hr,hms_Hi)
 hms_fields = vcat(hms_Er,hms_Ei,hms_Hr,hms_Hi)
@@ -62,19 +63,19 @@ hms_fields = vcat(hms_Er,hms_Ei,hms_Hr,hms_Hi)
 #     hm.colorange=(-1,1)
 # end
 
-cbar_E = fig[1:2,4] = Colorbar(fig,hms_E[1],label="relative field mag. [1]")
+cbar_E = fig_fields[1:2,4] = Colorbar(fig_fields,hms_E[1],label="relative field mag. [1]")
 cbar_E.width = 30
-cbar_H = fig[3:4,4] = Colorbar(fig,hms_H[1],label="relative field mag. [1]")
+cbar_H = fig_fields[3:4,4] = Colorbar(fig_fields,hms_H[1],label="relative field mag. [1]")
 cbar_H.width = 30
 # cb_E = Colorbar(
-#     fig[2, 1][1, 2],
+#     fig_fields[2, 1][1, 2],
 #     hm_E,
 #     label="E⃗y",
 #     width=20,
 #     # limits=(-1,1),
 # ) #vertical=false, height=20, label="S⃗z") #width = 20)
 
-fig
+fig_fields
 
 ##
 fig = Figure(resolution = (1200, 700))

@@ -618,6 +618,135 @@ end
 # end
 
 """
+Inversion/Conjugate-transposition equalities of Maxwell operator components
+----------------------------------------------------------------------------
+
+FFT operators:
+--------------
+	If 𝓕⁻¹ === `bfft` (symmetric, unnormalized case)
+
+	(1a)	(𝓕)' 	= 	𝓕⁻¹
+
+	(2a)	(𝓕⁻¹)' = 	𝓕
+
+	If 𝓕⁻¹ === `ifft` (asymmetric, normalized case)
+
+	(1a)	(𝓕)' 	= 	𝓕⁻¹ * N		( N := Nx * Ny * Nz )
+
+	(2a)	(𝓕⁻¹)' = 	𝓕	 / N
+
+Combined Curl+Basis-Change operators:
+--------------------------------------
+	(3)	( [(k⃗+g⃗)×]cₜ )' 	= 	-[(k⃗+g⃗)×]ₜc
+
+	(4)	( [(k⃗+g⃗)×]ₜc )' 	= 	-[(k⃗+g⃗)×]cₜ
+
+Combined Cross+Basis-Change operators:
+--------------------------------------
+	(3)	( [(ẑ)×]cₜ )' 	= 	[(ẑ)×]ₜc
+
+	(4)	( [(ẑ)×]ₜc )' 	= 	[(ẑ)×]cₜ
+
+
+--------------
+"""
+# # if Finv is ifft
+# @assert F' ≈  Finv * ( size(F)[1]/3 )
+# @assert Finv' * ( size(F)[1]/3 ) ≈  F
+# # # if Finv is bfft
+# # @assert F' ≈ Finv
+# # @assert Finv' ≈  F
+# @assert kxc2t' ≈ -kxt2c
+# @assert kxt2c' ≈ -kxc2t
+
+
+"""
+Calculate k̄ contribution from M̄ₖ, where M̄ₖ is backpropagated from ⟨H|M̂ₖ|H⟩
+
+Consider Mₖ as composed of three parts:
+
+	(1) Mₖ	= 	[(k⃗+g⃗)×]cₜ  ⋅  [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]   ⋅  [ẑ×]ₜc
+				------------	-----------------	  -------
+  			= 		 A				    B                C
+
+where the "cₜ" and "ₜc" labels on the first and third components denote
+Cartesian-to-Transverse and Transverse-to-Cartesian coordinate transformations,
+respectively.
+
+From Giles, we know that if D = A B C, then
+
+	(2)	Ā 	=	D̄ Cᵀ Bᵀ
+
+	(3)	B̄ 	=	Aᵀ D̄ Cᵀ
+
+	(4) C̄	=	Bᵀ Aᵀ D̄		(to the bone)
+
+We also know that M̄ₖ corresponding to the gradient of ⟨H|M̂ₖ|H⟩ will be
+
+	(5) M̄ₖ	=	|H*⟩⟨H|
+
+where `*` denote complex conjugation.
+Equations (2)-(5) give us formulae for the gradients back-propagated to the three
+parameterized operators composing Mₖ
+
+	(6) 	[k+g ×]̄		 = 	 |H⟩⟨H|	 ⋅  [[ẑ×]ₜc]ᵀ  ⋅  [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]ᵀ
+
+							= 	|H⟩⟨ ( [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]  ⋅  [ẑ×]ₜc ⋅ H ) |
+
+	(7)	[ 𝓕 nn̂g⁻¹ 𝓕⁻¹ ]̄	   = 	 [[k+g ×]cₜ]ᵀ  ⋅  |H⟩⟨H| ⋅  [[ẑ×]ₜc]ᵀ
+
+						 	= 	-[k+g ×]ₜc  ⋅  |H⟩⟨H| ⋅  [ẑ×]cₜ
+
+							=	-| [k+g ×]ₜc  ⋅ H ⟩⟨ [ẑ×]ₜc ⋅ H |
+
+	(8)  ⇒ 	[ nn̂g⁻¹ ]̄	 	  =   -| 𝓕 ⋅ [k+g ×]ₜc  ⋅ H ⟩⟨ 𝓕 ⋅ [ẑ×]ₜc ⋅ H |
+
+	(9)			[ẑ ×]̄	 	  =   [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]ᵀ ⋅ [[k+g×]cₜ]ᵀ ⋅ |H⟩⟨H|
+
+							= 	-| [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]  ⋅  [k+g×]cₜ ⋅ H ⟩⟨H|
+
+where `[ẑ ×]` operators are still parameterized by k⃗ because they involve
+m⃗ & n⃗ orthonormal polarization basis vectors, which are determined by k⃗+g⃗
+and thus k⃗-dependent.
+
+Our [(k⃗+g⃗)×]cₜ and [ẑ ×]ₜc operators act locally in reciprocal space with the
+following local structures
+
+	(10) [ ( k⃗+g⃗[ix,iy,iz] ) × ]ₜc  =		[	-n⃗₁	m⃗₁
+											  -n⃗₂	  m⃗₂
+											  -n⃗₃	  m⃗₃	]
+
+									=	  [	   m⃗     n⃗  	]  ⋅  [  0   -1
+																	1 	 0	]
+
+
+	(11) [ ( k⃗+g⃗[ix,iy,iz] ) × ]cₜ  =			 [	   n⃗₁	  n⃗₂	  n⃗₃
+										  			-m⃗₁   -m⃗₂	  -m⃗₃	  ]
+
+									=	[  0   -1 		⋅	[   m⃗ᵀ
+										   1 	0  ]			n⃗ᵀ		]
+
+										=	-(	[ ( k⃗+g⃗[ix,iy,iz] ) × ]ₜc	)ᵀ
+
+	(12) [ ẑ × ]ₜc	 	 =	[	 -m⃗₂	-n⃗₂
+								 m⃗₁	n⃗₁
+								 0	    0	 ]
+
+						=	[	0 	-1	  0		 		[	m⃗₁	 n⃗₁
+								1 	 0	  0	 		⋅		m⃗₂	 n⃗₂
+								0 	 0	  0	  ]				m⃗₃	 n⃗₃	]
+
+	(13) [ ẑ × ]cₜ	 	 =	   [	 -m⃗₂	m⃗₁	 	0
+									-n⃗₂	n⃗₁		0		]
+
+						=	  [   m⃗ᵀ				[	0	 1	 0
+								  n⃗ᵀ	]		⋅		-1	  0	  0
+								  						0	 0	 0	]
+
+						=	  (  [ ẑ × ]ₜc  )ᵀ
+"""
+
+"""
 function mapping |H⟩ ⤇ ( (∂M/∂k)ᵀ + ∂M/∂k )|H⟩
 """
 function Mₖᵀ_plus_Mₖ(H⃗::AbstractVector{Complex{T}},ε⁻¹,mag,m,n) where T<:Real
@@ -642,78 +771,126 @@ function ∂ω²∂k_adj(M̂::HelmholtzMap,ω²,H⃗,H̄;eigind=1,log=false)
 end
 
 """
+return k̄ corresponding to (māg,m̄,n̄)
+"""
+function ∇ₖmag_m_n(māg,m̄,n̄,mag,m⃗,n⃗;dk̂=ẑ)
+	kp̂g_over_mag = cross.(m⃗,n⃗)./mag
+	k̄_mag = sum( māg .* dot.( kp̂g_over_mag, (dk̂,) ) .* mag )
+	k̄_m = -sum( dot.( m̄ , cross.(m⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
+	k̄_n = -sum( dot.( n̄ , cross.(n⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
+	return +( k̄_mag, k̄_m, k̄_n )
+end
+
+"""
 solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
 """
 
-function ∂²ω²∂k²(ω²,H⃗,k,ε⁻¹,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+function ∂²ω²∂k²(ω²,H⃗,k,geom::Vector{<:Shape},grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+	ω = sqrt(ω²)
+	nnginv = nngₛ⁻¹(ω,geom,grid)
+	ε⁻¹ = εₛ⁻¹(ω,geom,grid)
 	M̂ = HelmholtzMap(k,ε⁻¹,grid)
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
 	Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+	Ninv = 1. / N(grid)
 	H = reshape(H⃗[:,eigind],(2,Ns...))
+	Hsv = reinterpret(reshape, SVector{2,Complex{Float64}}, H )
 	g⃗s = g⃗(dropgrad(grid))
+	mns = vcat(reshape(M̂.m,(1,size(M̂.m)...)),reshape(M̂.n,(1,size(M̂.m)...)))
 	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
 	m = M̂.m
 	n = M̂.n
+	zxtc_to_mn = SMatrix{3,3}(	[	0 	-1	  0
+									1 	 0	  0
+									0 	 0	  0	  ]	)
 
-	HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,ε⁻¹,mag,m,n)
-	H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
-	m̄v2 = copy(reinterpret(reshape,SVector{3,T},real(m̄2)))
-	n̄v2 = copy(reinterpret(reshape,SVector{3,T},real(n̄2)))
-	∂ω²∂k = 2 * real(HMₖH[eigind])
-	# println("typeof(māg2): $(typeof(māg2))")
-	# println("typeof(m̄2): $(typeof(m̄2))")
-	# println("typeof(n̄2): $(typeof(n̄2))")
-	# println("size(māg2): $(size(māg2))")
-	# println("size(m̄2): $(size(m̄2))")
-	# println("size(n̄2): $(size(n̄2))")
-	k̄₁ = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
-	# k̄₁ = -mag_m_n_pb(( māg2, m̄2, n̄2 ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
+	kxtc_to_mn = SMatrix{2,2}(	[	0 	-1
+									1 	 0	  ]	)
 
+	# HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,nnginv,mag,m,n)
+	# H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
+	# println("Hbar2_magmax = $(maximum(abs2.(H̄2)))")
+	# m̄v2 = copy(reinterpret(reshape,SVector{3,T},real(m̄2)))
+	# n̄v2 = copy(reinterpret(reshape,SVector{3,T},real(n̄2)))
+	# k̄_Mₖ = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
+	# ∂ω²∂k1 = 2 * real(HMₖH[eigind])
+	# println("")
+	# println("∂ω²∂k1 = $(∂ω²∂k1)")
+	### calculate k̄ contribution from M̄ₖ ( from ⟨H|M̂ₖ|H⟩ )
+	Ā₁		=	conj.(Hsv)
+	Ā₂ = reinterpret(
+		reshape,
+		SVector{3,Complex{Float64}},
+		# reshape(
+		# 	𝓕⁻¹ * nngsp * 𝓕 * zxtcsp * vec(H),
+		# 	(3,size(gr)...),
+		# 	),
+		M̂.𝓕⁻¹ * ε⁻¹_dot(  M̂.𝓕 * zx_tc(H * M̂.Ninv,mns) , real(flat(nnginv))),
+		)
+	Ā 	= 	Ā₁  .*  transpose.( Ā₂ )
+	m̄n̄_Ā = transpose.( (kxtc_to_mn,) .* real.(Ā) )
+	m̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (1,) )
+	n̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (2,) )
+	māg_Ā = dot.(n⃗, n̄_Ā) + dot.(m⃗, m̄_Ā)
+	k̄_Mₖ_Ā = mag_m_n_pb( ( māg_Ā, m̄_Ā.*mag, n̄_Ā.*mag ) )[1]
 
-	mn = vcat(reshape(M̂.m,(1,size(M̂.m)...)),reshape(M̂.n,(1,size(M̂.m)...)))
-	H̄ = vec(Mₖᵀ_plus_Mₖ(H⃗[:,eigind],ε⁻¹,mag,m,n))
+	B̄₁ = reinterpret(
+		reshape,
+		SVector{3,Complex{Float64}},
+		# 𝓕  *  kxtcsp	 *	vec(H),
+		M̂.𝓕 * kx_tc( conj.(H) ,mns,mag),
+		)
+	B̄₂ = reinterpret(
+		reshape,
+		SVector{3,Complex{Float64}},
+		# 𝓕  *  zxtcsp	 *	vec(H),
+		M̂.𝓕 * zx_tc( H * M̂.Ninv ,mns),
+		)
+	B̄ 	= 	real.( B̄₁  .*  transpose.( B̄₂ ) )
 
+	C̄₁ = reinterpret(
+		reshape,
+		SVector{3,Complex{Float64}},
+		# reshape(
+		# 	𝓕⁻¹ * nngsp * 𝓕 * kxtcsp * -vec(H),
+		# 	(3,size(gr)...),
+		# 	),
+		M̂.𝓕⁻¹ * ε⁻¹_dot(  M̂.𝓕 * -kx_tc(H* M̂.Ninv,mns,mag) , real(flat(nnginv))),
+		)
+	C̄₂ =   conj.(Hsv)
+	C̄ 	= 	C̄₁  .*  transpose.( C̄₂ )
+	m̄n̄_C̄ = 			 (zxtc_to_mn,) .* real.(C̄)
+	m̄_C̄ = 		view.( m̄n̄_C̄, (1:3,), (1,) )
+	n̄_C̄ = 		view.( m̄n̄_C̄, (1:3,), (2,) )
+	k̄_Mₖ_C̄ = mag_m_n_pb( ( nothing, m̄_C̄, n̄_C̄ ) )[1]
+
+	nngī_Mₖ = ( B̄ .+ transpose.(B̄) ) ./ 2
+	k̄_Mₖ = k̄_Mₖ_Ā + k̄_Mₖ_C̄
+
+	### calculate k̄ contribution from H̄ ( from ⟨H|M̂ₖ|H⟩ )
+	Mkop = M̂ₖ_sp(ω,k,geom,grid)
+	H̄ = (Mkop + transpose(Mkop)) * H⃗[:,eigind]
+	∂ω²∂k = 2 * real( dot(H⃗[:,eigind],Mkop,H⃗[:,eigind]) )
+	println("∂ω²∂k = $(∂ω²∂k)")
 	println("manual backsolve:")
 	println("man. Hbar_magmax = $(maximum(abs2.(H̄)))")
-	println("Hbar2_magmax = $(maximum(abs2.(H̄2)))")
-	# println("size(H̄): $(size(H̄))")
-	# println("size(H̄2): $(size(H̄2))")
-	H̄ = vec(H̄2)
+	H̄ = vec(H̄)
 	adj_res = ∂ω²∂k_adj(M̂,ω²,H⃗,H̄;eigind,log)
 	if !log
 		λ⃗₀ = adj_res
 	else
-		show(adj_res[2])
-		println("")
-		# show(uplot(adj_res[2]))
-		# println("")
 		λ⃗₀ = adj_res[1]
 	end
-	# λ⃗₀ = !log ? adj_res : ( uplot(adj_res[2]); adj_res[1])
 	println("man. lm0_magmax = $(maximum(abs2.(λ⃗₀)))")
 	λ⃗ = λ⃗₀ - dot(H⃗[:,eigind],λ⃗₀) * H⃗[:,eigind] #+ H⃗[:,eigind]
 	println("man. lm_magmax = $(maximum(abs2.(λ⃗)))")
-	H = reshape(H⃗[:,eigind],(2,Ns...))
 	λ = reshape(λ⃗,(2,Ns...))
-	# zxh = M̂.𝓕 * kx_tc(H,mn,mag)  * M̂.Ninv # zx_tc(H,mn)  * M̂.Ninv
-	# λd =  M̂.𝓕 * kx_tc(λ,mn,mag)
-	eī = similar(ε⁻¹)
+	# λ⃗ -= dot(H⃗[:,eigind],λ⃗) * H⃗[:,eigind]
 	λd = similar(M̂.d)
-	λẽ = similar(M̂.d)
-	# ε⁻¹_bar!(eī, vec(zxh), vec(λd), Ns...)
-	# #TODO replace iffts below with pre-planned ifft carried by M̂
-	# λẽf = fft( ε⁻¹_dot( (λd * M̂.Ninv), real(flat(ε⁻¹))), (2:3))
-	# ẽf = fft( ε⁻¹_dot( zxh, real(flat(ε⁻¹))), (2:3))
-	# λẽ = reinterpret(reshape, SVector{3,Complex{T}}, λẽf )
-	# ẽ = reinterpret(reshape, SVector{3,Complex{T}}, ẽf )
-	# # scaling by mag or √mag may differ from normal case here, as one of the kx
-	# # operators has been replaced by ẑx, so two of the four terms in the next two
-	# # lines are a factor of mag smaller at each point in recip. space?
-	# kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-	# kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-	# māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+	λẽ = similar(M̂.e)
+	eī = similar(M̂.ε⁻¹)
 	d = _H2d!(M̂.d, H * M̂.Ninv, M̂) # =  M̂.𝓕 * kx_tc( H , mn2, mag )  * M̂.Ninv
-	λd = _H2d!(λd,λ,M̂) # M̂.𝓕 * kx_tc( reshape(λ⃗,(2,M̂.Nx,M̂.Ny,M̂.Nz)) , mn2, mag )
+	_H2d!(λd,λ,M̂) # M̂.𝓕 * kx_tc( reshape(λ⃗,(2,M̂.Nx,M̂.Ny,M̂.Nz)) , mn2, mag )
 	ε⁻¹_bar!(eī, vec(M̂.d), vec(λd), Ns...)
 	# eīₕ = copy(ε⁻¹_bar)
 	# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
@@ -723,13 +900,18 @@ function ∂²ω²∂k²(ω²,H⃗,k,ε⁻¹,grid::Grid{ND,T};eigind=1,log=true)
 	kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
 	kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 	māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+	println("kx̄_m⃗_magmax = $(maximum(abs2.(kx̄_m⃗)))")
+	println("kx̄_n⃗_magmax = $(maximum(abs2.(kx̄_n⃗)))")
+	println("māg_magmax = $(maximum(abs2.(māg)))")
+
 	# almost there! need to replace this pullback with a Zygote compatible fn.
-	k̄₂ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
-	println("k̄₁ = $(k̄₁)")
-	println("k̄₂ = $(k̄₂)")
-	k̄ = k̄₁ + k̄₂
-	ω̄  =  (2 * sqrt(ω²) * k̄) / ∂ω²∂k #2ω * k̄ₖ / ∂ω²∂k[eigind]
-	println("k̄ = k̄₁ + k̄₂ = $(k̄)")
+	k̄_H = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
+	println("k̄_Mₖ = $(k̄_Mₖ)")
+	println("k̄_H = $(k̄_H)")
+	k̄_HMₖH = k̄_Mₖ + k̄_H
+
+	ω̄  =  (2 * sqrt(ω²) * k̄_HMₖH) / ∂ω²∂k #2ω * k̄ₖ / ∂ω²∂k[eigind]
+	println("k̄_HMₖH = k̄_Mₖ + k̄_H = $(k̄_HMₖH)")
 	println("ω̄ = $(ω̄ )")
 	return ω̄
 end
@@ -770,6 +952,9 @@ function ∇solve_k(ΔΩ, Ω::Tuple{T,Matrix{Complex{T}}}, ∂ω²∂k::Vector{T
 		kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
 		kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
 		māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+		println("kx̄_m⃗_magmax = $(maximum(abs2.(kx̄_m⃗)))")
+		println("kx̄_n⃗_magmax = $(maximum(abs2.(kx̄_n⃗)))")
+		println("māg_magmax = $(maximum(abs2.(māg)))")
 		k̄ₕ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
 		println("k̄ₕ = $(k̄ₕ)")
 	else

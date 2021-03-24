@@ -86,6 +86,11 @@ function _d2ẽ!(e::AbstractArray{Complex{T},3}, d::AbstractArray{Complex{T},3},
 	return e
 end
 
+@inline function flat(f::AbstractArray{SVector{3,T}}) where T
+	reinterpret(reshape,T,f)
+end
+
+
 @inline function unflat(f,nvec::Int,Ns)
 	reshape(f,(nvec,Ns...))
 end
