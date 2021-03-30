@@ -90,7 +90,6 @@ end
 	reinterpret(reshape,T,f)
 end
 
-
 @inline function unflat(f,nvec::Int,Ns)
 	reshape(f,(nvec,Ns...))
 end

@@ -1,6 +1,7 @@
 using Revise
 using OptiMode
-using LinearAlgebra, Statistics, StaticArrays, HybridArrays, GeometryPrimitives, BenchmarkTools
+using LinearAlgebra, Statistics, ArrayInterface, RecursiveArrayTools, StaticArrays, HybridArrays
+using GeometryPrimitives, BenchmarkTools
 using ChainRules, Zygote, ForwardDiff, FiniteDifferences
 using UnicodePlots
 using Crayons.Box       # for color printing
@@ -267,144 +268,471 @@ linkaxes!(axes...)
 fig
 ##
 om0 = 0.75
-( om0 / solve_n(om0,rwg(p),gr)[2] )
+AD_style = BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style = BOLD*RED_FG
+MAN_style = BOLD*GREEN_FG
+
+AD_style_N = NEGATIVE*BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style_N = NEGATIVE*BOLD*RED_FG
+MAN_style_N = NEGATIVE*BOLD*GREEN_FG
+
+# println(err_style("∂n_om_err:"))
+##
+println("")
+println(AD_style_N("∂²ω²∂k²_AD:"))
+println("")
 ∂²ω²∂k²_AD = Zygote.gradient(om->(om / solve_n(om,rwg(p),gr)[2]),om0)[1]
-println("∂²ω²∂k²_AD: $∂²ω²∂k²_AD")
-# ∂²ω²∂k²_FD = FiniteDifferences.central_fdm(5,1)(om->(om / solve_n(om,rwg(p),gr;ng_nodisp=true)[2]),om0)
-# println("∂²ω²∂k²_FD: $∂²ω²∂k²_FD")
-∂²ω²∂k²_man = ∂²ω²∂k²(om0^2,H⃗,k,rwg(p),gr) # ∂²ω²∂k²_manual(om0)
-println("∂²ω²∂k²_man: $∂²ω²∂k²_man")
+println(AD_style("∂²ω²∂k²_AD= $∂²ω²∂k²_AD"))
+println("")
 
-"""
-Inversion/Conjugate-transposition equalities of Maxwell operator components
-----------------------------------------------------------------------------
+println("")
+println(FD_style_N("∂²ω²∂k²_FD:"))
+println("")
+∂²ω²∂k²_FD = FiniteDifferences.central_fdm(5,1)(om->(om / solve_n(om,rwg(p),gr)[2]),om0)
+println(FD_style("∂²ω²∂k²_FD: $∂²ω²∂k²_FD"))
+println("")
 
-FFT operators:
---------------
-	If 𝓕⁻¹ === `bfft` (symmetric, unnormalized case)
+println("")
+println(MAN_style_N("∂²ω²∂k²_MAN:"))
+println("")
+∂²ω²∂k²_MAN = ∂²ω²∂k²(ω,rwg(p),k,H⃗,grid) #om0^2,H⃗,k,rwg(p),gr)
+println(MAN_style("∂²ω²∂k²_MAN: $∂²ω²∂k²_MAN"))
+println("")
 
-	(1a)	(𝓕)' 	= 	𝓕⁻¹
+##
 
-	(2a)	(𝓕⁻¹)' = 	𝓕
-
-	If 𝓕⁻¹ === `ifft` (asymmetric, normalized case)
-
-	(1a)	(𝓕)' 	= 	𝓕⁻¹ * N		( N := Nx * Ny * Nz )
-
-	(2a)	(𝓕⁻¹)' = 	𝓕	 / N
-
-Combined Curl+Basis-Change operators:
---------------------------------------
-	(3)	( [(k⃗+g⃗)×]cₜ )' 	= 	-[(k⃗+g⃗)×]ₜc
-
-	(4)	( [(k⃗+g⃗)×]ₜc )' 	= 	-[(k⃗+g⃗)×]cₜ
-
-Combined Cross+Basis-Change operators:
---------------------------------------
-	(3)	( [(ẑ)×]cₜ )' 	= 	[(ẑ)×]ₜc
-
-	(4)	( [(ẑ)×]ₜc )' 	= 	[(ẑ)×]cₜ
+∂ω_²ω²∂k²_RAD1, ∂p_²ω²∂k²_RAD1 = Zygote.gradient((om,x)->∂²ω²∂k²(om,εₛ⁻¹(om,rwg(x),grid),nngₛ⁻¹(om,rwg(x),grid),k,H⃗,grid)[1],
+	ω,p)
 
 
---------------
-"""
-# # if Finv is ifft
-# @assert F' ≈  Finv * ( size(F)[1]/3 )
-# @assert Finv' * ( size(F)[1]/3 ) ≈  F
-# # # if Finv is bfft
-# # @assert F' ≈ Finv
-# # @assert Finv' ≈  F
-# @assert kxc2t' ≈ -kxt2c
-# @assert kxt2c' ≈ -kxc2t
 
 
-"""
-Calculate k̄ contribution from M̄ₖ, where M̄ₖ is backpropagated from ⟨H|M̂ₖ|H⟩
-
-Consider Mₖ as composed of three parts:
-
-	(1) Mₖ	= 	[(k⃗+g⃗)×]cₜ  ⋅  [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]   ⋅  [ẑ×]ₜc
-				------------	-----------------	  -------
-  			= 		 A				    B                C
-
-where the "cₜ" and "ₜc" labels on the first and third components denote
-Cartesian-to-Transverse and Transverse-to-Cartesian coordinate transformations,
-respectively.
-
-From Giles, we know that if D = A B C, then
-
-	(2)	Ā 	=	D̄ Cᵀ Bᵀ
-
-	(3)	B̄ 	=	Aᵀ D̄ Cᵀ
-
-	(4) C̄	=	Bᵀ Aᵀ D̄		(to the bone)
-
-We also know that M̄ₖ corresponding to the gradient of ⟨H|M̂ₖ|H⟩ will be
-
-	(5) M̄ₖ	=	|H*⟩⟨H|
-
-where `*` denote complex conjugation.
-Equations (2)-(5) give us formulae for the gradients back-propagated to the three
-parameterized operators composing Mₖ
-
-	(6) 	[k+g ×]̄		 = 	 |H⟩⟨H|	 ⋅  [[ẑ×]ₜc]ᵀ  ⋅  [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]ᵀ
-
-							= 	|H⟩⟨ ( [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]  ⋅  [ẑ×]ₜc ⋅ H ) |
-
-	(7)	[ 𝓕 nn̂g⁻¹ 𝓕⁻¹ ]̄	   = 	 [[k+g ×]cₜ]ᵀ  ⋅  |H⟩⟨H| ⋅  [[ẑ×]ₜc]ᵀ
-
-						 	= 	-[k+g ×]ₜc  ⋅  |H⟩⟨H| ⋅  [ẑ×]cₜ
-
-							=	-| [k+g ×]ₜc  ⋅ H ⟩⟨ [ẑ×]ₜc ⋅ H |
-
-	(8)  ⇒ 	[ nn̂g⁻¹ ]̄	 	  =   -| 𝓕 ⋅ [k+g ×]ₜc  ⋅ H ⟩⟨ 𝓕 ⋅ [ẑ×]ₜc ⋅ H |
-
-	(9)			[ẑ ×]̄	 	  =   [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]ᵀ ⋅ [[k+g×]cₜ]ᵀ ⋅ |H⟩⟨H|
-
-							= 	-| [ 𝓕  nn̂g⁻¹ 𝓕⁻¹ ]  ⋅  [k+g×]cₜ ⋅ H ⟩⟨H|
-
-where `[ẑ ×]` operators are still parameterized by k⃗ because they involve
-m⃗ & n⃗ orthonormal polarization basis vectors, which are determined by k⃗+g⃗
-and thus k⃗-dependent.
-
-Our [(k⃗+g⃗)×]cₜ and [ẑ ×]ₜc operators act locally in reciprocal space with the
-following local structures
-
-	(10) [ ( k⃗+g⃗[ix,iy,iz] ) × ]ₜc  =		[	-n⃗₁	m⃗₁
-											  -n⃗₂	  m⃗₂
-											  -n⃗₃	  m⃗₃	]
-
-									=	  [	   m⃗     n⃗  	]  ⋅  [  0   -1
-																	1 	 0	]
 
 
-	(11) [ ( k⃗+g⃗[ix,iy,iz] ) × ]cₜ  =			 [	   n⃗₁	  n⃗₂	  n⃗₃
-										  			-m⃗₁   -m⃗₂	  -m⃗₃	  ]
 
-									=	[  0   -1 		⋅	[   m⃗ᵀ
-										   1 	0  ]			n⃗ᵀ		]
+∂ω_²ω²∂k²_RAD2, ∂p_²ω²∂k²_RAD2 = Zygote.gradient((om,x)->∂²ω²∂k²(real(om),rwg(real(x)),k,H⃗,grid),ω,p)
 
-										=	-(	[ ( k⃗+g⃗[ix,iy,iz] ) × ]ₜc	)ᵀ
 
-	(12) [ ẑ × ]ₜc	 	 =	[	 -m⃗₂	-n⃗₂
-								 m⃗₁	n⃗₁
-								 0	    0	 ]
 
-						=	[	0 	-1	  0		 		[	m⃗₁	 n⃗₁
-								1 	 0	  0	 		⋅		m⃗₂	 n⃗₂
-								0 	 0	  0	  ]				m⃗₃	 n⃗₃	]
 
-	(13) [ ẑ × ]cₜ	 	 =	   [	 -m⃗₂	m⃗₁	 	0
-									-n⃗₂	n⃗₁		0		]
 
-						=	  [   m⃗ᵀ				[	0	 1	 0
-								  n⃗ᵀ	]		⋅		-1	  0	  0
-								  						0	 0	 0	]
+∂ω_²ω²∂k²_FD, ∂p_²ω²∂k²_FD = FiniteDifferences.grad(central_fdm(9,1),
+		(om,x)->∂²ω²∂k²(om,εₛ⁻¹(om,rwg(x),grid),nngₛ⁻¹(om,rwg(x),grid),k,H⃗,grid)[1],
+		ω,
+		p,
+		)
 
-						=	  (  [ ẑ × ]ₜc  )ᵀ
-"""
+
+
+
+
+
+eig_err = ms.M̂ * H⃗[:,1] - ( ω^2 * H⃗[:,1] )
+sum(abs2,eig_err)
+sum(abs2,H⃗[:,1])
+ε⁻¹ = εₛ⁻¹(ω,rwg(p),grid)
+nng⁻¹ = nngₛ⁻¹(ω,rwg(p),grid)
+k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind=1)
+lm = eig_adjt(ms.M̂,ω^2,H⃗[:,1],0.0,H̄)
+adj_err = ( (ms.M̂ - (ω^2)*I) * lm ) - ( H̄ - H⃗[:,1] * dot(H⃗[:,1],H̄) )
+sum(abs2,adj_err)
+
+lm̄0 = randn(ComplexF64,size(H⃗,1))
+lm̄ = lm̄0 ./ dot(lm̄0,lm̄0)
+ξ⃗ = linsolve( (ms.M̂ - (ω^2)*I), lm̄ - H⃗[:,1] * dot(H⃗[:,1],lm̄) ; P̂=HelmholtzPreconditioner(ms.M̂) )
+adj2_err = ( (ms.M̂ - (ω^2)*I) * ξ⃗ ) - (lm̄ - H⃗[:,1] * dot(H⃗[:,1],lm̄)) #( lm̄ - H⃗[:,1] * dot(H⃗[:,1],lm̄) )
+sum(abs2,adj2_err)
+
+
+sum(eig_adjt(ms.M̂,ω^2,H⃗[:,1],0.0,H̄))
+Zygote.gradient(x->abs2(sum(eig_adjt(ms.M̂,x^2,H⃗[:,1],0.0,H̄))),ω)
+FiniteDifferences.central_fdm(5,1)(x->abs2(sum(eig_adjt(ms.M̂,x^2,H⃗[:,1],0.0,H̄))),ω)
+
+function foo1(k,p,ω,H⃗,grid)
+	ε⁻¹ = εₛ⁻¹(ω,rwg(p),grid)
+	nng⁻¹ = nngₛ⁻¹(ω,rwg(p),grid)
+	M̂ = HelmholtzMap(real(k),real.(ε⁻¹),grid)
+	k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind)
+	lm = eig_adjt(
+			M̂,								 # Â
+			real(ω^2), 							# α
+			H⃗[:,1], 					 # x⃗
+			0.0, 							# ᾱ
+			H̄ ;								 # x̄
+			# λ⃗₀=nothing,
+			P̂	= HelmholtzPreconditioner(M̂),
+		)
+	# lm2 = similar(H⃗)
+	# solve_adj!(lm2,M̂,H̄,ω^2,H⃗,eigind)
+	# println("")
+	# println("magmax lm: $(maximum(abs2.(lm)))")
+	# println("magmax lm2: $(maximum(abs2.(lm2)))")
+	# println("out2: $(sum(abs2.(lm2).^2))")
+	return abs2(sum(lm))
+end
+
+foo1(k,p,ω,H⃗,grid)
+Zygote.gradient(foo1,k,p,ω,H⃗,grid)
+Zygote.gradient((a,b,c)->foo1(a,b,c,H⃗,grid),k,p,ω)
+Zygote.gradient((a,b,c)->foo1(a,b,c,H⃗,grid),k,p,ω)
+
+
+
+
+
+
+FiniteDifferences.grad(central_fdm(9,1),(a,b,c)->foo1(a,b,c,H⃗,grid),k,p,ω)
+
+
+ε⁻¹ = εₛ⁻¹(ω,rwg(p),grid)
+nng⁻¹ = nngₛ⁻¹(ω,rwg(p),grid)
+k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind)
+function foo2(k,ω)
+	M̂ = HelmholtzMap(k,ε⁻¹,grid)
+	lm = eig_adjt(
+			M̂,								 # Â
+			real(ω^2), 							# α
+			H⃗[:,1], 					 # x⃗
+			0.0, 							# ᾱ
+			H̄ ;								 # x̄
+			# λ⃗₀=nothing,
+			P̂	= HelmholtzPreconditioner(M̂),
+		)
+	return abs2(sum(lm))
+end
+foo2(k,ω)
+Zygote.gradient(foo2,k,ω)
+FiniteDifferences.grad(central_fdm(9,1),foo2,k,ω)
+
+
+M̂ = HelmholtzMap(k,ε⁻¹,grid)
+function foo3(k,ω)
+	lm = eig_adjt(
+			M̂,								 # Â
+			real(ω^2), 							# α
+			H⃗[:,1], 					 # x⃗
+			0.0, 							# ᾱ
+			H̄ ;								 # x̄
+			# λ⃗₀=nothing,
+			P̂	= HelmholtzPreconditioner(M̂),
+		)
+	return abs2(sum(lm))
+end
+foo3(k,ω)
+Zygote.gradient(foo3,k,ω)
+FiniteDifferences.grad(central_fdm(9,1),foo3,k,ω)
+
+
+
+
+FiniteDifferences.grad(central_fdm(9,1),(a,b,c)->foo1(a,b,c,H⃗,grid),k,p,ω)
+
+
+ε⁻¹ = εₛ⁻¹(ω,rwg(p),grid)
+nng⁻¹ = nngₛ⁻¹(ω,rwg(p),grid)
+M̂ = HelmholtzMap(k,ε⁻¹,grid)
+k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind)
+lm = eig_adjt(
+		M̂,								 # Â
+		ω^2, 							# α
+		H⃗[:,1], 					 # x⃗
+		0.1, 							# ᾱ
+		H̄ )								 # x̄
+		# λ⃗₀=nothing,
+		# P̂	= HelmholtzPreconditioner(M̂),
+	# )
+
+lm2 = eig_adjt(
+		M̂,								 # Â
+		ω^2, 							# α
+		H⃗[:,1], 					 # x⃗
+		0.1, 							# ᾱ
+		H̄ )
+
+lm3 = eig_adjt(
+		M̂,								 # Â
+		ω^2, 							# α
+		H⃗[:,1], 					 # x⃗
+		0.1, 							# ᾱ
+		H̄ )
+
+lm4 = linsolve(
+	M̂ + (-ω^2*I),
+	H̄ - H⃗[:,1] * dot(H⃗[:,1],H̄))
+
+lm5 = linsolve(
+	M̂ + (-ω^2*I),
+	H̄ - H⃗[:,1] * dot(H⃗[:,1],H̄))
+
+
+lm2 ≈ lm3
+lm4 ≈ lm5
+
+using Zygote: @showgrad
+btest = randn(ComplexF64,length(H⃗[:,1]))
+function foo2(kk,pp,om)
+	ε⁻¹ = εₛ⁻¹(om,rwg(pp),grid)
+	M̂ = HelmholtzMap(kk,ε⁻¹,grid)
+	# M̂ = HelmholtzMap(@showgrad(kk),@showgrad(ε⁻¹),grid)
+	# Â = M̂  - om^2*I
+	USM = UniformScalingMap(-(om^2),size(M̂,1))
+	Â = M̂ + USM #- ω^2*I
+	bt2 = btest - H⃗[:,1] * dot(H⃗[:,1],btest)
+	lm = linsolve(
+		Â,
+		bt2,
+	)
+	# sum(sin.(abs2.(lm)))
+	abs2(sum(lm))
+end
+
+foo2(k,p,ω)
+k̄_foo2_RAD,p̄_foo2_RAD,om̄_foo2_RAD = Zygote.gradient(foo2,k,p,ω)
+k̄_foo2_FD,p̄_foo2_FD,om̄_foo2_FD = FiniteDifferences.grad(central_fdm(9,1),foo2,k,p,ω)
+
+
+foo2(k,p,ω)
+k̄_foo2_RAD,p̄_foo2_RAD,om̄_foo2_RAD = Zygote.gradient(foo2,k,p,ω)
+k̄_foo2_FD,p̄_foo2_FD,om̄_foo2_FD = FiniteDifferences.grad(central_fdm(9,1),foo2,k,p,ω)
+
+abs(k̄_foo2_FD - k̄_foo2_RAD) / abs(k̄_foo2_FD)
+abs.(p̄_foo2_FD .- p̄_foo2_RAD) ./ abs.(p̄_foo2_FD)
+abs(om̄_foo2_FD - om̄_foo2_RAD) / abs(om̄_foo2_FD)
+
+function foo3(kk,pp,om)
+	ε⁻¹ = εₛ⁻¹(om,rwg(pp),grid)
+	# M̂ = HelmholtzMap(@showgrad(kk),@showgrad(ε⁻¹),grid)
+	M̂ = HelmholtzMap(kk,ε⁻¹,grid)
+	k̄, H̄, nngī  = ∇HMₖH(k,H⃗,ε⁻¹,grid; eigind=1)
+	USM = UniformScalingMap(-om^2,size(M̂,1))
+	Â = Zygote.@showgrad(M̂) + USM #- ω^2*I
+	lm = linsolve(
+		Â,
+		H̄ - H⃗[:,1] * dot(H⃗[:,1],H̄),
+	)
+	sum(sin.(abs2.(lm)))
+end
+
+foo3(k,p,ω)
+k̄_foo3_RAD,p̄_foo3_RAD,om̄_foo3_RAD = Zygote.gradient(foo3,k,p,ω)
+
+
+Zygote.gradient(x->sum(reshape(reinterpret(reshape,Float64,reshape(x,)),(3,3,size(x)...))),eic)
+##
+ω = 0.75
+geom = rwg(p)
+nng⁻¹, nnginv_pb = Zygote.pullback(nngₛ⁻¹,ω,geom,grid)
+ε⁻¹, epsi_pb = Zygote.pullback(εₛ⁻¹,ω,geom,grid)
+om̄₁, eī_herm, nngī_herm = ∂²ω²∂k²(ω,ε⁻¹,nng⁻¹,k,H⃗,grid)
+om̄₂,geombar_Mₖ,grīd_Mₖ = nnginv_pb(nngī_herm) #nngī2)
+om̄₃,geombar_H,grīd_H = epsi_pb(eī_herm) #eī₁)
+
+∂²ω²∂k²_AD
+om̄₁
+om̄₂
+om̄₃
+
+om̄₁ + om̄₂ + om̄₃
+om̄₂ + om̄₃
+om̄₂ + 0.000663
+∂²ω²∂k²_AD - om̄₁
+∂²ω²∂k²_AD - ( om̄₁ + om̄₂ + om̄₃ )
+
+##
+Â = ms.M̂
+α = real(ms.ω²[eigind])
+X⃗ = H⃗[:,eigind]
+ᾱ = 0
+X̄ = Mₖᵀ_plus_Mₖ(H⃗[:,eigind],k,ε⁻¹,grid)
+P̂ = HelmholtzPreconditioner(ms.M̂)
+λ⃗ = eig_adjt(Â, α, X⃗, ᾱ, X̄)
+
+
+λ⃗ = eig_adjt(Â, α, X⃗, ᾱ, X̄; P̂)
+
+A = randn(10,10)
+A = A + A'
+b = randn(10)
+x1 = linsolve(A,b)
+@assert A * x1 ≈ b
+
+Av = copy(vec(A))
+sum(sin.(linsolve(A,b)))
+∂A_RAD,∂b_RAD = Zygote.gradient((aa,bb)->sum(sin.(linsolve(aa,bb))),A,b)
+∂A_FD,∂b_FD = FiniteDifferences.grad(central_fdm(7,1),(aa,bb)->sum(sin.(linsolve(aa,bb))),A,b)
+∂A_err = abs.(∂A_FD .- Matrix(∂A_RAD)) ./ abs.(∂A_FD)
+∂b_err = abs.(∂b_FD .- ∂b_RAD) ./ abs.(∂b_FD)
+
+v1 = randn(10)
+v2 = randn(10)
+v1' * v2
+v1 * v2'
+
+outer(v1,v2) = v1 * v2'
+delayed_outer = () -> outer(v1,v2)
+delayed_outer
+
+using IterativeSolvers
+A * x1 - b
+x2 = similar(b)
+
+x3,ch = gmres(A,b;verbose=true,log=true,maxiter=1000)
+x3,ch = bicgstabl(A,b;verbose=true,log=true,max_mv_products=1000)
+A * x3 - b
+
+
+##
+
+om0 = 0.75
+ω = om0
+geom = rwg(p)
+grid = gr
+nnginv,nnginv_pb = Zygote.pullback(nngₛ⁻¹,ω,geom,grid)
+epsi,epsi_pb = Zygote.pullback(εₛ⁻¹,ω,geom,grid)
+
+∇HMₖH(k,H⃗,nnginv,grid)
+sum(sum.(∇HMₖH(k,H⃗,nnginv,grid)[2]))
+Zygote.gradient((a,b,c)->∇HMₖH(a,b,c,grid)[1],k,H⃗,nnginv)
+# Zygote.gradient((a,b,c)->sum(∇HMₖH(a,b,c,grid)[2]),k,H⃗,nnginv)
+Zygote.gradient((a,b,c)->sum(sum(∇HMₖH(a,b,c,grid)[2])),k,H⃗,nnginv)
+
+
+d0 = randn(Complex{Float64}, (3,Ns...))
+𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
+𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
+
+using StaticArrays: Dynamic
+m2 = HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,m⃗))
+n2 = HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,n⃗))
+mns1 = mapreduce(x->reshape(flat(x),(1,3,size(x)...)),vcat,(m⃗,n⃗))
+mns2 = vcat(reshape(m2,(1,3,Ns...)),reshape(n2,(1,3,Ns...)))
+mns1 ≈ mns2
+
+Ninv = 1. / N(grid)
+𝓕 * zx_tc( H * Ninv ,mns)
+using Tullio
+B̄₁ = 𝓕 * kx_tc( conj.(H) ,mns,mag)
+B̄₂ = 𝓕 * zx_tc( H * Ninv ,mns)
+@tullio B̄[a,b,i,j] := real(B̄₁[a,i,j] * B̄₂[b,i,j])/2 + real(B̄₁[b,i,j] * B̄₂[a,i,j])/2
+Bv = reshape(B̄,3,3,128*128)
+
+B̄₁ = reinterpret(
+	reshape,
+	SVector{3,Complex{Float64}},
+	# 𝓕  *  kxtcsp	 *	vec(H),
+	𝓕 * kx_tc( conj.(H) ,mns,mag),
+	)
+B̄₂ = reinterpret(
+	reshape,
+	SVector{3,Complex{Float64}},
+	# 𝓕  *  zxtcsp	 *	vec(H),
+	𝓕 * zx_tc( H * Ninv ,mns),
+	)
+B̄ 	= 	real.( B̄₁  .*  transpose.( B̄₂ ) )
+
+B̄₂ = transpose.(reinterpret(
+	reshape,
+	SVector{3,Complex{Float64}},
+	# 𝓕  *  zxtcsp	 *	vec(H),
+	𝓕 * zx_tc( H * Ninv ,mns),
+	))
+B̄ 	= 	real.( B̄₁  .*   B̄₂  )
+
+
+B̄₁1 = reshape( 𝓕 * kx_tc( conj.(H) ,mns,mag), (3*128,128))
+B̄₁2 = reinterpret(
+	SVector{3,Complex{Float64}},
+	B̄₁1
+	)
+
+B̄₂1 = reshape(𝓕 * zx_tc( H * Ninv ,mns), (3*128,128) )
+B̄₂2 = reinterpret(
+	SVector{3,Complex{Float64}},
+	B̄₂1
+	)
+B̄2 	= 	Hermitian.( real.( B̄₁2  .*  transpose.( B̄₂2 ) ) )
+
+Hsv
+H
+function foo3(x)
+	# B̄₁ = reinterpret(
+	# 	reshape,
+	# 	SVector{3,Complex{Float64}},
+	# 	# 𝓕  *  kxtcsp	 *	vec(H),
+	# 	𝓕 * kx_tc( conj.(x) ,mns,mag),
+	# 	)
+	# B̄₂ = reinterpret(
+	# 	reshape,
+	# 	SVector{3,Complex{Float64}},
+	# 	# 𝓕  *  zxtcsp	 *	vec(H),
+	# 	𝓕 * zx_tc( x * Ninv ,mns),
+	# 	)
+	# B̄ 	= 	real.( B̄₁  .*  transpose.( B̄₂ ) )
+	# B̄₁1 = reshape( 𝓕 * kx_tc( conj.(H) ,mns,mag), (3*128,128))
+	# B̄₁1 = 𝓕 * kx_tc( conj.(x) ,mns,mag)
+	# # B̄₁2 = reinterpret(
+	# # 	SVector{3,Complex{Float64}},
+	# # 	B̄₁1
+	# # 	)
+	# B̄₁2 = [ SVector{3,Complex{Float64}}(B̄₁1[1,i,j],B̄₁1[2,i,j],B̄₁1[3,i,j]) for i=1:128,j=1:128]
+	#
+	#
+	# # B̄₂1 = reshape(𝓕 * zx_tc( H * Ninv ,mns), (3*128,128) )
+	# B̄₂1 = 𝓕 * zx_tc( x * Ninv ,mns)
+	# # B̄₂2 = reinterpret(
+	# # 	SVector{3,Complex{Float64}},
+	# # 	B̄₂1
+	# # 	)
+	# B̄₂2 = [ SVector{3,Complex{Float64}}(B̄₂1[1,i,j],B̄₂1[2,i,j],B̄₂1[3,i,j]) for i=1:128,j=1:128]
+	# B̄ 	= 	Hermitian.( real.( B̄₁2  .*  transpose.( B̄₂2 ) ) )
+	B̄₁4 = 𝓕 * kx_tc( conj.(x) ,mns,mag)
+	B̄₂4 = 𝓕 * zx_tc( x * Ninv ,mns)
+	@tullio B̄[a,b,i,j] := real(B̄₁4[a,i,j] * B̄₂4[b,i,j])
+	# return B̄
+	return reinterpret(SMatrix{3,3,Float64,9},reshape(B̄,9*128,128))
+end
+
+function foo4(A::AbstractArray{SMatrix{3,3,Float64,9}})
+	sum(sum.(A))
+end
+
+Hc = copy(H)
+foo3(Hc)
+reinterpret(reshape,SMatrix{3,3,Float64,9},foo3(Hc))
+foo4(copy(foo3(Hc)))
+Zygote.gradient(x->foo4(foo3(x)),Hc)
+
+B̄₁2 = vec( 𝓕 * kx_tc( conj.(H) ,mns,mag) )
+B̄₂2 = vec( 𝓕 * zx_tc( H * Ninv ,mns) )
+
+B̄₁3 = reinterpret(
+	reshape,
+	SVector{3,Complex{Float64}},
+	# 𝓕  *  kxtcsp	 *	vec(H),
+	𝓕 * kx_tc( conj.(H) ,mns,mag),
+	) |> copy
+B̄₂3 = reinterpret(
+	reshape,
+	SVector{3,Complex{Float64}},
+	# 𝓕  *  zxtcsp	 *	vec(H),
+	𝓕 * zx_tc( H * Ninv ,mns),
+	) |> copy
+B̄3 	= 	real.( B̄₁3  .*  transpose.( B̄₂3 ) )
+using Tullio
+B̄₁4 = 𝓕 * kx_tc( conj.(H) ,mns,mag)
+B̄₂4 = 𝓕 * zx_tc( H * Ninv ,mns)
+@tullio B̄4[a,b,i,j] := real(B̄₁4[a,i,j] * B̄₂4[b,i,j])
+reinterpret(reshape,SMatrix{3,3,Float64,9},B̄4)
+reinterpret(SMatrix{3,3,Float64,9},copy(reshape(B̄4,(9,128,128))))
+Bb41 = reinterpret(reshape,SMatrix{3,3,Float64,9},copy(reshape(B̄4,(9,128,128))))
+Bb42 = reinterpret(SMatrix{3,3,Float64,9},reshape(B̄4,(9*128,128)))
+Bb41 ≈ Bb42
+Bb43 = [SMatrix{3,3,Float64,9}(B̄4[:,:,i,j]) for i=1:128,j=1:128]
+Bb41 ≈ Bb43
+unflat(B̄4)
 ##
 om0 = 0.75
+M̂ = ms.M̂
 kxtcsp 	= kx_tc_sp(k,gr)
 zxtcsp 	= zx_tc_sp(k,gr)
 eisp 	= ε⁻¹_sp(om0,rwg(p),gr)
@@ -509,8 +837,6 @@ HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,nnginv,mag,m,n)
 H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
 m̄v2 = copy(reinterpret(reshape,SVector{3,Float64},real(m̄2)))
 n̄v2 = copy(reinterpret(reshape,SVector{3,Float64},real(n̄2)))
-# @btime mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1] # 2.184 s (1814052 allocations: 12.56 GiB)
-@btime mag_m_n_pb( (real($māg2), $m̄v2, $n̄v2) )
 k̄_Mₖ_AD = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
 
 nngī_Mₖ_AD_magmax = maximum(abs.(flat(eī2)))
@@ -528,7 +854,7 @@ māg_A_man = (k̄_Mₖ_Ā / k) .* mag
 k
 ẑ = SVector(0,0,1)
 k⃗ = SVector(0,0,k)
-kp⃗g = (k⃗,) .+ g⃗s
+kp⃗g = (k⃗,) .- g⃗s
 kp̂g = kp⃗g ./ mag
 kp⃗gxz = cross.(kp⃗g,(ẑ,))
 kp̂gxz = cross.(kp̂g,(ẑ,))
@@ -538,7 +864,45 @@ mxkp̂gxz = cross.(m⃗,kp̂gxz)
 nxkp̂gxz = cross.(n⃗,kp̂gxz)
 
 
+using Zygote: Buffer, dropgrad
+function mag_m_n3(k⃗::SVector{3,T},grid::Grid) where T <: Real
+	local ẑ = SVector(0.,0.,1.)
+	local ŷ = SVector(0.,1.,0.)
+	g⃗s = g⃗(dropgrad(grid))
+	n = Buffer(g⃗s,size(g⃗s))
+	m = Buffer(g⃗s,size(g⃗s))
+	mag = Buffer(zeros(T,size(g⃗s)),size(g⃗s))
+	@fastmath @inbounds for i ∈ eachindex(g⃗s)
+		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
+		@inbounds mag[i] = norm(kpg)
+		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
+	end
+	return copy(mag), copy(m), copy(n)
+end
 
+mag3,m3,n3 = mag_m_n3(k⃗,gr)
+
+(mag, m⃗, n⃗), mag_m_n_pb5 = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
+mag_m_n4(k⃗,g⃗s) .≈ mag_m_n(k⃗,g⃗s)
+(mag4,m4,n4), mag_m_n4_pb = pullback(x->mag_m_n4(SVector(0.,0.,x),g⃗s),k)
+(mag4,m4,n4), mag_m_n4_pb = Zygote.pullback(mag_m_n4,k⃗,g⃗s)
+mag_m_n_pb((māg_Ā,mag.*m̄_Ā,n̄_Ā))[1]
+mag_m_n4_pb((māg_Ā,mag.*m̄_Ā,n̄_Ā))[1]
+
+ΔmagmnA = (māg_Ā,mag.*m̄_Ā,n̄_Ā)
+@btime mag_m_n_pb5($ΔmagmnA)[1]
+@btime mag_m_n4_pb($ΔmagmnA)[1]
+@btime mag_m_n($k⃗,$g⃗s)
+∇ₖmag_m_n((māg_Ā,mag.*m̄_Ā,n̄_Ā),(mag,m⃗,n⃗);dk̂=SVector(0.,0.,1.))
+∇ₖmag_m_n(māg_Ā,mag.*m̄_Ā,n̄_Ā,mag,m⃗,n⃗;dk̂=SVector(0.,0.,1.))
+
+Zygote.gradient(∇ₖmag_m_n,māg_Ā,mag.*m̄_Ā,n̄_Ā,mag,m⃗,n⃗)
+
+
+mag3 ≈ mag
+m3 ≈ m⃗
+n3 ≈ n⃗
 
 k̄_Ā_mag_man = dot(vec(māg_Ā),inv.(vec(mag))) * k
 k̄_Ā_m_man = sum( dot.( m̄_Ā .* mag , cross.(m⃗, cross.(kp⃗g, (ẑ,) ) ) ./ mag.^2 ) )
@@ -554,15 +918,18 @@ function ∇ₖmag_m_n(māg,m̄,n̄,mag,m⃗,n⃗;dk̂=ẑ)
 	return +( k̄_mag, k̄_m, k̄_n )
 end
 
-kp⃗g1 = fill(k⃗,size(gr)...) + g⃗(dropgrad(gr))
+kp⃗g1 = fill(k⃗,size(gr)...) - g⃗(dropgrad(gr))
 kp⃗g2 = cross.(m⃗,n⃗).*mag
 
 kp⃗g1 ≈ kp⃗g2
+kp⃗g ≈ kp⃗g2
+
+∇ₖmag_m_n(māg_Ā,mag.*m̄_Ā,n̄_Ā,mag,m⃗,n⃗;dk̂=ẑ)
 
 ∇ₖmag_m_n(māg_Ā,mag.*m̄_Ā,n̄_Ā,mag,m⃗,n⃗;dk̂=ẑ)
 
 g⃗s = g⃗(dropgrad(grid))
-(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
+
 
 foo1(x) = sum(sin.(x))
 foo1_mag, foo1_mag_pb = Zygote.pullback(foo1,mag)
@@ -643,6 +1010,7 @@ n̄2r ./ n̄mf
 @show maximum(abs.(n̄2r))
 @show maximum(abs.(n̄f))
 @show maximum(abs.(n̄mf))
+
 
 ## single ω solve_n gradient checks, ms created within solve_n
 function gradtest_solve_n(ω0)

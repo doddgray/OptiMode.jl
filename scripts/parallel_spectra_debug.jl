@@ -3,7 +3,7 @@ using Distributed
 pids = addprocs(8)
 @show wp = CachingPool(workers()) #default_worker_pool()
 @everywhere begin
-	using Revise, Distributed, LinearAlgebra, Statistics, FFTW, StaticArrays, HybridArrays, ChainRules, Zygote, ForwardDiff, GeometryPrimitives, OptiMode
+	using LinearAlgebra, Statistics, FFTW, StaticArrays, HybridArrays, ChainRules, Zygote, ForwardDiff, GeometryPrimitives, OptiMode
 	using Zygote: dropgrad, @ignore
 	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 	# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
@@ -25,12 +25,56 @@ pids = addprocs(8)
 	λs = collect(reverse(1.45:0.02:1.65))
 	ωs = 1 ./ λs
 
-	n1F,ng1F = solve_n(ms,ωs,rwg_pe(p_pe)); n1S,ng1S = solve_n(ms,2*ωs,rwg_pe(p_pe))
+	geom1 = rwg_pe(p_pe)
+	# numngs1(oms) = sum(solve_n(oms,rwg_pe(p_pe),gr)[2])
+	# numngs2(oms,x) = sum(solve_n(oms,rwg_pe(x),gr)[2])
+	# numngs3(oms) = sum(pmap(x->solve_n(x,rwg_pe(p_pe),gr)[2]),oms))
+
+	# numngs1([0.6,0.7])
+	# n1F,ng1F = solve_n(ms,ωs,rwg_pe(p_pe)); n1S,ng1S = solve_n(ms,2*ωs,rwg_pe(p_pe))
 end
 
 ##
+@everywhere function foo1(x)
+	Zygote.@ignore begin
+	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+	p_pe = [
+	      1.7,                #   top ridge width         `w_top`         [μm]
+	      0.7,                #   ridge thickness         `t_core`        [μm]
+	      0.5,                #   top layer etch fraction `etch_frac`     [1]
+	      π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+	               ];
+	ms = ModeSolver(1.45, rwg_pe(p_pe), gr)
+	end
+	return x^2
+end
 
-function foo2()
+@everywhere function foo2(x)
+	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+	p_pe = [
+	      1.7,                #   top ridge width         `w_top`         [μm]
+	      0.7,                #   ridge thickness         `t_core`        [μm]
+	      0.5,                #   top layer etch fraction `etch_frac`     [1]
+	      π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+	               ];
+	ms = ModeSolver(1.45, rwg_pe(p_pe), gr)
+	return x^2
+end
+
+@everywhere function foo3(x)
+	sumeps = Zygote.@ignore begin
+	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+	p_pe = [
+	      1.7,                #   top ridge width         `w_top`         [μm]
+	      0.7,                #   ridge thickness         `t_core`        [μm]
+	      0.5,                #   top layer etch fraction `etch_frac`     [1]
+	      π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+	               ];
+	ms = ModeSolver(1.45, rwg_pe(p_pe), gr)
+	sum(sum(ms.M̂.ε⁻¹))
+	end
+	return sumeps*x^2
+end
 
 function _solve_n_parallel1(ωs::Vector{T},geom::Vector{<:Shape},gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing) where {ND,T<:Real}
 	wp = CachingPool(workers())
@@ -233,15 +277,31 @@ p̄_FD3 = FiniteDifferences.jacobian(central_fdm(3,1),x->calc_ng(x),p)[1][1,:]
 # https://discourse.julialang.org/t/passing-constructed-closures-to-child-processes/34723
 # where issues with closures are discussed
 using Distributed
-addprocs(8)
+# addprocs(8)
 @everywhere begin
-  using Zygote
-  function f_pmap_zygote_solve(A, bs)
-    xs = pmap((b) -> A \ b, wp, bs)
-    return sum(sum(xs))
+  using OptiMode, ChainRules, Zygote
+  function f_pmap_zygote_solve(ωs, p)
+	  Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+  	# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
+  	gr = Grid(Δx,Δy,Nx,Ny)
+  	rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy)
+	geom = rwg_pe(p)
+	nng = pmap(ωs) do om
+  	  # @ignore( replan_ffts!(m) );
+  	  solve_n(om,geom,gr)
+    end
+    # return sum(sum(xs))
+	# n = [res[1] for res in nng]
+	ng = [res[2] for res in nng]
+	# return n, ng
+	return sum(ng)
   end
+
 end
-wp = default_worker_pool()
-A = randn(8,8) #sprand(200, 200, 0.01) + 200*I
-b0s = [randn(8) for i=1:8]
-Zygote.gradient(f_pmap_zygote_solve, A, b0s)
+##
+# wp = default_worker_pool()
+# A = randn(8,8) #sprand(200, 200, 0.01) + 200*I
+# b0s = [randn(8) for i=1:8]
+# Zygote.gradient(f_pmap_zygote_solve, A, b0s)
+ωs = collect(range(0.6,0.7,length=10))
+Zygote.gradient(f_pmap_zygote_solve, ωs, p_pe)

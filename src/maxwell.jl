@@ -489,7 +489,7 @@ function mag_m_n2(kz::T,g⃗::AbstractArray) where T <: Real
 	mag_m_n2(SVector{3,T}(0.,0.,kz),g⃗)
 end
 
-function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
+function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
 	# for iz ∈ axes(g⃗,3), iy ∈ axes(g⃗,2), ix ∈ axes(g⃗,1) #, l in 0:0
 	local ẑ = SVector(0.,0.,1.)
 	local ŷ = SVector(0.,1.,0.)
@@ -508,32 +508,11 @@ function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
 end
 
-function mag_m_n(kz::T,g⃗) where T <: Real
+function mag_m_n(kz::T,g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
 	mag_m_n(SVector{3,T}(0.,0.,kz),g⃗)
 end
 
-function mag_m_n(kz::T,Δx::T, Δy::T, Δz::T, Nx::Int, Ny::Int, Nz::Int) where T <: Real
-	g⃗ = _g⃗(Δx,Δy,Δz,Nx,Ny,Nz)
-	mag_m_n(SVector{3,T}(0.,0.,kz),g⃗)
-end
-
-
-# function _g⃗(Δx,Δy,Δz,Nx,Ny,Nz)
-# 	HybridArray{Tuple{Dynamic(),Dynamic(),Dynamic(),3}}(
-# 		permutedims(
-# 			reinterpret(reshape,Float64,
-# 				[SVector(gx,gy,gz) for gx in fftfreq(Nx,Nx/Δx),
-# 					gy in fftfreq(Ny,Ny/Δy),
-# 					gz in fftfreq(Nz,Nz/Δz)],
-# 			),
-# 			(2,3,4,1)))
-# end
-
-# function _g⃗(Δx,Δy,Δz,Nx,Ny,Nz)
-# 	[SVector(gx,gy,gz) for gx in fftfreq(Nx,Nx/Δx),
-# 					gy in fftfreq(Ny,Ny/Δy),
-# 					gz in fftfreq(Nz,Nz/Δz)]
-# end
+mag_m_n(k::Real,grid::Grid) = mag_m_n(k, g⃗(grid))
 
 """
 ################################################################################
@@ -895,7 +874,7 @@ LinearAlgebra.ishermitian(A::HelmholtzPreconditioner) = true # A._ishermitian
 LinearAlgebra.isposdef(A::HelmholtzPreconditioner)    = true # A._isposdef
 ismutating(A::HelmholtzPreconditioner) = true # A._ismutating
 
-import Base: *
+import Base: *, transpose, adjoint
 function Base.:(*)(M::HelmholtzMap,X::Matrix)
 	#if isequal(size(M),size(X)) # size check?
 	ncolsX = size(X)[2]
@@ -918,9 +897,11 @@ function LinearAlgebra.mul!(y::AbstractVecOrMat, P̂::HelmholtzPreconditioner, x
 	P̂(y, x)
 end
 
-LinearAlgebra.transpose(P̂::HelmholtzPreconditioner) = P̂
+Base.adjoint(A::HelmholtzMap) = A
+Base.transpose(P̂::HelmholtzPreconditioner) = P̂
 LinearAlgebra.ldiv!(c,P̂::HelmholtzPreconditioner,b) = mul!(c,P̂,b) # P̂(c, b) #
 LinearAlgebra.ldiv!(P̂::HelmholtzPreconditioner,b) = mul!(b,P̂,b)
+
 
 mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
 mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)

@@ -410,9 +410,9 @@ function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3
 		# ng = ω / H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))	# old, no material disp, TODO remove this after using for comparison
 	else
 		HMₖH = H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
-		println("new HMₖH: $(HMₖH)")
+		# println("new HMₖH: $(HMₖH)")
 		ng = ω / HMₖH
-		println("new ng: $ng")
+		# println("new ng: $ng")
 		# ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
 	end
     return ( k/ω, ng )

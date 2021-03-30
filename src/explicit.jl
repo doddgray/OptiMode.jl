@@ -260,6 +260,22 @@ function nng⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vec
     )
 end
 
+function nng⁻¹_sp(nnginv,grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
+	Ns = size(grid)
+    NN = N(grid)
+    V = Buffer([3.2],0)
+	for iy=1:Ns[2], ix=1:Ns[1] #,a=1:3,b=1:3
+		push!(V,nnginv[ix,iy]...) #[a,b])
+	end
+	SparseMatrixCSC(
+    	3*NN,	# m
+    	3*NN,	# n
+    	collect(Int32,1:3:9*NN+3), # colptr
+    	convert(Vector{Int32},repeat(0:NN-1,inner=9).*3 .+ repeat([1,2,3,1,2,3,1,2,3],NN)), # rowval
+    	copy(V),	# nzval
+    )
+end
+
 function M̂_sp(ω,k,geom,grid::Grid{2})
 	Ns = size(grid)
 	Ninv = 1. / N(grid)
@@ -274,7 +290,7 @@ function M̂_sp(ω,k,geom,grid::Grid{2})
 	Ninv * kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * kxtcsp
 end
 
-function M̂ₖ_sp(ω,k,geom,grid::Grid{2})
+function M̂ₖ_sp(ω,k,geom::Vector{<:Shape},grid::Grid{2})
 	Ns = size(grid)
 	Ninv = 1. / N(grid)
 	kxtcsp = kx_tc_sp(k,grid)
@@ -287,6 +303,21 @@ function M̂ₖ_sp(ω,k,geom,grid::Grid{2})
         LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(bfft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
     end
 	Ninv * kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * zxtcsp
+end
+
+function M̂ₖ_sp(k,nnginv,grid::Grid{2})
+	Ns = size(grid)
+	Ninv = 1. / N(grid)
+	kxtcsp = kx_tc_sp(k,grid)
+	zxtcsp = zx_tc_sp(k,grid)
+	nnginvsp = nng⁻¹_sp(nnginv,grid)
+	𝓕 = Zygote.ignore() do
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(fft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
+    end
+    𝓕⁻¹ = Zygote.ignore() do
+        LinearMap{ComplexF64}(d::AbstractVector{ComplexF64} -> vec(bfft(reshape(d,(3,Ns...)),(2:3)))::AbstractVector{ComplexF64},*(3,Ns...),ishermitian=true,ismutating=false)
+    end
+	Ninv * kxtcsp' * 𝓕⁻¹ * nnginvsp * 𝓕 * zxtcsp
 end
 
 

@@ -11,8 +11,52 @@ plottype(::GeometryPrimitives.Box) = Poly
 AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
 plottype(::Geometry) = Poly
 
+GLMakie.GLFW.WindowHint(GLMakie.GLFW.FOCUS_ON_SHOW, 0)
+
+using Colors, ColorSchemes, ColorSchemeTools
 # noto_sans = "../assets/NotoSans-Regular.ttf"
 # noto_sans_bold = "../assets/NotoSans-Bold.ttf"
+
+"""
+Takes an array of complex number and converts it to an array of [r, g, b],
+where phase gives hue and saturaton/value are given by the absolute value.
+Especially for use with imshow for complex plots.
+"""
+function complex_to_rgb(X; theme="dark", absmax=nothing)
+    if isnothing(absmax)
+        absmax = sqrt(maximum(x->isnan(x) ? -Inf : x, abs2.(Z)))
+    end
+    H = (angle.(Z)/(2π)) .% 1
+    if theme == "light"
+        S = clamp.(abs.(Z)/absmax, 0.0, 1.0)
+        V = one(real(Z))
+    else
+        S = one(real(Z))
+        V = clamp.(abs.(Z)/absmax, 0.0, 1.0)
+    end
+    return convert.((RGB,),HSV.(H,S,V))
+end
+##
+theme="dark"
+Z = [3*(x .+ 1im*y).^3 + inv.((x .+ 1im*y).^2) for x in range(-1,1;step=0.05), y in range(-1,1;step=0.05)]
+image(complex_to_rgb(Z;theme="light",absmax=5))
+
+mybool1 = true
+mybool2 = false
+function foo1(x)
+    if convert(Bool,x)
+        println("")
+        println("fashodo")
+    else
+        println("")
+        println("fanodo")
+    end
+end
+
+@show foo1(4)
+
+Bool(4)
+
 ## plot E⃗, H⃗, S⃗ fields
 
 fig_fields = Figure(resolution = (1200, 700))
