@@ -1,6 +1,7 @@
 # using CairoMakie, AbstractPlotting
 using GLMakie, AbstractPlotting
 using AbstractPlotting.GeometryBasics
+using Colors
 import Colors: JULIA_LOGO_COLORS
 logocolors = JULIA_LOGO_COLORS
 AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
@@ -13,6 +14,28 @@ plottype(::Geometry) = Poly
 
 GLMakie.GLFW.WindowHint(GLMakie.GLFW.FOCUS_ON_SHOW, 0)
 
+##
+using PyCall
+cplot = pyimport("cplot")
+zz = [rr + 1.0im * ii for rr in range(-2.0,2.0,length=100), ii in range(-2.0,2.0,length=100)]
+
+##
+fooz(x) = x^1 #x / abs(x)
+# fooz_rgb0 = cplot.get_srgb1.(fooz.(zz);alpha=1.0,colorspace="cam16")
+# fooz_rgb = [RGB(x...) for x in fooz_rgb0]
+
+fooz_rgb0 = cplot.get_srgb1.(ErelF_jank[1,:,:];alpha=1.0,colorspace="cam16")
+fooz_rgb = [RGB(x...) for x in fooz_rgb0]
+
+##
+fig,ax,plt = image(fooz_rgb)
+ax.aspect = AxisAspect(1)
+fig
+##
+
+image!(ax,fooz_rgb)
+
+##
 using Colors, ColorSchemes, ColorSchemeTools
 # noto_sans = "../assets/NotoSans-Regular.ttf"
 # noto_sans_bold = "../assets/NotoSans-Bold.ttf"
@@ -22,19 +45,8 @@ Takes an array of complex number and converts it to an array of [r, g, b],
 where phase gives hue and saturaton/value are given by the absolute value.
 Especially for use with imshow for complex plots.
 """
-function complex_to_rgb(X; theme="dark", absmax=nothing)
-    if isnothing(absmax)
-        absmax = sqrt(maximum(x->isnan(x) ? -Inf : x, abs2.(Z)))
-    end
-    H = (angle.(Z)/(2π)) .% 1
-    if theme == "light"
-        S = clamp.(abs.(Z)/absmax, 0.0, 1.0)
-        V = one(real(Z))
-    else
-        S = one(real(Z))
-        V = clamp.(abs.(Z)/absmax, 0.0, 1.0)
-    end
-    return convert.((RGB,),HSV.(H,S,V))
+function complex_to_rgb(X; alpha=1.0, colorspace="cam16")
+    return [RGB(x...) for x in cplot.get_srgb1.(X;alpha,colorspace)]
 end
 ##
 theme="dark"

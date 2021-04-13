@@ -553,7 +553,7 @@ end
 
 mutable struct ModeSolver{ND,T}
 	geom::Vector{Shape} #Geometry{ND}
-	materials::Vector{Material}
+	materials::Vector{<:AbstractMaterial}
 	grid::Grid{ND,T}
 	M̂::HelmholtzMap{ND,T}
 	P̂::HelmholtzPreconditioner{ND,T}

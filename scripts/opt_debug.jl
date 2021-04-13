@@ -22,7 +22,10 @@ gr = Grid(Δx,Δy,Nx,Ny)
 rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # dispersive material model version
 rwg2(x) = ridge_wg(x[1],x[2],x[3],0.5,2.2,1.4,Δx,Δy) # constant index version
 
-rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+using Rotations: RotY, MRP
+LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))))
+
+rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
@@ -332,7 +335,13 @@ end
 function sum_Δng_FHSH(ωs,p)
     ngs_FH = solve_n(ωs,rwg_pe(p),gr)[2]
     ngs_SH = solve_n(2*ωs,rwg_pe(p),gr)[2]
+	println("")
+	println("p: $p")
+	println("\tngs_FH: $ngs_FH")
+	println("\tngs_SH: $ngs_SH")
     Δng² = abs2.(ngs_SH .- ngs_FH)
+	println("\tsum(Δng²): $(sum(Δng²))")
+	# println("")
     sum(Δng²)
 end
 
@@ -354,6 +363,8 @@ function fg!(F,G,x)
     end
     if G != nothing
         G .= value_pb(1)[1]
+		println("\tgrad_p sum(Δng²): $G")
+		println("")
     end
     if F != nothing
         # F = value
@@ -362,7 +373,34 @@ function fg!(F,G,x)
 end
 
 
-@show fg!(0.,[0.,0.,0.],p0)
+fg!(0.,[0.,0.,0.,0.],p0)
+## parameter sweep for comparison with optimization trajectories
+
+p_pe_lower = [0.4, 0.3, 0., 0.]
+p_pe_upper = [2., 2., 1., π/4.]
+
+np1 = 20
+np2 = 20
+np3 = 5
+np4 = 3
+
+range1 = range(p_pe_lower[1],p_pe_upper[1],length=np1)
+range2 = range(p_pe_lower[2],p_pe_upper[2],length=np2)
+range3 = range(p_pe_lower[3],p_pe_upper[3],length=np3)
+range4 = range(p_pe_lower[4],p_pe_upper[4],length=np4)
+
+for p4 in range4, p3 in range3, p2 in range2, p1 in range1
+	try
+		sum_Δng_FHSH(ωs,[p1,p2,p3,p4])
+	catch
+		println("")
+		println("p: $([p1,p2,p3,p4])")
+		println("\tngs_FH: Error")
+		println("\tngs_SH: Error")
+		println("\tsum(Δng²): Error")
+	end
+end
+
 ##
 opts =  Optim.Options(
                         outer_iterations = 2,

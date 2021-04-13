@@ -1,4 +1,5 @@
 export ε_tensor, εᵥ, flat
+export mult, Δₘ
 
 # vacuum relative dielectric permittivity tensor
 # NB: I would use I/UniformScaling, but seems worse for type stability, vectorization, AD...
@@ -38,6 +39,39 @@ end
 function flat(ε::AbstractArray{TA}) where TA<:SMatrix{3,3,T} where T<:Real
     reshape(reinterpret(reshape,T,ε),(3,3,size(ε)...))
 end
+
+"""
+################################################################################
+#																			   #
+#						 Nonlinear Susceptibilities					   		   #
+#																			   #
+################################################################################
+"""
+
+
+# function mult(χ::AbstractArray{T,3},v₁::AbstractVector,v₂::AbstractVector) where T<:Real
+# 	@tullio v₃[i] := χ[i,j,k] * v₁[j] * v₂[k]
+# end
+#
+# function mult(χ::AbstractArray{T,4},v₁::AbstractVector,v₂::AbstractVector,v₃::AbstractVector) where T<:Real
+# 	@tullio v₄[i] := χ[i,j,k,l] * v₁[j] * v₂[k] * v₃[l]
+# end
+#
+# """
+# 	Δₘ(λs::AbstractVector, χᵣ::AbstractArray{T,3}, λᵣs::AbstractVector)
+#
+# Miller's Delta scaling for dispersive nonlinear susceptibilities.
+#
+# Inputs:
+# 	-	λs		Frequencies/wavelengths at which to calculate nonlinear tensor
+# 	-	fε       Function to calculate linear susceptiblity, for scaling χ(λ)
+# 	-	χᵣ		Reference value of nonlinear tensor
+# 	-	λᵣs		Reference frequencies/wavelengths corresponding to χᵣ
+# """
+# function Δₘ(λs::AbstractVector, fε::Function, χᵣ::AbstractArray{T,3}, λᵣs::AbstractVector) where T
+# 	dm = flat(map( (lm,lmr) -> (diag(fε(lm)).-1.) ./ (diag(fε(lmr)).-1.), λs, λᵣs ))
+# 	@tullio χ[i,j,k] := χᵣ[i,j,k] * dm[i,1] * dm[j,2] * dm[k,3] fastmath=true
+# end
 
 
 """

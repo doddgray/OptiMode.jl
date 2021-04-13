@@ -5,6 +5,8 @@ pids = addprocs(8)
 @everywhere begin
 	using LinearAlgebra, Statistics, FFTW, StaticArrays, HybridArrays, ChainRules, Zygote, ForwardDiff, GeometryPrimitives, OptiMode
 	using Zygote: dropgrad, @ignore
+	using Rotations: RotY, MRP
+	LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))))
 	Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 	# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
 	gr = Grid(Δx,Δy,Nx,Ny)
@@ -14,7 +16,7 @@ pids = addprocs(8)
 	       0.5,                #   top layer etch fraction `etch_frac`     [1]
 	       π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
 	               ];
-	rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+	rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 
 	geom_pe = rwg_pe(p_pe)
 	ms = ModeSolver(1.45, rwg_pe(p_pe), gr)

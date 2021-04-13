@@ -329,44 +329,45 @@ end
 function solve_k(ms::ModeSolver{ND,T},ω::Vector{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	nω = length(ω)
 	k = Buffer(ω,nω)
-	H = Buffer(ms.H⃗,nω,size(ms.M̂)[1],nev)
-	@inbounds for ωind=1:nω
-		@inbounds kH = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
-		@inbounds k[ωind] = kH[1]
-		@inbounds H[ωind,:,:] .= kH[2]
+	H = Buffer([1.0 + 3.0im, 2.1+4.0im],(nω,size(ms.M̂)[1],nev))
+	for ωind=1:nω
+		kH = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
+		k[ωind] = kH[1]
+		H[ωind,:,:] = kH[2]
 	end
-	return ( copy(k), copy(H) )
+	return copy(k), copy(H) 
 end
 
 function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	nω = length(ω)
 	k = Buffer(ω,nω)
-	H = Buffer(ms.H⃗,nω,size(ms.M̂)[1],nev)
-	@inbounds for ωind=1:nω
-		@inbounds kH = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
-		@inbounds k[ωind] = kH[1]
-		@inbounds H[ωind,:,:] .= kH[2]
+	H = Buffer([1.0 + 3.0im, 2.1+4.0im],(nω,size(ms.M̂)[1],nev))
+	for ωind=1:nω
+		kH = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
+		k[ωind] = kH[1]
+		H[ωind,:,:] = kH[2]
 	end
-	return ( copy(k), copy(H) )
+	return copy(k), copy(H)
 end
 
 function solve_k(ms::ModeSolver{ND,T},ω::Vector{T},shapes::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	nω = length(ω)
 	k = Buffer(ω,nω)
-	H = Buffer(ms.H⃗,nω,size(ms.M̂)[1],nev)
-	@inbounds for ωind=1:nω
-		@inbounds kH = solve_k(ms,ω[ωind],εₛ⁻¹(ω[ωind],shapes;ms); nev, eigind, maxiter, tol, log)
-		@inbounds k[ωind] = kH[1]
-		@inbounds H[ωind,:,:] .= kH[2]
+	# H = Buffer(ms.H⃗,nω,size(ms.M̂)[1],nev)
+	H = Buffer([1.0 + 3.0im, 2.1+4.0im],(nω,size(ms.M̂)[1],nev))
+	for ωind=1:nω
+		kH = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log)
+		k[ωind] = kH[1]
+		H[ωind,:,:] = kH[2]
 	end
-	return ( copy(k), copy(H) )
+	return copy(k), copy(H)
 end
 
-function solve_k(ω::Vector{T},shapes::Vector{<:Shape},gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
+function solve_k(ω::Vector{T},geom::Vector{<:Shape},gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 	# ms = @ignore(ModeSolver(k, shapes, gr))
-	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr))
-	solve_k(ms, ω, shapes; nev, eigind, maxiter, tol, log)
+	ms = @ignore(ModeSolver(kguess(first(ω),geom), geom, gr))
+	solve_k(ms, ω, geom; nev, eigind, maxiter, tol, log)
 end
 
 """
@@ -403,20 +404,38 @@ function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3
 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log) #ω²_tol)
 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
 	if ng_nodisp
-		HMₖH = H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))	# old, no material disp, TODO remove this after using for comparison
-		println("old HMₖH: $(HMₖH)")
-		ng = ω / HMₖH
-		println("old ng: $ng")
-		# ng = ω / H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))	# old, no material disp, TODO remove this after using for comparison
+		ng = ω / H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))	# old, no material disp, TODO remove this after using for comparison
+
 	else
-		HMₖH = H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗)))
-		# println("new HMₖH: $(HMₖH)")
-		ng = ω / HMₖH
-		# println("new ng: $ng")
-		# ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
+		ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
+
 	end
     return ( k/ω, ng )
 end
+
+# function solve(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nng⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,ng_nodisp=false) where {ND,T<:Real}
+# 	@ignore(update_ε⁻¹(ms,ε⁻¹))
+# 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log) #ω²_tol)
+# 	mag,m⃗,n⃗ = mag_m_n(k,grid)
+#
+# 	∂ω²∂k_nondisp 	= 2 * H_Mₖ_H(H⃗[:,eigind],ε⁻¹  ,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+# 	∂ω²∂k_disp 		= 2 * H_Mₖ_H(H⃗[:,eigind],nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+# 	ng = 2ω / ∂ω²∂k_disp # new, material disp. included
+# 	# calculate second order dispersion
+# 	k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind)
+# 	( _, _, om̄₁, eī₁ ) = ∇solve_k(	  (k̄,H̄),
+# 									 	(k,H⃗[:,eigind]),
+# 									  	∂ω²∂k_nondisp,
+# 									   	ω,
+# 									    ε⁻¹,
+# 										grid; eigind)
+#
+#
+# 	ng = 2ω / ∂ω²∂k_disp # new, material disp. included
+#
+# 	end
+#     return ( k/ω, ng )
+# end
 
 
 function solve_n(ms::ModeSolver{ND,T},ω::T,geom::Vector{<:Shape};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}

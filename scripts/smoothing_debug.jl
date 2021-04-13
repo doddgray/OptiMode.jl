@@ -1,22 +1,36 @@
 using Revise
 using OptiMode
 using LinearAlgebra, Statistics, ArrayInterface, RecursiveArrayTools, StaticArrays, HybridArrays
+using SparseArrays, FFTW, LinearMaps
 using GeometryPrimitives, BenchmarkTools
 using ChainRules, Zygote, ForwardDiff, FiniteDifferences
 using UnicodePlots
 using Crayons.Box       # for color printing
 using Zygote: @ignore, dropgrad
+using StaticArrays: Dynamic
+using IterativeSolvers: bicgstabl
+using Rotations: RotY, MRP
+LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))),name=:LiNbO₃_X)
+AD_style = BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style = BOLD*RED_FG
+MAN_style = BOLD*GREEN_FG
+
+AD_style_N = NEGATIVE*BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style_N = NEGATIVE*BOLD*RED_FG
+MAN_style_N = NEGATIVE*BOLD*GREEN_FG
+
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
-       π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-       # 0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+
+       0.5,                #   vacuum gap at boundaries `edge_gap`     [μm]
+	   π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
                ];
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 # Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
-gr = Grid(Δx,Δy,Nx,Ny)
+grid = Grid(Δx,Δy,Nx,Ny)
 # rwg(x) = ridge_wg(x[1],x[2],x[3],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # dispersive material model version
-rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 rwg2(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,2.2,1.4,Δx,Δy) # constant index version
 
 p = [
@@ -26,188 +40,11 @@ p = [
        π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
                ];
 geom = rwg(p)
-ms = ModeSolver(1.45, geom, gr)
+ms = ModeSolver(1.45, geom, grid)
 ωs = [0.65, 0.75]
-
-##
-# using StaticArrays: Dynamic
-using IterativeSolvers: bicgstabl
-using LinearAlgebra, FFTW
-function ∂²ω²∂k²_manual(x)
-	ms = ModeSolver(1.45, geom, gr)
-	k,H⃗ = solve_k(ms,x,geom)
-	ε⁻¹ = deepcopy(ms.M̂.ε⁻¹)
-	# mag,m⃗,n⃗ = mag_m_n(k,M̂.g⃗)
-	# mag = copy(ms.M̂.mag
-	# m = copy(ms.M̂.m # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,m⃗))
-	# n = copy(ms.M̂.n # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,n⃗))
-	k̄ = ∂²ω²∂k²(x^2,copy(H⃗),copy(k),ε⁻¹,gr)
-end
-
-function foo1(H⃗::AbstractVector{Complex{T}},ε⁻¹,mag,m,n) where T<:Real
-	H = reshape(H⃗,(2,size(mag)...))
-	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	X = zx_tc(H,mn) + kx_tc(H,mn,mag)
-	Y = ifft( ε⁻¹_dot( fft( X, (2:3) ), real(flat(ε⁻¹))), (2:3))
-	# -(kx_ct(Y,mn,mag) + zx_ct(Y,mn))
-	dot(X,Y)
-end
-
-function Mₖᵀ_plus_Mₖ2(H⃗::AbstractVector{Complex{T}},ε⁻¹,mag,m,n) where T<:Real
-	H = reshape(H⃗,(2,size(mag)...))
-	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	X = zx_tc(H,mn) + kx_tc(H,mn,mag)
-	Y = ifft( ε⁻¹_dot( fft( X, (2:3) ), real(flat(ε⁻¹))), (2:3))
-	-(kx_ct(Y,mn,mag) + zx_ct(Y,mn))
-end
-
-function ∂²ω²∂k²2(ω²,H⃗,k,ε⁻¹,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
-	M̂ = HelmholtzMap(k,ε⁻¹,grid)
-	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
-	H = reshape(H⃗[:,eigind],(2,Ns...))
-	g⃗s = g⃗(dropgrad(grid))
-	(mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
-	m = M̂.m
-	n = M̂.n
-	ω = sqrt(ω²)
-	HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,ε⁻¹,mag,m,n)
-	H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
-	m̄v2 = copy(reinterpret(reshape,SVector{3,T},real(m̄2)))
-	n̄v2 = copy(reinterpret(reshape,SVector{3,T},real(n̄2)))
-	∂ω²∂k = 2 * real(HMₖH[eigind])
-	# println("typeof(māg2): $(typeof(māg2))")
-	# println("typeof(m̄2): $(typeof(m̄2))")
-	# println("typeof(n̄2): $(typeof(n̄2))")
-	# println("size(māg2): $(size(māg2))")
-	# println("size(m̄2): $(size(m̄2))")
-	# println("size(n̄2): $(size(n̄2))")
-	k̄₁ = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
-	# k̄₁ = -mag_m_n_pb(( māg2, m̄2, n̄2 ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
-
-
-	# mn = vcat(reshape(M̂.m,(1,size(M̂.m)...)),reshape(M̂.n,(1,size(M̂.m)...)))
-	# H̄ = vec(Mₖᵀ_plus_Mₖ(H⃗[:,eigind],ε⁻¹,mag,m,n))
-	Mkop = M̂ₖ_sp(ω,k,geom,grid)
-	H̄ = (Mkop + transpose(Mkop)) * ms.H⃗[:,eigind]
-
-	println("manual backsolve:")
-	println("man. Hbar_magmax = $(maximum(abs2.(H̄)))")
-	println("Hbar2_magmax = $(maximum(abs2.(H̄2)))")
-	# println("size(H̄): $(size(H̄))")
-	# println("size(H̄2): $(size(H̄2))")
-	# H̄ = vec(H̄2)
-	adj_res = ∂ω²∂k_adj(M̂,ω²,H⃗,H̄;eigind,log)
-	if !log
-		λ⃗₀ = adj_res
-	else
-		show(adj_res[2])
-		println("")
-		# show(uplot(adj_res[2]))
-		# println("")
-		λ⃗₀ = adj_res[1]
-	end
-	# λ⃗₀ = !log ? adj_res : ( uplot(adj_res[2]); adj_res[1])
-	println("man. lm0_magmax = $(maximum(abs2.(λ⃗₀)))")
-	λ⃗ = λ⃗₀ - dot(H⃗[:,eigind],λ⃗₀) * H⃗[:,eigind] #+ H⃗[:,eigind]
-	println("man. lm_magmax = $(maximum(abs2.(λ⃗)))")
-	H = reshape(H⃗[:,eigind],(2,Ns...))
-	λ = reshape(λ⃗,(2,Ns...))
-	# zxh = M̂.𝓕 * kx_tc(H,mn,mag)  * M̂.Ninv # zx_tc(H,mn)  * M̂.Ninv
-	# λd =  M̂.𝓕 * kx_tc(λ,mn,mag)
-	eī = similar(ε⁻¹)
-	λd = similar(M̂.d)
-	λẽ = similar(M̂.d)
-	# ε⁻¹_bar!(eī, vec(zxh), vec(λd), Ns...)
-	# #TODO replace iffts below with pre-planned ifft carried by M̂
-	# λẽf = fft( ε⁻¹_dot( (λd * M̂.Ninv), real(flat(ε⁻¹))), (2:3))
-	# ẽf = fft( ε⁻¹_dot( zxh, real(flat(ε⁻¹))), (2:3))
-	# λẽ = reinterpret(reshape, SVector{3,Complex{T}}, λẽf )
-	# ẽ = reinterpret(reshape, SVector{3,Complex{T}}, ẽf )
-	# # scaling by mag or √mag may differ from normal case here, as one of the kx
-	# # operators has been replaced by ẑx, so two of the four terms in the next two
-	# # lines are a factor of mag smaller at each point in recip. space?
-	# kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-	# kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-	# māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-	d = _H2d!(M̂.d, H * M̂.Ninv, M̂) # =  M̂.𝓕 * kx_tc( H , mn2, mag )  * M̂.Ninv
-	λd = _H2d!(λd,λ,M̂) # M̂.𝓕 * kx_tc( reshape(λ⃗,(2,M̂.Nx,M̂.Ny,M̂.Nz)) , mn2, mag )
-	ε⁻¹_bar!(eī, vec(M̂.d), vec(λd), Ns...)
-	# eīₕ = copy(ε⁻¹_bar)
-	# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-	λd *=  M̂.Ninv
-	λẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,M̂ ) )
-	ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(M̂.e,M̂.d,M̂) )
-	kx̄_m⃗ = real.( λẽ .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-	kx̄_n⃗ =  -real.( λẽ .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-	māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-	# almost there! need to replace this pullback with a Zygote compatible fn.
-	k̄₂ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1]	# should equal ∂/∂k(2 * ∂ω²/∂k) = 2∂²ω²/∂k²
-	println("k̄₁ = $(k̄₁)")
-	println("k̄₂ = $(k̄₂)")
-	k̄ = k̄₁ + k̄₂
-	ω̄  =  (2 * sqrt(ω²) * k̄) / ∂ω²∂k #2ω * k̄ₖ / ∂ω²∂k[eigind]
-	println("k̄ = k̄₁ + k̄₂ = $(k̄)")
-	println("ω̄ = $(ω̄ )")
-	return ω̄
-end
-
-
-
-##
-
-using SparseArrays, FFTW, LinearMaps
-kxtcsp = kx_tc_sp(k,gr)
-vec(kx_tc(H,mns,mag)) ≈ kxtcsp * H⃗
-vec(kx_ct(tc(H,mns),mns,mag)) ≈ -kxtcsp' * vec(tc(H,mns))
-@btime $kxtcsp * $H⃗ # 163.864 μs (2 allocations: 768.08 KiB)
-@btime vec(kx_tc($H,$mns,$mag)) # 378.265 μs (6 allocations: 768.34 KiB)
-
-zxtcsp = zx_tc_sp(k,gr)
-vec(zx_tc(H,mns)) ≈ zxtcsp * H⃗
-vec(zx_ct(tc(H,mns),mns)) ≈ zxtcsp' * vec(tc(H,mns))
-@btime $zxtcsp * $H⃗ # 151.754 μs (2 allocations: 768.08 KiB)
-@btime vec(zx_tc($H,$mns)) # 296.939 μs (6 allocations: 768.38 KiB)
-
-zx_tc_sp(k,gr) == zx_ct_sp(k,gr)'
-# vec(zx_tc(H,mns)) ≈ zx_tc_sp_coo(mag,mns) * H⃗
-
-eisp = ε⁻¹_sp(0.75,rwg(p),gr)
-vec(ε⁻¹_dot(tc(H,mns),flat(εₛ⁻¹(0.75,rwg(p);ms)))) ≈ eisp * vec(tc(H,mns))
-
-Mop = M̂_sp(ω,k,rwg(p),grid)
-ms.M̂ * H⃗[:,eigind] ≈ Mop * H⃗[:,eigind]
-ms.M̂ * ms.H⃗[:,eigind] ≈ Mop * ms.H⃗[:,eigind]
-@btime $Mop * $H⃗[:,eigind] # 1.225 ms (122 allocations: 4.01 MiB)
-@btime $ms.M̂ * $H⃗[:,eigind] # 4.734 ms (1535 allocations: 1.22 MiB)
-
-Mkop = M̂ₖ_sp(ω,k,rwg(p),gr)
-Mkop * H⃗[:,eigind] ≈ vec(-kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), real(flat(ε⁻¹))), (2:3)),mns,mag))
-@btime $Mkop * $H⃗[:,eigind] # 1.261 ms (122 allocations: 4.01 MiB)
-@btime vec(-kx_ct( ifft( ε⁻¹_dot( fft( zx_tc($H,$mns), (2:3) ), real(flat(ε⁻¹))), (2:3)),$mns,$mag)) # 2.095 ms (94 allocations: 4.01 MiB)
-
-
-nnginv = nngₛ⁻¹(ω,rwg(p),gr)
-real(dot(H⃗[:,eigind],Mkop,H⃗[:,eigind])) ≈ H_Mₖ_H(H,ε⁻¹,mag,m,n)
-real(dot(H⃗[:,eigind],Mkop,H⃗[:,eigind])) ≈ H_Mₖ_H(H,nnginv,mag,m,n)
-@btime real(dot($H⃗[:,eigind],$Mkop,$H⃗[:,eigind])) # 1.465 ms (134 allocations: 4.51 MiB)
-@btime H_Mₖ_H($H,$ε⁻¹,$mag,$m,$n) # 3.697 ms (122 allocations: 4.76 MiB)
-#
-# Zygote.gradient((om,kk,pp,HH)->real(dot(HH,M̂ₖ_sp(om,kk,rwg(pp),gr),HH)),ω,k,p,H⃗[:,eigind])
-# Zygote.gradient((om,kk,pp,HH)->real(dot(HH,M̂ₖ_sp(om,kk,rwg(pp),gr)*HH)),ω,k,p,H⃗[:,eigind])
-
-# ⟨H|Mₖ|H⟩
-
-real(dot(H⃗[:,eigind],M̂ₖ_sp(ω,k,rwg(p),gr)*H⃗[:,eigind]))
-
-# Zygote.gradient((a,b)->sum(foo2(a,b)),mag,mns)
-# Zygote.gradient((a,b)->sum(abs2.(foo2(a,b))),mag,mns)
-
-##
 
 ω = 0.75
 eigind = 1
-grid = ms.grid
 k,H⃗ = solve_k(ms,ω,rwg(p))
 ε⁻¹ = ms.M̂.ε⁻¹
 Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
@@ -218,34 +55,325 @@ g⃗s = g⃗(dropgrad(grid))
 m = ms.M̂.m
 n = ms.M̂.n
 mns = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-HMₖH, HMₖH_pb = Zygote.pullback(H_Mₖ_H,H,ε⁻¹,mag,m,n)
-H̄2, eī2, māg2,m̄2,n̄2 = HMₖH_pb(1)
-m̄v2 = copy(reinterpret(reshape,SVector{3,Float64},real(m̄2)))
-n̄v2 = copy(reinterpret(reshape,SVector{3,Float64},real(n̄2)))
-∂ω²∂k = 2 * real(HMₖH)
-k̄₁ = mag_m_n_pb( (real(māg2), m̄v2, n̄v2) )[1]
+
 
 ##
 
-X1 = kx_tc(H,mns,mag)
-X2 = tc(kx_ct(tc(H,mns),mns,mag),mns)
-X1 ≈ X2
-X3 = zx_tc(H,mns)
-X4 = tc(zx_ct(tc(H,mns),mns),mns)
-X3 ≈ X4
+# χ⁽²⁾ Nonlinear dielectric susceptibility tensor debug
+
+d₃₃ =   25.0    #   pm/V
+d₃₁ =   -4.1    #   pm/V
+d₂₂ =   2.1     #   pm/V
+
+#          xx      yy       zz      zy      zx      xy
+deff = [    0.      0.      0.      0.      d₃₁     -d₂₂     #   x
+            -d₂₂    d₂₂     0.      d₃₁     0.      0.       #   y
+            d₃₁     d₃₁     d₃₃     0.      0.      0.   ]   #   z
+
+# χ⁽²⁾ LiNbO₃ (3m) with extraordinary axis along ẑ (3)
+χ⁽²⁾₃ = cat(
+	[ 	0.0	 	-d₂₂ 	d₃₁			#	xxx, xxy and xxz
+	 	-d₂₂	0.0 	0.0			#	xyx, xyy and xyz
+		d₃₁	 	0.0		0.0		],	#	xzx, xzy and xzz
+	[ 	-d₂₂	0.0 	0.0			#	yxx, yxy and yxz
+		0.0	 	d₂₂ 	d₃₁			#	yyx, yyy and yyz
+		0.0	 	d₃₁		0.0		],	#	yzx, yzy and yzz
+	[ 	d₃₁	 	0.0 	0.0			#	zxx, zxy and zxz
+		0.0	 	d₃₁ 	0.0			#	zyx, zyy and zyz
+		0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
+	 dims = 3
+)
+
+function Δₘ(fε::Function,λs,λᵣs)
+	# λ₁,λ₂,λ₃ 	= 	λs
+	# λ₁ᵣ,λ₂ᵣ,λ₃ᵣ	= 	λᵣs
+	#
+	*.(diag.(fε.(λs)) .- 1.0)...) / *.((diag.(fε.(λᵣs)) .- 1.0)...)
+end
+
+##
+function fε(λ::T) where T<:Real
+    nₑ² = nₑ²_MgO_LiNbO₃(λ)
+    nₒ² = nₒ²_MgO_LiNbO₃(λ)
+    # Diagonal( [ nₑ², nₒ², nₒ² ] )
+    SMatrix{3,3,T,9}( nₒ²,    0.,     0.,
+                      0.,     nₒ²,    0.,
+                      0.,     0.,     nₑ², )
+end
+
+fε(0.8)
+
+χ⁽²⁾ᵣ	= 	20.3 * (2.0/π)		#	[pm/V]
+λ₁ᵣ		= 	1.313				#	[μm]
+λ₂ᵣ		= 	λ₁ᵣ					#	[μm]
+λ₃ᵣ		= 	λ₁ᵣ/2				#	[μm]
+
+λ₁		= 	1.56				#	[μm]
+λ₂		= 	λ₁					#	[μm]
+λ₃		= 	λ₁/2				#	[μm]
+
+λs		=	[ 	λ₁,		λ₂,		λ₃	]
+λᵣs		=	[	λ₁ᵣ,	λ₂ᵣ,	λ₃ᵣ	]
+
+using Tullio
+dm0 = flat(map( (lm,lmr) -> (diag(fε(lm)).-1.) ./ (diag(fε(lmr)).-1.), λs, λᵣs ))
+@tullio χ⁽²⁾[i,j,k] := χ⁽²⁾₃[i,j,k] * dm0[i,1] * dm0[j,2] * dm0[k,3]
+
+function Δₘ(λs::AbstractVector, χᵣ::AbstractArray{T,3}, λᵣs::AbstractVector) where T
+	dm = flat(map( (lm,lmr) -> (diag(fε(lm)).-1.) ./ (diag(fε(lmr)).-1.), λs, λᵣs ))
+	@tullio χ[i,j,k] := χᵣ[i,j,k] * dm[i,1] * dm[j,2] * dm[k,3] verbose=true
+end
+
+χ⁽²⁾_LN(λs::AbstractVector) =  Δₘ(λs, χ⁽²⁾₃, [1.313,1.313,1.313/2.0])
+χ⁽²⁾_LN(λ::Real) =  Δₘ([λ,λ,λ/2.0], χ⁽²⁾₃, [1.313,1.313,1.313/2.0])
+
+χ⁽²⁾_MgO_LiNbO₃([1.064,1.064,0.532])[3,3,3]
+χ⁽²⁾_MgO_LiNbO₃(1.064) #[3,3,3]
+χ⁽²⁾_MgO_LiNbO₃([2.1,2.1,1.05])[3,3,3]
+
+Zygote.gradient(x->χ⁽²⁾_LN([x,x,x/2.0])[3,3,3],2.1)
+Zygote.gradient(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+ForwardDiff.derivative(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+Zygote.hessian(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+
+using Rotations
+ForwardDiff.derivative(t->rotate(χ⁽²⁾_LN(1.064),RotY(t))[3,3,3],0.1)
+ForwardDiff.gradient(xx->rotate(χ⁽²⁾_LN(xx[1]),RotY(xx[2]))[3,3,3],[1.064,π/6.0])
+Zygote.gradient(xx->rotate(χ⁽²⁾_LN(xx[1]),Zygote.forwarddiff(RotY,xx[2]))[3,3,3],[1.064,π/6.0])
+Zygote.gradient((xx,tt)->rotate(χ⁽²⁾_LN(xx),Zygote.forwarddiff(RotY,tt))[3,3,3],1.064,π/6.0)
+Zygote.hessian((xx,tt)->rotate(χ⁽²⁾_LN(xx),Zygote.forwarddiff(RotY,tt))[3,3,3],1.064,π/6.0)
+Zygote.hessian(xx->rotate(χ⁽²⁾_LN(xx[1]),Zygote.forwarddiff(RotY,xx[2]))[3,3,3],[1.064,π/6.0])
+
+χ⁽²⁾_LN([1.05,2.1,2.1])[1,1,2]
+χ⁽²⁾_LN([2.1,2.1,1.05])[1,1,2]
+
+lms = collect(range(1.9,2.2,length=20))
+chi2LN333 = getindex.(χ⁽²⁾_LN.(lms),(3,),(3,),(3,))
+
+lineplot(lms,chi2LN333)
+
+chi2[3,3,3] ≈  χ⁽²⁾[3,3,3]/χ⁽²⁾₃[3,3,3]
+
+function mult(χ::AbstractArray{T,3},v₁::AbstractVector,v₂::AbstractVector) where T<:Real
+	@tullio v₃[i] := χ[i,j,k] * v₁[j] * v₂[k]
+end
+
+function mult(χ::AbstractArray{T,4},v₁::AbstractVector,v₂::AbstractVector,v₃::AbstractVector) where T<:Real
+	@tullio v₄[i] := χ[i,j,k,l] * v₁[j] * v₂[k] * v₃[l]
+end
 
 
-X = zx_tc(H,mns) + kx_tc(H,mns,mag)
-Y = ifft( ε⁻¹_dot( fft( X, (2:3) ), real(flat(ε⁻¹))), (2:3))
-# -(kx_ct(Y,mn,mag) + zx_ct(Y,mn))
-dot(X,Y)
 
-H̄1 = foo1(H⃗[:,eigind],ε⁻¹,mag,m,n)
 
-zxtcH = zx_tc(H,mns)
-H⃗dag = H⃗[:,eigind]'
-Hdag1 = reshape(vec(H⃗[:,eigind]'),(2,Ns...))
-Hdag2 = reshape(H⃗[:,eigind]',(2,Ns...))
+
+
+
+
+
+
+
+dm_check1 = ((nₑ²_MgO_LiNbO₃(1.56) - 1)^2 * (nₑ²_MgO_LiNbO₃(1.56/2.0) - 1)) / ((nₑ²_MgO_LiNbO₃(1.313) - 1)^2 * (nₑ²_MgO_LiNbO₃(1.313/2.0) - 1))
+dm_check1
+
+χ⁽²⁾[3,3,3] / χ⁽²⁾₃[3,3,3]
+
+dm_check2 = ((nₒ²_MgO_LiNbO₃(1.56) - 1)^2 * (nₒ²_MgO_LiNbO₃(1.56/2.0) - 1)) / ((nₒ²_MgO_LiNbO₃(1.313) - 1)^2 * (nₒ²_MgO_LiNbO₃(1.313/2.0) - 1))
+dm_check2
+χ⁽²⁾[1,2,1] / χ⁽²⁾₃[1,2,1]
+
+
+.*(dm0)
+
+(diag.(fε.(λs).-1.0I)) ./ (diag.(fε.(λᵣs).-1.0I))
+
+##
+
+# χ⁽²⁾ LiNbO₃ (3m) with extraordinary axis along x̂ (1)
+χ⁽²⁾₁ = cat(
+	[ 	d₃₃	 	0.0 	0.0			#	xxx, xxy and xxz
+	 	0.0	 	d₃₁ 	0.0			#	xyx, xyy and xyz
+		0.0	 	0.0		d₃₁		],	#	xzx, xzy and xzz
+	[ 	0.0	 	d₃₁ 	0.0			#	yxx, yxy and yxz
+		d₃₁	 	d₂₂ 	0.0			#	yyx, yyy and yyz
+		0.0	 	0.0		-d₂₂	],	#	yzx, yzy and yzz
+	[ 	0.0	 	0.0 	d₃₁			#	zxx, zxy and zxz
+		0.0	 	0.0 	-d₂₂		#	zyx, zyy and zyz
+		d₃₁	 	-d₂₂ 	0.0		],	#	zzx, zzy and zzz
+	 dims = 3
+)
+
+E1 = randn(3)
+E2 = randn(3)
+E12 = [
+	E1[1]*E2[1],
+	E1[2]*E2[2],
+	E1[3]*E2[3],
+	E1[2]*E2[3] + E1[3]*E2[2],
+	E1[1]*E2[3] + E1[3]*E2[1],
+	E1[1]*E2[2] + E1[2]*E2[1],
+]
+using Tullio
+
+@tullio P3[k] := χ⁽²⁾₃[i,j,k] * E1[i] * E2[j] verbose=1
+P3d = deff * E12
+@assert P3d ≈ P3
+
+using Rotations
+R1 = MRP(RotY(π/2))		# 90° rotation around ŷ
+R1i = transpose(R1)
+nₑ = 2.1
+nₒ = 2.2
+eps1 = [	nₑ^2	0.0		0.0
+			0.0		nₒ^2	0.0
+			0.0		0.0		nₒ^2	]
+eps2 = [	nₒ^2	0.0		0.0
+			0.0		nₒ^2	0.0
+			0.0		0.0		nₑ^2	]
+eps3 = diagm( [nₒ^2,nₒ^2,nₑ^2] )
+
+@assert R1 * eps1 / R1 ≈ eps2
+@assert R1 * eps3 / R1 ≈ eps1
+
+R2 = RotY(π/6)
+R2 * eps3 / R2
+
+@assert rotate(eps1,R1) ≈ MArray{Tuple{3,3}}(eps2)
+
+
+@tullio P11[i] := eps1[i,j] * E1[j] verbose=true
+@tullio P21[i] := eps2[i,j] * E1[j] verbose=true
+@tullio P212[i] := R1[i,j] * eps1[j,k] * R1i[k,h] * E1[h] verbose=true
+@assert P212 ≈ P21
+
+@tullio P3[i] := χ⁽²⁾₃[i,j,k] * E1[j] * E2[k] verbose=1
+P3d = deff * E12
+@assert P3d ≈ P3
+@tullio P32[i] := R1i[i,j] * χ⁽²⁾₁[j,k,h] * R1[k,a] * E1[a] * R1[h,b] * E2[b] verbose=1
+@tullio χ⁽²⁾₁2[i,j,k] := R1i[i,a] * χ⁽²⁾₁[a,b,c] * R1[b,j] * R1[c,k] verbose=1
+@tullio P33[i] := χ⁽²⁾₁2[i,j,k] * E1[j] * E2[k] verbose=1
+# @tullio P33[i] := R1[i,j] * χ⁽²⁾₁[j,k,h] * R1i[k,a] * E1[a] * R1i[h,b] * E2[b] verbose=1
+@assert Vector(P32) ≈ P3
+@assert Vector(P33) ≈ P3
+@assert χ⁽²⁾₁2 ≈ χ⁽²⁾₃
+
+import Rotations: Rotation
+
+function rotate(χ::AbstractArray{T,2},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+	@tullio χᵣ[i,j] := 𝓡[a,i] * 𝓡[b,j] * χ[a,b]  fastmath=true
+end
+
+function rotate(χ::AbstractArray{T,3},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+	@tullio χᵣ[i,j,k] := 𝓡[a,i] * 𝓡[b,j] * 𝓡[c,k] * χ[a,b,c]  fastmath=true
+end
+
+function rotate(χ::AbstractArray{T,4},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+	@tullio χᵣ[i,j,k,l] := 𝓡[a,i] * 𝓡[b,j] * 𝓡[c,k] * 𝓡[d,l] * χ[a,b,c,d]  fastmath=true
+end
+Zygote.gradient(x->dot(E1,rotate(eps1,Zygote.forwarddiff(y->MRP(RotY(y)),x)),E1),0.1)[1]
+ForwardDiff.derivative(x->dot(E1,rotate(eps1,MRP(RotY(x))),E1),0.1)
+Zygote.hessian(x->dot(E1,rotate(eps1,Zygote.forwarddiff(y->MRP(RotY(y)),x)),E1),0.1)[1]
+
+rotate(χ⁽²⁾₃,R1)
+@assert rotate(χ⁽²⁾₁,R1) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₃)
+@assert rotate(χ⁽²⁾₃,R1') ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+@assert rotate(rotate(χ⁽²⁾₁,R1),R1i) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+@assert rotate(rotate(χ⁽²⁾₁,R1),inv(R1)) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+@assert rotate(χ⁽²⁾₃,R3) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+
+round.(rotate(rotate(χ⁽²⁾₁,R1),inv(R1)),digits=3) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+
+round.(rotate(rotate(χ⁽²⁾₁,R1),inv(R1)),digits=3) - MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+
+
+
+
+
+rotate(χ⁽²⁾₁,R3) - MArray{Tuple{3,3,3}}(χ⁽²⁾₃)
+
+
+rotate(rotate(χ⁽²⁾₁,R1),R1i) - MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+
+χ⁽²⁾₁
+
+AngleAxis(R1)
+
+
+
+
+transpose(MRP(R1))
+
+
+
+
+R1
+
+
+R3 = RotY(-π/2)
+R3 ≈ inv(R1)
+R1 * χ⁽²⁾₃
+R1
+
+
+
+
+inv(R1)
+
+
+
+
+R1 ≈ inv(inv(R1))
+
+R1
+
+inv(R1)
+
+##
+kxtcsp = kx_tc_sp(k,grid)
+vec(kx_tc(H,mns,mag)) ≈ kxtcsp * H⃗
+vec(kx_ct(tc(H,mns),mns,mag)) ≈ -kxtcsp' * vec(tc(H,mns))
+@btime $kxtcsp * $H⃗ # 163.864 μs (2 allocations: 768.08 KiB)
+@btime vec(kx_tc($H,$mns,$mag)) # 378.265 μs (6 allocations: 768.34 KiB)
+
+zxtcsp = zx_tc_sp(k,grid)
+vec(zx_tc(H,mns)) ≈ zxtcsp * H⃗
+vec(zx_ct(tc(H,mns),mns)) ≈ zxtcsp' * vec(tc(H,mns))
+@btime $zxtcsp * $H⃗ # 151.754 μs (2 allocations: 768.08 KiB)
+@btime vec(zx_tc($H,$mns)) # 296.939 μs (6 allocations: 768.38 KiB)
+
+zx_tc_sp(k,grid) == zx_ct_sp(k,grid)'
+# vec(zx_tc(H,mns)) ≈ zx_tc_sp_coo(mag,mns) * H⃗
+
+eisp = ε⁻¹_sp(0.75,rwg(p),grid)
+vec(ε⁻¹_dot(tc(H,mns),flat(εₛ⁻¹(0.75,rwg(p);ms)))) ≈ eisp * vec(tc(H,mns))
+
+Mop = M̂_sp(ω,k,rwg(p),grid)
+ms.M̂ * H⃗[:,eigind] ≈ Mop * H⃗[:,eigind]
+ms.M̂ * ms.H⃗[:,eigind] ≈ Mop * ms.H⃗[:,eigind]
+@btime $Mop * $H⃗[:,eigind] # 1.225 ms (122 allocations: 4.01 MiB)
+@btime $ms.M̂ * $H⃗[:,eigind] # 4.734 ms (1535 allocations: 1.22 MiB)
+
+Mkop = M̂ₖ_sp(ω,k,rwg(p),grid)
+Mkop * H⃗[:,eigind] ≈ vec(-kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), real(flat(ε⁻¹))), (2:3)),mns,mag))
+@btime $Mkop * $H⃗[:,eigind] # 1.261 ms (122 allocations: 4.01 MiB)
+@btime vec(-kx_ct( ifft( ε⁻¹_dot( fft( zx_tc($H,$mns), (2:3) ), real(flat(ε⁻¹))), (2:3)),$mns,$mag)) # 2.095 ms (94 allocations: 4.01 MiB)
+
+
+nnginv = nngₛ⁻¹(ω,rwg(p),grid)
+real(dot(H⃗[:,eigind],Mkop,H⃗[:,eigind])) ≈ H_Mₖ_H(H,ε⁻¹,mag,m,n)
+real(dot(H⃗[:,eigind],Mkop,H⃗[:,eigind])) ≈ H_Mₖ_H(H,nnginv,mag,m,n)
+@btime real(dot($H⃗[:,eigind],$Mkop,$H⃗[:,eigind])) # 1.465 ms (134 allocations: 4.51 MiB)
+@btime H_Mₖ_H($H,$ε⁻¹,$mag,$m,$n) # 3.697 ms (122 allocations: 4.76 MiB)
+#
+# Zygote.gradient((om,kk,pp,HH)->real(dot(HH,M̂ₖ_sp(om,kk,rwg(pp),grid),HH)),ω,k,p,H⃗[:,eigind])
+# Zygote.gradient((om,kk,pp,HH)->real(dot(HH,M̂ₖ_sp(om,kk,rwg(pp),grid)*HH)),ω,k,p,H⃗[:,eigind])
+
+# ⟨H|Mₖ|H⟩
+
+real(dot(H⃗[:,eigind],M̂ₖ_sp(ω,k,rwg(p),grid)*H⃗[:,eigind]))
+
+# Zygote.gradient((a,b)->sum(foo2(a,b)),mag,mns)
+# Zygote.gradient((a,b)->sum(abs2.(foo2(a,b))),mag,mns)
+
 
 ##
 fig = GLMakie.Figure()
@@ -267,28 +395,18 @@ axes = vcat(axes_pb,axes_foo) #,axes_Hi)
 linkaxes!(axes...)
 fig
 ##
-om0 = 0.75
-AD_style = BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
-FD_style = BOLD*RED_FG
-MAN_style = BOLD*GREEN_FG
-
-AD_style_N = NEGATIVE*BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
-FD_style_N = NEGATIVE*BOLD*RED_FG
-MAN_style_N = NEGATIVE*BOLD*GREEN_FG
-
-# println(err_style("∂n_om_err:"))
-##
+ω = 0.75
 println("")
 println(AD_style_N("∂²ω²∂k²_AD:"))
 println("")
-∂²ω²∂k²_AD = Zygote.gradient(om->(om / solve_n(om,rwg(p),gr)[2]),om0)[1]
+∂²ω²∂k²_AD = Zygote.gradient(om->(om / solve_n(om,rwg(p),grid)[2]),ω)[1]
 println(AD_style("∂²ω²∂k²_AD= $∂²ω²∂k²_AD"))
 println("")
 
 println("")
 println(FD_style_N("∂²ω²∂k²_FD:"))
 println("")
-∂²ω²∂k²_FD = FiniteDifferences.central_fdm(5,1)(om->(om / solve_n(om,rwg(p),gr)[2]),om0)
+∂²ω²∂k²_FD = FiniteDifferences.central_fdm(5,1)(om->(om / solve_n(om,rwg(p),grid)[2]),ω)
 println(FD_style("∂²ω²∂k²_FD: $∂²ω²∂k²_FD"))
 println("")
 
@@ -298,6 +416,95 @@ println("")
 ∂²ω²∂k²_MAN = ∂²ω²∂k²(ω,rwg(p),k,H⃗,grid) #om0^2,H⃗,k,rwg(p),gr)
 println(MAN_style("∂²ω²∂k²_MAN: $∂²ω²∂k²_MAN"))
 println("")
+
+##
+
+# ∂ei∂ω_RAD = Zygote.gradient(x->εₛ⁻¹(x,geom,grid),ω)
+∂ei∂ω_FAD = copy(flat(ForwardDiff.derivative(x->εₛ⁻¹(x,geom,grid),ω)))
+∂ei∂ω_FD = FiniteDifferences.central_fdm(5,1)(x->flat(εₛ⁻¹(x,geom,grid)),ω)
+#∂ei∂ω_FD = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(∂ei∂ω_FD_flat,9,128,128)))
+
+nng = inv.(nnginv)
+ε = inv.(ε⁻¹)
+∂ε∂ω_man = (2/ω) * (nng .- ε)
+∂ei∂ω_man = copy(flat(-(ε⁻¹.^2) .* ∂ε∂ω_man ))
+# view(∂ei∂ω_FAD,1,1,:,:) - view(∂ei∂ω_FAD,1,1,:,:)
+∂ei∂ω_FAD_man_err = abs.(∂ei∂ω_FAD .- ∂ei∂ω_man) ./ abs.(∂ei∂ω_FAD.+1e-10)
+∂ei∂ω_FD_man_err = abs.(∂ei∂ω_FD .- ∂ei∂ω_man) ./ abs.(∂ei∂ω_FD.+1e-10)
+maximum(∂ei∂ω_FD_man_err)
+
+
+# nngₛ⁻¹(ω,geom,grid)
+# ∂ei∂ω_RAD = Zygote.gradient(x->εₛ⁻¹(x,geom,grid),ω)
+∂nngi∂ω_FAD = copy(flat(ForwardDiff.derivative(x->nngₛ⁻¹(x,geom,grid),ω)))
+∂nngi∂ω_FD = FiniteDifferences.central_fdm(5,1)(x->flat(nngₛ⁻¹(x,geom,grid)),ω)
+
+
+
+# check GVD formula works: GVD = ∂²k/∂ω² = -(λ² / 2π) * (∂ng/∂λ) = -(λ² / 2π) * D_λ
+lm = 0.8
+gvd_man(x) = - x^2  * Zygote.gradient(a->ng_MgO_LiNbO₃(a)[1,1],x)[1]
+gvd_man(lm)
+gvd_MgO_LiNbO₃(lm)[1,1] #/ (2π)
+
+nng_LN(x) =  ng_MgO_LiNbO₃(x)[1,1] * sqrt(ε_MgO_LiNbO₃(x)[1,1])
+function ∂nng∂ω_man_LN(om)
+	 ng = ng_MgO_LiNbO₃(inv(om))[1,1]
+	 n = sqrt(ε_MgO_LiNbO₃(inv(om))[1,1])
+	 gvd = gvd_MgO_LiNbO₃(inv(om))[1,1]  #/ (2π)
+	 # om = 1/om
+	 om*(ng^2 - n*ng) + n * gvd
+end
+∂nng∂ω_FD_LN(x) = central_fdm(5,1)(a->nng_LN(inv(a)),x)
+∂nng∂ω_RAD_LN(x) = Zygote.gradient(a->nng_LN(inv(a)),x)[1]
+
+n1 = sqrt(ε_MgO_LiNbO₃(1.0)[1,1])
+ng1 = ng_MgO_LiNbO₃(1.0)[1,1]
+gvd1 = gvd_MgO_LiNbO₃(1.0)[1,1]
+
+-(ng1^2 - n1*ng1) - n1 * gvd1
+
+∂nng∂ω_man_LN(1.0)
+∂nng∂ω_FD_LN(1.0)
+∂nng∂ω_RAD_LN(1.0)
+
+∂nng∂ω_man_LN(1/0.7)
+∂nng∂ω_FD_LN(0.7)
+∂nng∂ω_RAD_LN(0.7)
+
+
+( ∂nng∂ω_RAD_LN(0.8) / ∂nng∂ω_man_LN(0.8) ) / (2π)
+
+nng_LN(0.8)
+
+
+
+ng² =  nng.^2 .* ε⁻¹
+# = ( ng² .- nng ) / ω +
+∂nngi∂ω_man = copy(flat(-(ε⁻¹.^2) .* ∂ε∂ω_man ))
+# view(∂nngi∂ω_FAD,1,1,:,:) - view(∂nngi∂ω_FAD,1,1,:,:)
+∂nngi∂ω_FAD_man_err = abs.(∂nngi∂ω_FAD .- ∂nngi∂ω_man) ./ abs.(∂nngi∂ω_FAD.+1e-10)
+∂nngi∂ω_FD_man_err = abs.(∂nngi∂ω_FD .- ∂nngi∂ω_man) ./ abs.(∂nngi∂ω_FD.+1e-10)
+maximum(∂nngi∂ω_FD_man_err)
+
+##
+fig = Figure()
+diagind = 2
+ax_FAD = fig[1, 1] = Axis(fig, title = "∂ε∂ω, Fwd AD")
+ax_FD = fig[1, 2] = Axis(fig, title = "∂ε∂ω, FD")
+ax_man = fig[1, 3] = Axis(fig, title = "∂ε∂ω, manual")
+axes_∂ei∂ω = [ax_FAD,ax_FD,ax_man]
+Zs_∂ei∂ω = [∂ei∂ω_FAD,∂ei∂ω_FD,∂ei∂ω_man]
+hms_∂ei∂ω = [GLMakie.heatmap!(axes_∂ei∂ω[i], Zs_∂ei∂ω[i][diagind,diagind,:,:])  for i=1:3]
+for hm in hms_∂ei∂ω
+    hm.colorrange = extrema(Zs_∂ei∂ω[1][diagind,diagind,:,:])
+end
+
+cbar = fig[1, 4] = Colorbar(fig,hms_∂ei∂ω[1], label = "∂ε⁻¹/∂ω")
+cbar.width = 30
+fig
+
+
 
 ##
 

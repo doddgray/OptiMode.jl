@@ -1,5 +1,136 @@
-# TODO: Adapt python model below to new Julia format
+################################################################################
+#                         LiB₃O₅, Lithium Triborate (LBO)                      #
+################################################################################
+export LiB₃O₅
 
+"""
+These functions create a symbolic representation (using ModelingToolkit) of the
+Sellmeier Equation model for the temperature and wavelength dependent
+indices of refraction of LiB₃O₅ (Lithium Triborate) along all three principal axes,
+here labeled '1', '2' and '3'.
+Equation form is based on "Temperature dispersion of refractive indices in
+β‐BaB2O4 and LiB₃O₅ crystals for nonlinear optical devices"
+by Ghosh et al., Journal of Applied Physics 78, 6752 (1995)
+https://doi.org/10.1063/1.360499
+This model is then exported to other functions that use it and its
+derivatives to return index, group index and GVD values as a function
+of temperature and wavelength.
+Variable units are lm in [um] and T in [deg C]
+"""
+
+function n²_LiB₃O₅_sym(λ, T; A, B, C, D, E, G, H, λᵢ, T₀)
+    λ² = λ^2
+	R = λ² / ( λ² - λᵢ^2 ) #'normalized dispersive wavelength' for thermo-optic model
+    dn²dT = G * R + H * R^2
+	n² = A + B * λ² / ( λ² - C ) + D * λ² / ( λ² - E ) + dn²dT * ( T - T₀ )
+end
+
+p_n₁²_LiB₃O₅ = (
+    A	=	1.4426279,
+	B	=	1.0109932,
+	C 	=	0.011210197,
+	D 	=	1.2363218,
+	E 	=	91,
+	G 	=	-127.70167e-6,
+	H 	=	122.13435e-6,
+	λᵢ	=	53.0e-3,
+    T₀ 	=	20.0,      # reference temperature in [Deg C]
+)
+
+p_n₂²_LiB₃O₅ = (
+    A	=	1.5014015,
+	B	=	1.0388217,
+	C 	=	0.0121571,
+	D 	=	1.7567133,
+	E 	=	91,
+	G 	=	373.3387e-6,
+	H 	=	-415.10435e-6,
+	λᵢ	=	32.7e-3,
+    T₀ 	=	20.0,      # reference temperature in [Deg C]
+)
+
+p_n₃²_LiB₃O₅ = (
+    A	=	1.448924,
+	B	=	1.1365228,
+	C 	=	0.011676746,
+	D 	=	1.5830069,
+	E 	=	91,
+	G 	=	-446.95031e-6,
+	H 	=	419.33410e-6,
+	λᵢ	=	43.5e-3,
+    T₀ 	=	20.0,      # reference temperature in [Deg C]
+)
+
+# ref Table II from:
+# https://doi.org/10.1063/1.345765
+# https://eksmaoptics.com/nonlinear-and-laser-crystals/nonlinear-crystals/lithium-triborate-lbo-crystals/
+pᵪ₂_LiB₃O₅ = (
+	d₃₁ =   1.05,			  	#   pm/V
+	d₃₂ =   -0.98,			  	#   pm/V
+	d₃₃ =   0.05,				#   pm/V
+	# d₂₄ =   2.52*d₃₆_KDP,	  	#   pm/V
+	# d₁₅	=   -2.30*d₃₆_KDP,	  	#   pm/V
+	λs  =  [1.079, 1.079, 1.079/2.0]
+)
+
+function make_LiB₃O₅(;p_n₁²=p_n₁²_LiB₃O₅, p_n₂²=p_n₂²_LiB₃O₅, p_n₃²=p_n₃²_LiB₃O₅,pᵪ₂=pᵪ₂_LiB₃O₅)
+	@variables λ, T, λs[1:3]
+	n₁² = n²_LiB₃O₅_sym(λ, T; p_n₁²...)
+	n₂² = n²_LiB₃O₅_sym(λ, T; p_n₂²...)
+	n₃² = n²_LiB₃O₅_sym(λ, T; p_n₃²...)
+	ε 	= diagm([n₁², n₂², n₃²])
+	d₃₁, d₃₂, d₃₃, λᵣs = pᵪ₂
+	χ⁽²⁾ᵣ = 2*cat(
+		[ 	0.0	 	0.0 	d₃₁			#	xxx, xxy and xxz
+		 	0.0		0.0 	0.0			#	xyx, xyy and xyz
+			d₃₁	 	0.0		0.0		],	#	xzx, xzy and xzz
+		[ 	0.0		0.0 	0.0			#	yxx, yxy and yxz
+			0.0	 	0.0 	d₃₂			#	yyx, yyy and yyz
+			0.0	 	d₃₂		0.0		],	#	yzx, yzy and yzz
+		[ 	d₃₁	 	0.0 	0.0			#	zxx, zxy and zxz
+			0.0	 	d₃₂ 	0.0			#	zyx, zyy and zyz
+			0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
+		 dims = 3
+	)
+	n₁ = sqrt(n₁²)
+	ng₁ = ng_model(n₁,λ)
+	gvd₁ = gvd_model(n₁,λ)
+	n₂ = sqrt(n₂²)
+	ng₂ = ng_model(n₂,λ)
+	gvd₂ = gvd_model(n₂,λ)
+	n₃ = sqrt(n₃²)
+	ng₃ = ng_model(n₃,λ)
+	gvd₃ = gvd_model(n₃,λ)
+	models = Dict([
+		:n₁		=>	n₁,
+		:ng₁	=>	ng₁,
+		:gvd₁	=>	gvd₁,
+		:n₂		=>	n₂,
+		:ng₂	=>	ng₂,
+		:gvd₂	=>	gvd₂,
+		:n₃		=>	n₃,
+		:ng₃	=>	ng₃,
+		:gvd₃	=>	gvd₃,
+		:ng		=>	diagm([	ng₁,  ng₂,  ng₃,	]),
+		:gvd	=>	diagm([	gvd₁, gvd₂, gvd₃,	]),
+		:ε 		=> 	ε,
+		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε, λᵣs, χ⁽²⁾ᵣ)),
+	])
+	defaults =	Dict([
+		:λ		=>		0.8,		# μm
+		:T		=>		p_n₁².T₀,	# °C
+		:λs₁	=>		1.064,		# μm
+		:λs₂	=>		1.064,		# μm
+		:λs₃	=>		0.532,		# μm
+	])
+	Material(models, defaults, :LiB₃O₅)
+end
+
+################################################################
+
+LiB₃O₅ = make_LiB₃O₅()
+
+# TODO: Adapt python model below to new Julia format
 # ################################################################################
 # ##                         LiB3O5, Lithium Triborate (LBO)                    ##
 # ################################################################################

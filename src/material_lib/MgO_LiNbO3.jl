@@ -1,7 +1,7 @@
 ################################################################################
 #                                 MgO:LiNbO₃                                   #
 ################################################################################
-export ε_MgO_LiNbO₃,nₒ²_MgO_LiNbO₃,nₒ_MgO_LiNbO₃,ngₒ_MgO_LiNbO₃,gvdₒ_MgO_LiNbO₃,nₑ²_MgO_LiNbO₃,nₑ_MgO_LiNbO₃,ngₑ_MgO_LiNbO₃,gvdₑ_MgO_LiNbO₃, ng_MgO_LiNbO₃, MgO_LiNbO₃
+export MgO_LiNbO₃
 
 """
 These functions create a symbolic representation (using ModelingToolkit) of the
@@ -17,7 +17,13 @@ derivatives to return index, group index and GVD values as a function
 of temperature and wavelength.
 Variable units are lm in [um] and T in [deg C]
 """
-pₑ_MgO_LiNbO₃ = (
+function n²_MgO_LiNbO₃_sym(λ, T; a₁, a₂, a₃, a₄, a₅, a₆, b₁, b₂, b₃, b₄, T₀)
+    f = (T - T₀) * (T + T₀ + 2*273.16)  # so-called 'temperature dependent parameter'
+    λ² = λ^2
+    a₁ + b₁*f + (a₂ + b₂*f) / (λ² - (a₃ + b₃*f)^2) + (a₄ + b₄*f) / (λ² - a₅^2) - a₆*λ²
+end
+
+pₑ = (
     a₁ = 5.756,
     a₂ = 0.0983,
     a₃ = 0.202,
@@ -30,7 +36,7 @@ pₑ_MgO_LiNbO₃ = (
     b₄ = 1.516e-4,
     T₀ = 24.5,      # reference temperature in [Deg C]
 )
-pₒ_MgO_LiNbO₃ = (
+pₒ = (
     a₁ = 5.653,
     a₂ = 0.1185,
     a₃ = 0.2091,
@@ -44,130 +50,60 @@ pₒ_MgO_LiNbO₃ = (
     T₀ = 24.5,      # reference temperature in [Deg C]
 )
 
-function n²_MgO_LiNbO₃_sym(λ, T; a₁, a₂, a₃, a₄, a₅, a₆, b₁, b₂, b₃, b₄, T₀)
-    f = (T - T₀) * (T + T₀ + 2*273.16)  # so-called 'temperature dependent parameter'
-    λ² = λ^2
-    a₁ + b₁*f + (a₂ + b₂*f) / (λ² - (a₃ + b₃*f)^2) + (a₄ + b₄*f) / (λ² - a₅^2) - a₆*λ²
-end
+pᵪ₂ = (
+	d₃₃ =   20.3,    #   pm/V
+	d₃₁ =   -4.1,    #   pm/V
+	d₂₂ =   2.1,     #   pm/V
+	λs  =  [1.313, 1.313, 1.313/2.0]
+)
 
-nₑ²_MgO_LiNbO₃_λT_sym = n²_MgO_LiNbO₃_sym(λ, T; pₑ_MgO_LiNbO₃...)
-nₑ_MgO_LiNbO₃_λT_sym = sqrt(nₑ²_MgO_LiNbO₃_λT_sym)
-nₑ²_MgO_LiNbO₃_sym = substitute(nₑ²_MgO_LiNbO₃_λT_sym,[T=>pₑ_MgO_LiNbO₃.T₀])
-nₑ_MgO_LiNbO₃_sym = sqrt(nₑ²_MgO_LiNbO₃_sym)
-_nₑ²_MgO_LiNbO₃_λT = eval(build_function(nₑ²_MgO_LiNbO₃_λT_sym,λ,T)) # inputs (λ,T) in ([μm],[°C])
-_nₑ_MgO_LiNbO₃_λT = eval(build_function(nₑ_MgO_LiNbO₃_λT_sym,λ,T)) # inputs (λ,T) in ([μm],[°C])
-_ngₑ_MgO_LiNbO₃_λT = eval(build_function(ng(nₑ_MgO_LiNbO₃_λT_sym),λ,T)) # inputs (λ,T) in ([μm],[°C])
-_gvdₑ_MgO_LiNbO₃_λT = eval(build_function(gvd(nₑ_MgO_LiNbO₃_λT_sym),λ,T)) # inputs (λ,T) in ([μm],[°C])
-_nₑ²_MgO_LiNbO₃ = eval(build_function(nₑ²_MgO_LiNbO₃_sym,λ)) # inputs (λ,T) in ([μm],[°C])
-_nₑ_MgO_LiNbO₃ = eval(build_function(nₑ_MgO_LiNbO₃_sym,λ)) # inputs (λ,T) in ([μm],[°C])
-_ngₑ_MgO_LiNbO₃ = eval(build_function(ng(nₑ_MgO_LiNbO₃_sym),λ)) # inputs (λ,T) in ([μm],[°C])
-_gvdₑ_MgO_LiNbO₃ = eval(build_function(gvd(nₑ_MgO_LiNbO₃_sym),λ)) # inputs (λ,T) in ([μm],[°C])
+function make_MgO_LiNbO₃(;pₒ=pₒ,pₑ=pₑ,pᵪ₂=pᵪ₂)
+	@variables λ, T, λs[1:3]
+	nₒ² = n²_MgO_LiNbO₃_sym(λ, T; pₒ...)
+	nₑ² = n²_MgO_LiNbO₃_sym(λ, T; pₑ...)
+	ε 	= diagm([nₒ², nₒ², nₑ²])
+	d₃₃, d₃₁, d₂₂, λᵣs = pᵪ₂
+	χ⁽²⁾ᵣ = cat(
+		[ 	0.0	 	-d₂₂ 	d₃₁			#	xxx, xxy and xxz
+		 	-d₂₂	0.0 	0.0			#	xyx, xyy and xyz
+			d₃₁	 	0.0		0.0		],	#	xzx, xzy and xzz
+		[ 	-d₂₂	0.0 	0.0			#	yxx, yxy and yxz
+			0.0	 	d₂₂ 	d₃₁			#	yyx, yyy and yyz
+			0.0	 	d₃₁		0.0		],	#	yzx, yzy and yzz
+		[ 	d₃₁	 	0.0 	0.0			#	zxx, zxy and zxz
+			0.0	 	d₃₁ 	0.0			#	zyx, zyy and zyz
+			0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
+		 dims = 3
+	)
+	nₒ = sqrt(nₒ²)
+	ngₒ = ng_model(nₒ,λ)
+	gvdₒ = gvd_model(nₒ,λ)
+	nₑ = sqrt(nₑ²)
+	ngₑ = ng_model(nₑ,λ)
+	gvdₑ = gvd_model(nₑ,λ)
+	models = Dict([
+		:nₒ		=>	nₒ,
+		:ngₒ	=>	ngₒ,
+		:gvdₒ	=>	gvdₒ,
+		:nₑ		=>	nₑ,
+		:ngₑ	=>	ngₑ,
+		:gvdₑ	=>	gvdₑ,
+		:ng		=>	diagm([ngₒ, ngₒ, ngₑ]),
+		:gvd	=>	diagm([gvdₒ, gvdₒ, gvdₑ]),
+		:ε 		=> 	ε,
+		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε, λᵣs, χ⁽²⁾ᵣ)),
+	])
+	defaults =	Dict([
+		:λ		=>		0.8,	# μm
+		:T		=>		24.5,	# °C
+		:λs₁	=>		1.064,	# μm
+		:λs₂	=>		1.064,	# μm
+		:λs₃	=>		0.532,	# μm
 
-nₒ²_MgO_LiNbO₃_λT_sym = n²_MgO_LiNbO₃_sym(λ, T; pₒ_MgO_LiNbO₃...)
-nₒ_MgO_LiNbO₃_λT_sym = sqrt(nₒ²_MgO_LiNbO₃_λT_sym)
-nₒ²_MgO_LiNbO₃_sym = substitute(nₒ²_MgO_LiNbO₃_λT_sym,[T=>pₒ_MgO_LiNbO₃.T₀])
-nₒ_MgO_LiNbO₃_sym = sqrt(nₒ²_MgO_LiNbO₃_sym)
-_nₒ²_MgO_LiNbO₃_λT = eval(build_function(nₒ²_MgO_LiNbO₃_λT_sym,λ,T)) # inputs (λ,T) in ([μm],[°C])
-_nₒ_MgO_LiNbO₃_λT = eval(build_function(nₒ_MgO_LiNbO₃_λT_sym,λ,T)) # inputs (λ,T) in ([μm],[°C])
-_ngₒ_MgO_LiNbO₃_λT = eval(build_function(ng(nₒ_MgO_LiNbO₃_λT_sym),λ,T)) # inputs (λ,T) in ([μm],[°C])
-_gvdₒ_MgO_LiNbO₃_λT = eval(build_function(gvd(nₒ_MgO_LiNbO₃_λT_sym),λ,T)) # inputs (λ,T) in ([μm],[°C])
-_nₒ²_MgO_LiNbO₃ = eval(build_function(nₒ²_MgO_LiNbO₃_sym,λ)) # inputs (λ,T) in ([μm],[°C])
-_nₒ_MgO_LiNbO₃ = eval(build_function(nₒ_MgO_LiNbO₃_sym,λ)) # inputs (λ,T) in ([μm],[°C])
-_ngₒ_MgO_LiNbO₃ = eval(build_function(ng(nₒ_MgO_LiNbO₃_sym),λ)) # inputs (λ,T) in ([μm],[°C])
-_gvdₒ_MgO_LiNbO₃ = eval(build_function(gvd(nₒ_MgO_LiNbO₃_sym),λ)) # inputs (λ,T) in ([μm],[°C])
-
-ε_MgO_LiNbO₃_λT_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_λT_sym, nₒ²_MgO_LiNbO₃_λT_sym, nₒ²_MgO_LiNbO₃_λT_sym ] )
-#TODO uncomment after trying out fake isotropic LN model
-# ε_MgO_LiNbO₃_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym, nₒ²_MgO_LiNbO₃_sym ] )
-# # # ε_MgO_LiNbO₃_sym = [ nₑ²_MgO_LiNbO₃_sym            0                0
-# # #                         0               nₒ²_MgO_LiNbO₃_sym          0
-# # #                         0                          0         nₒ²_MgO_LiNbO₃_sym ]
-# _ε_MgO_LiNbO₃_λT, _ε_MgO_LiNbO₃_λT! = eval.(build_function(ε_MgO_LiNbO₃_sym,λ,T))
-# _ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiNbO₃_sym,[T=>pₒ_MgO_LiNbO₃.T₀]),λ))
-# function ε_MgO_LiNbO₃(λ::T) where T<:Real
-#     nₑ² = _nₑ²_MgO_LiNbO₃(λ)
-#     nₒ² = _nₒ²_MgO_LiNbO₃(λ)
-#     # Diagonal( [ nₑ², nₒ², nₒ² ] )
-#     SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
-#                       0.,     nₒ²,    0.,
-#                       0.,     0.,     nₒ², )
-# end
-#
-# function ng_MgO_LiNbO₃(λ::T) where T<:Real
-#     ngₑ = _ngₑ_MgO_LiNbO₃(λ)
-#     ngₒ = _ngₒ_MgO_LiNbO₃(λ)
-#     # Diagonal( [ nₑ², nₒ², nₒ² ] )
-#     SMatrix{3,3,T,9}( ngₑ,    0.,     0.,
-#                       0.,     ngₒ,    0.,
-#                       0.,     0.,     ngₒ, )
-# end
-
-nₑ²_MgO_LiNbO₃(λ) = _nₑ²_MgO_LiNbO₃(λ)
-nₑ_MgO_LiNbO₃(λ) = _nₑ_MgO_LiNbO₃(λ)
-ngₑ_MgO_LiNbO₃(λ) = _ngₑ_MgO_LiNbO₃(λ)
-nₑ²_MgO_LiNbO₃(λ,T) = _nₑ²_MgO_LiNbO₃_λT(λ,T)
-nₑ_MgO_LiNbO₃(λ,T) = _nₑ_MgO_LiNbO₃_λT(λ,T)
-ngₑ_MgO_LiNbO₃(λ,T) = _ngₑ_MgO_LiNbO₃_λT(λ,T)
-nₑ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = _nₑ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)
-nₑ_MgO_LiNbO₃(λ::Unitful.Length) = _nₑ_MgO_LiNbO₃((λ|>u"μm").val)
-nₑ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) = _nₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)
-nₑ_MgO_LiNbO₃(f::Unitful.Frequency) = _nₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)
-ngₑ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = _ngₑ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)
-ngₑ_MgO_LiNbO₃(λ::Unitful.Length) = _ngₑ_MgO_LiNbO₃((λ|>u"μm").val)
-ngₑ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) = _ngₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)
-ngₑ_MgO_LiNbO₃(f::Unitful.Frequency) = _ngₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)
-gvdₑ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = ( _gvdₑ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₑ_MgO_LiNbO₃(λ::Unitful.Length) = ( _gvdₑ_MgO_LiNbO₃((λ|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₑ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvdₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₑ_MgO_LiNbO₃(f::Unitful.Frequency) = ( _gvdₑ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-
-nₒ²_MgO_LiNbO₃(λ) = _nₒ²_MgO_LiNbO₃(λ)
-nₒ_MgO_LiNbO₃(λ) = _nₒ_MgO_LiNbO₃(λ)
-ngₒ_MgO_LiNbO₃(λ) = _ngₒ_MgO_LiNbO₃(λ)
-nₒ²_MgO_LiNbO₃(λ,T) = _nₒ²_MgO_LiNbO₃_λT(λ,T)
-nₒ_MgO_LiNbO₃(λ,T) = _nₒ_MgO_LiNbO₃_λT(λ,T)
-ngₒ_MgO_LiNbO₃(λ,T) = _ngₒ_MgO_LiNbO₃_λT(λ,T)
-nₒ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = _nₒ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)
-nₒ_MgO_LiNbO₃(λ::Unitful.Length) = _nₒ_MgO_LiNbO₃((λ|>u"μm").val)
-nₒ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) = _nₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)
-nₒ_MgO_LiNbO₃(f::Unitful.Frequency) = _nₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)
-ngₒ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = _ngₒ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)
-ngₒ_MgO_LiNbO₃(λ::Unitful.Length) = _ngₒ_MgO_LiNbO₃((λ|>u"μm").val)
-ngₒ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) = _ngₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)
-ngₒ_MgO_LiNbO₃(f::Unitful.Frequency) = _ngₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)
-gvdₒ_MgO_LiNbO₃(λ::Unitful.Length,T::Unitful.Temperature) = ( _gvdₒ_MgO_LiNbO₃((λ|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₒ_MgO_LiNbO₃(λ::Unitful.Length) = ( _gvdₒ_MgO_LiNbO₃((λ|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency,T::Unitful.Temperature) =( _gvdₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val,(T|>u"°C").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-gvdₒ_MgO_LiNbO₃(f::Unitful.Frequency) = ( _gvdₒ_MgO_LiNbO₃(((Unitful.c0/f)|>u"μm").val)u"μm" / ( 2π * c^2) ) |> u"fs^2 / mm"
-
-
-#### replace models with fake isotropic version for debugging:
-ε_MgO_LiNbO₃_sym = Diagonal( [ nₑ²_MgO_LiNbO₃_sym, nₑ²_MgO_LiNbO₃_sym, nₑ²_MgO_LiNbO₃_sym ] )
-# ε_MgO_LiNbO₃_sym = [ nₑ²_MgO_LiNbO₃_sym            0                0
-#                         0               nₒ²_MgO_LiNbO₃_sym          0
-#                         0                          0         nₒ²_MgO_LiNbO₃_sym ]
-_ε_MgO_LiNbO₃_λT, _ε_MgO_LiNbO₃_λT! = eval.(build_function(ε_MgO_LiNbO₃_sym,λ,T))
-_ε_MgO_LiNbO₃,_ε_MgO_LiNbO₃! = eval.(build_function(substitute.(ε_MgO_LiNbO₃_sym,[T=>pₒ_MgO_LiNbO₃.T₀]),λ))
-function ε_MgO_LiNbO₃(λ::T) where T<:Real
-    nₑ² = _nₑ²_MgO_LiNbO₃(λ)
-    # nₒ² = _nₒ²_MgO_LiNbO₃(λ)
-    # Diagonal( [ nₑ², nₒ², nₒ² ] )
-    SMatrix{3,3,T,9}( nₑ²,    0.,     0.,
-                      0.,     nₑ²,    0.,
-                      0.,     0.,     nₑ², )
-end
-
-function ng_MgO_LiNbO₃(λ::T) where T<:Real
-    ngₑ = _ngₑ_MgO_LiNbO₃(λ)
-    # ngₒ = _ngₒ_MgO_LiNbO₃(λ)
-    # Diagonal( [ nₑ², nₒ², nₒ² ] )
-    SMatrix{3,3,T,9}( ngₑ,    0.,     0.,
-                      0.,     ngₑ,    0.,
-                      0.,     0.,     ngₑ, )
+	])
+	Material(models, defaults, :MgO_LiNbO₃)
 end
 
 ################################################################
 
-# MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym,ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
-MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃,ng_MgO_LiNbO₃)
-# MgO_LiNbO₃ = Material(ε_MgO_LiNbO₃_sym)
+MgO_LiNbO₃ = make_MgO_LiNbO₃()

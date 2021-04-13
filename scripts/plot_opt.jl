@@ -233,70 +233,22 @@ end
 Δx = 6.0
 Δy = 4.0
 rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
-##
-fig_opts = Figure(resolution = (1200, 700))
-axes_fsgs = fig_opts[1:2,1] = [Axis(fig_opts) for t in ["cost fn vals","grad norms"]]
 
-ifgs = [ ifg_fmb11, ifg_fmb21, ifg_fmb31, ifg_fmb41, vcat(ifg_fmb51, [x.+[3.,0.,0.] for x in ifg_fmb52]) ]
-ifg_colors = [ :red, :blue, :green, :purple, :black, :cyan ]
-ifg_nfmbs = [ 1, 1, 1, 1, 1, 1 ]
+using Colors, ColorSchemes, ColorSchemeTools
+using PyCall
+cplot = pyimport("cplot")
+# noto_sans = "../assets/NotoSans-Regular.ttf"
+# noto_sans_bold = "../assets/NotoSans-Bold.ttf"
 
-[ plot_ifg!(axes_fsgs,ifgs[i],n_fmb=ifg_nfmbs[i],color=ifg_colors[i]) for i = 1:length(ifgs)]
-# plot_ifg!(axes_fsgs,ifg_fmb51)
-# plot_ifg!(axes_fsgs,ifg_fmb52,n_fmb=2)
+"""
+Takes an array of complex number and converts it to an array of [r, g, b],
+where phase gives hue and saturaton/value are given by the absolute value.
+Especially for use with imshow for complex plots.
+"""
+function complex_to_rgb(X; alpha=1.0, colorspace="cam16")
+    return [RGB(x...) for x in cplot.get_srgb1.(X;alpha,colorspace)]
+end
 
-# label, format
-hidexdecorations!(axes_fsgs[1])
-axes_fsgs[1].ylabel = "log₁₀ rel. cost fn\nf/f₀ (f = Σ (Δng)²)"
-axes_fsgs[2].xlabel = "iterations"
-axes_fsgs[2].ylabel = "log₁₀ rel. cost fn \ngradient mag |g⃗|/|g⃗₀|"
-
-fig_opts
-
-##
-
-##
-# parameters used by Fejer/Loncar groups (Jankowski) to get broadband phase-matching in
-# x-cut partially etched, unclad MgO:LiNbO₃-on-SiO₂ ridge waveguides:
-# Jankowski et al, "Ultrabroadband second harmonic generation at telecom wavelengths in lithium niobate waveguides"
-# Integrated Photonics Research, Silicon and Nanophotonics (pp. ITu4A-13). OSA 2020
-p_jank = [
-    1.85,        # 700 nm top width of angle sidewall ridge
-    0.7,        # 600 nm MgO:LiNbO₃ ridge thickness
-    3.4 / 7.0,    # etch fraction (they say etch depth of 500 nm, full thickness 600 nm)
-    0.5236,      # 30° sidewall angle in radians (they call it 60° , in our params 0° is vertical)
-]
-
-# λs_jank = collect(reverse(1.9:0.02:2.4))
-# ωs_jank = 1 ./ λs_jank
-
-ωs_jank =  collect(0.416:0.01:0.527)
-λs_jank = 1 ./ ωs_jank
-
-Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
-# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
-# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 512, 512, 1;
-
-# ms_jank = ModeSolver(kguess(1/1.55,rwg_pe(p_jank)), rwg_pe(p_jank), gr; nev=1)
-
-# nF_jank,ngF_jank = solve_n(ms_jank,ωs_jank,rwg_pe(p_jank))
-EF_jank = copy(E⃗(ms_jank;svecs=false)[eigind])
-iEmagmaxF_jank = argmax(abs2.(EF_jank))
-EmagmaxF_jank = EF_jank[iEmagmaxF_jank]
-ErelF_jank = EF_jank ./ EmagmaxF_jank
-ErelF_jank = ErelF_jank ./ maximum(abs.(ErelF_jank))
-
-# nS_jank,ngS_jank = solve_n(ms_jank,2*ωs_jank,rwg_pe(p_jank))
-ES_jank = copy(E⃗(ms_jank;svecs=false)[eigind])
-iEmagmaxS_jank = argmax(abs2.(ES_jank))
-EmagmaxS_jank = ES_jank[iEmagmaxS_jank]
-ErelS_jank = ES_jank ./ EmagmaxS_jank
-
-Λ0_jank = 5.1201 #5.1201
-L_jank = 3e3 # 1cm in μm
-# _,ng_jankF_old = solve_n(ms,ωs_jank,rwg_pe(p_jank);ng_nodisp=true)
-# _,ng_jankS_old = solve_n(ms,2*ωs_jank,rwg_pe(p_jank);ng_nodisp=true)
-##
 function plt_rwg_phasematch(λs,nF,nS,ngF,ngS,Λ0,L,EF,ES,ms;ng_nodisp=false,n_dense=3000)
     fig = Figure()
     ax_n = fig[1,1] = Axis(fig)
@@ -380,8 +332,111 @@ end
 
 
 
+##
+fig_opts = Figure(resolution = (1200, 700))
+axes_fsgs = fig_opts[1:2,1] = [Axis(fig_opts) for t in ["cost fn vals","grad norms"]]
+
+ifgs = [ ifg_fmb11, ifg_fmb21, ifg_fmb31, ifg_fmb41, vcat(ifg_fmb51, [x.+[3.,0.,0.] for x in ifg_fmb52]) ]
+ifg_colors = [ :red, :blue, :green, :purple, :black, :cyan ]
+ifg_nfmbs = [ 1, 1, 1, 1, 1, 1 ]
+
+[ plot_ifg!(axes_fsgs,ifgs[i],n_fmb=ifg_nfmbs[i],color=ifg_colors[i]) for i = 1:length(ifgs)]
+# plot_ifg!(axes_fsgs,ifg_fmb51)
+# plot_ifg!(axes_fsgs,ifg_fmb52,n_fmb=2)
+
+# label, format
+hidexdecorations!(axes_fsgs[1])
+axes_fsgs[1].ylabel = "log₁₀ rel. cost fn\nf/f₀ (f = Σ (Δng)²)"
+axes_fsgs[2].xlabel = "iterations"
+axes_fsgs[2].ylabel = "log₁₀ rel. cost fn \ngradient mag |g⃗|/|g⃗₀|"
+
+fig_opts
+##
+# parameters used by Fejer/Loncar groups (Jankowski) to get broadband phase-matching in
+# x-cut partially etched, unclad MgO:LiNbO₃-on-SiO₂ ridge waveguides:
+# Jankowski et al, "Ultrabroadband second harmonic generation at telecom wavelengths in lithium niobate waveguides"
+# Integrated Photonics Research, Silicon and Nanophotonics (pp. ITu4A-13). OSA 2020
+p_jank = [
+    1.85,        # 700 nm top width of angle sidewall ridge
+    0.7,        # 600 nm MgO:LiNbO₃ ridge thickness
+    3.4 / 7.0,    # etch fraction (they say etch depth of 500 nm, full thickness 600 nm)
+    0.5236,      # 30° sidewall angle in radians (they call it 60° , in our params 0° is vertical)
+]
+
+# λs_jank = collect(reverse(1.9:0.02:2.4))
+# ωs_jank = 1 ./ λs_jank
+
+ωs_jank = collect(range(0.416,0.527,step=0.01)) # collect(0.416:0.01:0.527)
+λs_jank = 1 ./ ωs_jank
+
+Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+grid = Grid(Δx,Δy,Nx,Ny)
+# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 256, 256, 1;
+# Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 512, 512, 1;
+
+ms_jank = ModeSolver(kguess(1/1.55,rwg_pe(p_jank)), rwg_pe(p_jank), grid; nev=1)
+
+nF_jank,ngF_jank = solve_n(ms_jank,ωs_jank,rwg_pe(p_jank))
+EF_jank = copy(E⃗(ms_jank;svecs=false)[eigind])
+iEmagmaxF_jank = argmax(abs2.(EF_jank))
+EmagmaxF_jank = EF_jank[iEmagmaxF_jank]
+ErelF_jank = EF_jank ./ EmagmaxF_jank
+ErelF_jank = ErelF_jank ./ maximum(abs.(ErelF_jank))
+
+nS_jank,ngS_jank = solve_n(ms_jank,2*ωs_jank,rwg_pe(p_jank))
+ES_jank = copy(E⃗(ms_jank;svecs=false)[eigind])
+iEmagmaxS_jank = argmax(abs2.(ES_jank))
+EmagmaxS_jank = ES_jank[iEmagmaxS_jank]
+ErelS_jank = ES_jank ./ EmagmaxS_jank
+
+Λ0_jank = 5.1201 #5.1201
+L_jank = 3e3 # 1cm in μm
+# _,ng_jankF_old = solve_n(ms,ωs_jank,rwg_pe(p_jank);ng_nodisp=true)
+# _,ng_jankS_old = solve_n(ms,2*ωs_jank,rwg_pe(p_jank);ng_nodisp=true)
+##
+kF_jank,HF_jank = solve_k(ms_jank,ωs_jank,rwg_pe(p_jank))
+kS_jank,HS_jank = solve_k(ms_jank,2*ωs_jank,rwg_pe(p_jank))
+
+# kF_jank,HF_jank = solve_k(ωs_jank,rwg_pe(p_jank),grid)
+# kS_jank,HS_jank = solve_k(2*ωs_jank,rwg_pe(p_jank),grid)
+##
+svecs = false
+normalized = true
+EF_jank = [E⃗(kF_jank[ind],HF_jank[ind,:,1],ωs_jank[ind],rwg_pe(p_jank),grid; svecs, normalized) for ind=1:length(ωs_jank)]
+ES_jank = [E⃗(kS_jank[ind],HS_jank[ind,:,1],2*ωs_jank[ind],rwg_pe(p_jank),grid; svecs, normalized) for ind=1:length(ωs_jank)]
+function Eperp_max(E)
+    Eperp = E[1:2,:,:]
+    imagmax = argmax(abs2.(Eperp))
+    return abs(Eperp[imagmax])
+end
+𝓐(n,ng,E) = inv( n * ng * Eperp_max(E)^2)
+AF_jank = 𝓐.(nF_jank, ngF_jank, EF_jank) # inv.(nF_jank .* ngF_jank)
+AS_jank = 𝓐.(nS_jank, ngS_jank, ES_jank) # inv.(nS_jank .* ngS_jank)
+ÊF_jank = EF_jank .* sqrt.(AF_jank .* nF_jank .* ngF_jank)
+ÊS_jank = ES_jank .* sqrt.(AS_jank .* nS_jank .* ngS_jank)
+𝓐₁₂₃_jank = ( AS_jank .* AF_jank.^2  ).^(1.0/3.0)
+# 𝓞_jank = [sum( ( conj.(ES_jank[ind]) .* EF_jank[ind].^2 )  ./ 𝓐₁₂₃_jank[ind]  .* δ(grid)) for ind=1:length(ωs_jank)] #
+𝓞_jank = [real(sum( conj.(ÊS_jank[ind]) .* ÊF_jank[ind].^2 )) / 𝓐₁₂₃_jank[ind] * δ(grid) for ind=1:length(ωs_jank)] #
+maximum(abs2.(ES_jank[1]),dims=(2,3))
+
+
+d₃₃ =   25.0    #   pm/V
+d₃₁ =   4.4     #   pm/V
+d₂₂ =   1.9     #   pm/V
+
+#          xx      yy       zz      zy      zx      xy
+deff = [    0.      0.      0.      0.      d₃₁     -d₂₂     #   x
+            -d₂₂    d₂₂     0.      d₃₁     0.      0.       #   y
+            d₃₁     d₃₁     d₃₃     0.      0.      0.   ]   #   z
+
+
+GLMakie.heatmap(abs2.(ES_jank[1][1,:,:]))
+image!(complex_to_rgb(EF_jank[1][1,:,:]))
+
 fig_jank = plt_rwg_phasematch(λs_jank,nF_jank,nS_jank,ngF_jank,ngS_jank,Λ0_jank,L_jank,ErelF_jank,ErelS_jank,ms_jank)
 fig_jank
+
+
 # save("rwg_qpm_jank.png", fig_jank)
 ## swedish 1550->780 result
 # parameters used by Swedish group (Gallo) to get broadband phase-matching in

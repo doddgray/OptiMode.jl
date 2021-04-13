@@ -1,22 +1,24 @@
 export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, kguess, fngs, ngs
-export εₘₐₓ, nₘₐₓ #TODO: generalize these methods for materials and ε data
+export εₘₐₓ, nₘₐₓ, materials #TODO: generalize these methods for materials and ε data
 
 struct Geometry{N}
 	shapes::Vector{Shape{N}}
 end
 
 # Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
-materials(geom::Geometry) = materials(geom.shapes)#geom.materials
-εs(geom::Geometry) = getfield.(materials(geom),:ε)
-fεs(geom::Geometry) = getfield.(materials(geom),:fε)
-εs(geom::Geometry,lm::Real) = map(f->f(lm),fεs(geom))
+# materials(geom::Geometry) = materials(geom.shapes)#geom.materials
+# εs(geom::Geometry) = getfield.(materials(geom),:ε)
+# fεs(geom::Geometry) = getfield.(materials(geom),:fε)
+# εs(geom::Geometry,lm::Real) = map(f->f(lm),fεs(geom))
 # fεs(geom::Geometry) = build_function(εs(geom),λ;expression=Val{false})[1]
 # fεs!(geom::Geometry) = build_function(εs(geom),λ;expression=Val{false})[2]
 
 
-materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = materials(geom.shapes)#geom.materials
-εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
-fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fε)
+materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Material.(getfield.(shapes,:data)))) # # unique!(getfield.(shapes,:data))
+# εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
+fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = ε_fn.(materials(shapes)) #getfield.(materials(shapes),:fε)
+εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fεs(shapes))
+
 fngs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:fng)
 ngs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fngs(shapes))
 
@@ -34,7 +36,7 @@ ngs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),
 ################################################################################
 """
 
-εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->f(lm),fεs(shapes))
+
 
 function εₘₐₓ(ω::T,geom::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
     maximum(reinterpret(T,diag.(εs(geom,inv(ω)))))

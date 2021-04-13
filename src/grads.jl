@@ -1075,24 +1075,39 @@ function ∇HMₖH(k,H⃗::AbstractArray{Complex{T}},nng⁻¹,grid;eigind=1) whe
 						n⃗,
 					)
 	# H̄ = Mₖᵀ_plus_Mₖ(H⃗[:,eigind],k,nng⁻¹,grid)
-	# X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), real(flat(ε⁻¹))), (2:3) ), mns, mag )
-	# Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), real(flat(ε⁻¹))), (2:3)), mns )
+	# # X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), real(flat(ε⁻¹))), (2:3) ), mns, mag )
+	# # Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), real(flat(ε⁻¹))), (2:3)), mns )
 	nngif = real(flat(nng⁻¹))
 	X = -kx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_tc(H,mns)		, nngif), mns, mag )
 	Y =  zx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_tc(H,mns,mag)	, nngif), mns )
-	H̄ = vec(X + Y)
+	H̄ = vec(X + Y) * Ninv
 	return k̄, H̄, nngī
 	# return k̄, H̄, reinterpret(SMatrix{3,3,Float64,9},reshape( nngī ,9*128,128))
 end
+
+# nng = inv.(nnginv)
+# ε = inv.(ε⁻¹)
+# ∂ε∂ω_man = (2/ω) * (nng .- ε)
+# ∂ei∂ω_man = copy(flat(-(ε⁻¹.^2) .* ∂ε∂ω_man ))
+# ∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω) = -(2.0/ω) * ε⁻¹.^2 .* (  inv.(nng⁻¹) .- inv.(ε⁻¹) ) #(2.0/ω) * ε⁻¹ .* (  ε⁻¹ .* inv.(nng⁻¹) - I )
+∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω) = -(2.0/ω) * (  ε⁻¹.^2 .* inv.(nng⁻¹) .- ε⁻¹ )
+# function ∂nng∂ω_man_LN(om)
+# 	 ng = ng_MgO_LiNbO₃(inv(om))[1,1]
+# 	 n = sqrt(ε_MgO_LiNbO₃(inv(om))[1,1])
+# 	 gvd = gvd_MgO_LiNbO₃(inv(om))[1,1]  #/ (2π)
+# 	 # om = 1/om
+# 	 om*(ng^2 - n*ng) + n * gvd
+# end
+∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω) = -(nng⁻¹.^2 ) .* ( ω*(ε⁻¹.*inv.(nng⁻¹).^2 .- inv.(nng⁻¹)) .+ ngvd) # (1.0/ω) * (nng⁻¹ .- ε⁻¹ ) .- (  ngvd .* (nng⁻¹).^2  )
 
 """
 solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
 """
 # function ∂²ω²∂k²(ω,ε⁻¹,nng⁻¹,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
 function ∂²ω²∂k²(ω,geom,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
-	ω² = ω^2
 	# nng⁻¹, nnginv_pb = Zygote.pullback(nngₛ⁻¹,ω,geom,grid)
 	# ε⁻¹, epsi_pb = Zygote.pullback(εₛ⁻¹,ω,geom,grid)
+	ngvd = ngvdₛ(ω,geom,grid)
 	nng⁻¹, nnginv_pb = Zygote.pullback(x->nngₛ⁻¹(x,geom,grid),ω)
 	ε⁻¹, epsi_pb = Zygote.pullback(x->εₛ⁻¹(x,geom,grid),ω)
 	# nng⁻¹, nnginv_pb = Zygote._pullback(Zygote.Context(),x->nngₛ⁻¹(x,dropgrad(geom),dropgrad(grid)),ω)
@@ -1108,17 +1123,30 @@ function ∂²ω²∂k²(ω,geom,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) wher
 									    ε⁻¹,
 										grid; eigind)
 	nngī2 = copy(reinterpret(SMatrix{3,3,T,9},copy(reshape( nngī , 9*Ns[1], Ns[2:end]...))))
-	nngī_herm = (nngī2 .+ adjoint.(nngī2) ) / 2
-	eī_herm = (eī₁ .+ adjoint.(eī₁) ) / 2
-	# om̄₂,geombar_Mₖ,grīd_Mₖ = nnginv_pb(nngī_herm) #nngī2)
-	# om̄₃,geombar_H,grīd_H = epsi_pb(eī_herm) #eī₁)
+	nngī_herm = (real.(nngī2) .+ transpose.(real.(nngī2)) ) ./ 2
+	eī_herm = (real.(eī₁) .+ transpose.(real.(eī₁)) ) ./ 2
 	om̄₂ = nnginv_pb(nngī_herm)[1] #nngī2)
 	om̄₃ = epsi_pb(eī_herm)[1] #eī₁)
-	# println("om̄₁: $(om̄₁)")
-	# println("om̄₂: $(om̄₂)")
-	# println("om̄₃: $(om̄₃)")
+	println("")
+	println("om̄₁: $(om̄₁)")
+	println("om̄₂: $(om̄₂)")
+	println("om̄₃: $(om̄₃)")
+
+	# om̄₂2 = sum(flat(nngī_herm	.* 	∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω)))
+	# om̄₃2 = sum(flat(eī_herm	.* 	∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω)))
+	om̄₂2 = dot(vec(flat(nngī_herm)), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
+	om̄₃2 = dot(vec(flat(eī_herm)), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
+	println("om̄₂2: $(om̄₂2)")
+	println("om̄₃2: $(om̄₃2)")
+	println("om̄₁ + om̄₂2 + om̄₃2: $(om̄₁ + om̄₂2 + om̄₃2)")
+
+	# om̄₂4 = dot(inv.(vec(flat(nngī_herm))), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
+	# om̄₃4 = dot(inv.(vec(flat(eī_herm))), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
+	# println("om̄₂4: $(om̄₂4)")
+	# println("om̄₃4: $(om̄₃4)")
+
 	om̄ = om̄₁ + om̄₂ + om̄₃
-	# println("om̄: $(om̄)")
+	println("om̄: $(om̄)")
 	return om̄
 end
 

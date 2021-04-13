@@ -9,13 +9,33 @@
 module OptiMode
 
 ## Imports ##
-using LinearAlgebra, LinearMaps, ArrayInterface, StaticArrays, HybridArrays, StructArrays, FFTW, AbstractFFTs, GeometryPrimitives, Roots, ChainRules, Zygote, ForwardDiff, LoopVectorization, Tullio, IterativeSolvers
-using ModelingToolkit, Unitful #, Latexify
+using LinearAlgebra
+using LinearMaps
+using ArrayInterface
+using StaticArrays
+using HybridArrays
+using StructArrays
+using FFTW
+using AbstractFFTs
+using GeometryPrimitives
+using Roots
+using ChainRules
+using Zygote
+using ForwardDiff
+using LoopVectorization
+using Tullio
+using IterativeSolvers
+using Rotations
+using RuntimeGeneratedFunctions
+# using ModelingToolkit, Unitful #, Latexify
+using Symbolics
+using SymbolicUtils
 using UnicodePlots, AbstractPlotting
 using StaticArrays: Dynamic, SVector
 using Zygote: Buffer, bufferfrom, @ignore, dropgrad, forwarddiff
 using AbstractPlotting.GeometryBasics
 
+RuntimeGeneratedFunctions.init(@__MODULE__)
 # using Plots: plot, heatmap, plot!, heatmap!
 # using MaxwellFDM: kottke_avg_param
 ## Exports ##
