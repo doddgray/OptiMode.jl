@@ -206,7 +206,7 @@ x_fmb52 =         [[1.4546456244430521, 0.6662419432874312, 0.8756311701451857, 
 
 ##
 using GLMakie, AbstractPlotting, Interpolations, FFTW
-using GLMakie: lines, lines!, heatmap, heatmap!
+using GLMakie: lines, lines!, heatmap, heatmap!, image, image!
 using AbstractPlotting.GeometryBasics
 import Colors: JULIA_LOGO_COLORS
 logocolors = JULIA_LOGO_COLORS
@@ -216,6 +216,21 @@ AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.
 plottype(::GeometryPrimitives.Box) = Poly
 AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
 plottype(::Geometry) = Poly
+
+using Colors, ColorSchemes, ColorSchemeTools
+using PyCall
+cplot = pyimport("cplot")
+# noto_sans = "../assets/NotoSans-Regular.ttf"
+# noto_sans_bold = "../assets/NotoSans-Bold.ttf"
+
+"""
+Takes an array of complex number and converts it to an array of [r, g, b],
+where phase gives hue and saturaton/value are given by the absolute value.
+Especially for use with imshow for complex plots.
+"""
+function complex_to_rgb(X; alpha=1.0, colorspace="cam16")
+    return [RGB(x...) for x in cplot.get_srgb1.(X;alpha,colorspace)]
+end
 
 ##
 function plot_ifg!(ax,ifg;n_fmb=1,color=:blue)
@@ -234,20 +249,7 @@ end
 Δy = 4.0
 rwg_pe(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,MgO_LiNbO₃,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 
-using Colors, ColorSchemes, ColorSchemeTools
-using PyCall
-cplot = pyimport("cplot")
-# noto_sans = "../assets/NotoSans-Regular.ttf"
-# noto_sans_bold = "../assets/NotoSans-Bold.ttf"
 
-"""
-Takes an array of complex number and converts it to an array of [r, g, b],
-where phase gives hue and saturaton/value are given by the absolute value.
-Especially for use with imshow for complex plots.
-"""
-function complex_to_rgb(X; alpha=1.0, colorspace="cam16")
-    return [RGB(x...) for x in cplot.get_srgb1.(X;alpha,colorspace)]
-end
 
 function plt_rwg_phasematch(λs,nF,nS,ngF,ngS,Λ0,L,EF,ES,ms;ng_nodisp=false,n_dense=3000)
     fig = Figure()

@@ -1198,3 +1198,273 @@ Matrix(RotY(θ))
 
 
 SMatrix{3,3}(R1)
+
+##
+#
+# # χ⁽²⁾ Nonlinear dielectric susceptibility tensor debug
+#
+# d₃₃ =   25.0    #   pm/V
+# d₃₁ =   -4.1    #   pm/V
+# d₂₂ =   2.1     #   pm/V
+#
+# #          xx      yy       zz      zy      zx      xy
+# deff = [    0.      0.      0.      0.      d₃₁     -d₂₂     #   x
+#             -d₂₂    d₂₂     0.      d₃₁     0.      0.       #   y
+#             d₃₁     d₃₁     d₃₃     0.      0.      0.   ]   #   z
+#
+# # χ⁽²⁾ LiNbO₃ (3m) with extraordinary axis along ẑ (3)
+# χ⁽²⁾₃ = cat(
+# 	[ 	0.0	 	-d₂₂ 	d₃₁			#	xxx, xxy and xxz
+# 	 	-d₂₂	0.0 	0.0			#	xyx, xyy and xyz
+# 		d₃₁	 	0.0		0.0		],	#	xzx, xzy and xzz
+# 	[ 	-d₂₂	0.0 	0.0			#	yxx, yxy and yxz
+# 		0.0	 	d₂₂ 	d₃₁			#	yyx, yyy and yyz
+# 		0.0	 	d₃₁		0.0		],	#	yzx, yzy and yzz
+# 	[ 	d₃₁	 	0.0 	0.0			#	zxx, zxy and zxz
+# 		0.0	 	d₃₁ 	0.0			#	zyx, zyy and zyz
+# 		0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
+# 	 dims = 3
+# )
+#
+# function Δₘ(fε::Function,λs,λᵣs)
+# 	# λ₁,λ₂,λ₃ 	= 	λs
+# 	# λ₁ᵣ,λ₂ᵣ,λ₃ᵣ	= 	λᵣs
+# 	#
+# 	*.(diag.(fε.(λs)) .- 1.0)...) / *.((diag.(fε.(λᵣs)) .- 1.0)...)
+# end
+#
+# ##
+# function fε(λ::T) where T<:Real
+#     nₑ² = nₑ²_MgO_LiNbO₃(λ)
+#     nₒ² = nₒ²_MgO_LiNbO₃(λ)
+#     # Diagonal( [ nₑ², nₒ², nₒ² ] )
+#     SMatrix{3,3,T,9}( nₒ²,    0.,     0.,
+#                       0.,     nₒ²,    0.,
+#                       0.,     0.,     nₑ², )
+# end
+#
+# fε(0.8)
+#
+# χ⁽²⁾ᵣ	= 	20.3 * (2.0/π)		#	[pm/V]
+# λ₁ᵣ		= 	1.313				#	[μm]
+# λ₂ᵣ		= 	λ₁ᵣ					#	[μm]
+# λ₃ᵣ		= 	λ₁ᵣ/2				#	[μm]
+#
+# λ₁		= 	1.56				#	[μm]
+# λ₂		= 	λ₁					#	[μm]
+# λ₃		= 	λ₁/2				#	[μm]
+#
+# λs		=	[ 	λ₁,		λ₂,		λ₃	]
+# λᵣs		=	[	λ₁ᵣ,	λ₂ᵣ,	λ₃ᵣ	]
+#
+# using Tullio
+# dm0 = flat(map( (lm,lmr) -> (diag(fε(lm)).-1.) ./ (diag(fε(lmr)).-1.), λs, λᵣs ))
+# @tullio χ⁽²⁾[i,j,k] := χ⁽²⁾₃[i,j,k] * dm0[i,1] * dm0[j,2] * dm0[k,3]
+#
+# function Δₘ(λs::AbstractVector, χᵣ::AbstractArray{T,3}, λᵣs::AbstractVector) where T
+# 	dm = flat(map( (lm,lmr) -> (diag(fε(lm)).-1.) ./ (diag(fε(lmr)).-1.), λs, λᵣs ))
+# 	@tullio χ[i,j,k] := χᵣ[i,j,k] * dm[i,1] * dm[j,2] * dm[k,3] verbose=true
+# end
+#
+# χ⁽²⁾_LN(λs::AbstractVector) =  Δₘ(λs, χ⁽²⁾₃, [1.313,1.313,1.313/2.0])
+# χ⁽²⁾_LN(λ::Real) =  Δₘ([λ,λ,λ/2.0], χ⁽²⁾₃, [1.313,1.313,1.313/2.0])
+#
+# χ⁽²⁾_MgO_LiNbO₃([1.064,1.064,0.532])[3,3,3]
+# χ⁽²⁾_MgO_LiNbO₃(1.064) #[3,3,3]
+# χ⁽²⁾_MgO_LiNbO₃([2.1,2.1,1.05])[3,3,3]
+#
+# Zygote.gradient(x->χ⁽²⁾_LN([x,x,x/2.0])[3,3,3],2.1)
+# Zygote.gradient(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+# ForwardDiff.derivative(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+# Zygote.hessian(x->χ⁽²⁾_LN(x)[3,3,3],2.1)[1]
+#
+# using Rotations
+# ForwardDiff.derivative(t->rotate(χ⁽²⁾_LN(1.064),RotY(t))[3,3,3],0.1)
+# ForwardDiff.gradient(xx->rotate(χ⁽²⁾_LN(xx[1]),RotY(xx[2]))[3,3,3],[1.064,π/6.0])
+# Zygote.gradient(xx->rotate(χ⁽²⁾_LN(xx[1]),Zygote.forwarddiff(RotY,xx[2]))[3,3,3],[1.064,π/6.0])
+# Zygote.gradient((xx,tt)->rotate(χ⁽²⁾_LN(xx),Zygote.forwarddiff(RotY,tt))[3,3,3],1.064,π/6.0)
+# Zygote.hessian((xx,tt)->rotate(χ⁽²⁾_LN(xx),Zygote.forwarddiff(RotY,tt))[3,3,3],1.064,π/6.0)
+# Zygote.hessian(xx->rotate(χ⁽²⁾_LN(xx[1]),Zygote.forwarddiff(RotY,xx[2]))[3,3,3],[1.064,π/6.0])
+#
+# χ⁽²⁾_LN([1.05,2.1,2.1])[1,1,2]
+# χ⁽²⁾_LN([2.1,2.1,1.05])[1,1,2]
+#
+# lms = collect(range(1.9,2.2,length=20))
+# chi2LN333 = getindex.(χ⁽²⁾_LN.(lms),(3,),(3,),(3,))
+#
+# lineplot(lms,chi2LN333)
+#
+# chi2[3,3,3] ≈  χ⁽²⁾[3,3,3]/χ⁽²⁾₃[3,3,3]
+#
+# function mult(χ::AbstractArray{T,3},v₁::AbstractVector,v₂::AbstractVector) where T<:Real
+# 	@tullio v₃[i] := χ[i,j,k] * v₁[j] * v₂[k]
+# end
+#
+# function mult(χ::AbstractArray{T,4},v₁::AbstractVector,v₂::AbstractVector,v₃::AbstractVector) where T<:Real
+# 	@tullio v₄[i] := χ[i,j,k,l] * v₁[j] * v₂[k] * v₃[l]
+# end
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+# dm_check1 = ((nₑ²_MgO_LiNbO₃(1.56) - 1)^2 * (nₑ²_MgO_LiNbO₃(1.56/2.0) - 1)) / ((nₑ²_MgO_LiNbO₃(1.313) - 1)^2 * (nₑ²_MgO_LiNbO₃(1.313/2.0) - 1))
+# dm_check1
+#
+# χ⁽²⁾[3,3,3] / χ⁽²⁾₃[3,3,3]
+#
+# dm_check2 = ((nₒ²_MgO_LiNbO₃(1.56) - 1)^2 * (nₒ²_MgO_LiNbO₃(1.56/2.0) - 1)) / ((nₒ²_MgO_LiNbO₃(1.313) - 1)^2 * (nₒ²_MgO_LiNbO₃(1.313/2.0) - 1))
+# dm_check2
+# χ⁽²⁾[1,2,1] / χ⁽²⁾₃[1,2,1]
+#
+#
+# .*(dm0)
+#
+# (diag.(fε.(λs).-1.0I)) ./ (diag.(fε.(λᵣs).-1.0I))
+#
+# ##
+#
+# # χ⁽²⁾ LiNbO₃ (3m) with extraordinary axis along x̂ (1)
+# χ⁽²⁾₁ = cat(
+# 	[ 	d₃₃	 	0.0 	0.0			#	xxx, xxy and xxz
+# 	 	0.0	 	d₃₁ 	0.0			#	xyx, xyy and xyz
+# 		0.0	 	0.0		d₃₁		],	#	xzx, xzy and xzz
+# 	[ 	0.0	 	d₃₁ 	0.0			#	yxx, yxy and yxz
+# 		d₃₁	 	d₂₂ 	0.0			#	yyx, yyy and yyz
+# 		0.0	 	0.0		-d₂₂	],	#	yzx, yzy and yzz
+# 	[ 	0.0	 	0.0 	d₃₁			#	zxx, zxy and zxz
+# 		0.0	 	0.0 	-d₂₂		#	zyx, zyy and zyz
+# 		d₃₁	 	-d₂₂ 	0.0		],	#	zzx, zzy and zzz
+# 	 dims = 3
+# )
+#
+# E1 = randn(3)
+# E2 = randn(3)
+# E12 = [
+# 	E1[1]*E2[1],
+# 	E1[2]*E2[2],
+# 	E1[3]*E2[3],
+# 	E1[2]*E2[3] + E1[3]*E2[2],
+# 	E1[1]*E2[3] + E1[3]*E2[1],
+# 	E1[1]*E2[2] + E1[2]*E2[1],
+# ]
+# using Tullio
+#
+# @tullio P3[k] := χ⁽²⁾₃[i,j,k] * E1[i] * E2[j] verbose=1
+# P3d = deff * E12
+# @assert P3d ≈ P3
+#
+# using Rotations
+# R1 = MRP(RotY(π/2))		# 90° rotation around ŷ
+# R1i = transpose(R1)
+# nₑ = 2.1
+# nₒ = 2.2
+# eps1 = [	nₑ^2	0.0		0.0
+# 			0.0		nₒ^2	0.0
+# 			0.0		0.0		nₒ^2	]
+# eps2 = [	nₒ^2	0.0		0.0
+# 			0.0		nₒ^2	0.0
+# 			0.0		0.0		nₑ^2	]
+# eps3 = diagm( [nₒ^2,nₒ^2,nₑ^2] )
+#
+# @assert R1 * eps1 / R1 ≈ eps2
+# @assert R1 * eps3 / R1 ≈ eps1
+#
+# R2 = RotY(π/6)
+# R2 * eps3 / R2
+#
+# @assert rotate(eps1,R1) ≈ MArray{Tuple{3,3}}(eps2)
+#
+#
+# @tullio P11[i] := eps1[i,j] * E1[j] verbose=true
+# @tullio P21[i] := eps2[i,j] * E1[j] verbose=true
+# @tullio P212[i] := R1[i,j] * eps1[j,k] * R1i[k,h] * E1[h] verbose=true
+# @assert P212 ≈ P21
+#
+# @tullio P3[i] := χ⁽²⁾₃[i,j,k] * E1[j] * E2[k] verbose=1
+# P3d = deff * E12
+# @assert P3d ≈ P3
+# @tullio P32[i] := R1i[i,j] * χ⁽²⁾₁[j,k,h] * R1[k,a] * E1[a] * R1[h,b] * E2[b] verbose=1
+# @tullio χ⁽²⁾₁2[i,j,k] := R1i[i,a] * χ⁽²⁾₁[a,b,c] * R1[b,j] * R1[c,k] verbose=1
+# @tullio P33[i] := χ⁽²⁾₁2[i,j,k] * E1[j] * E2[k] verbose=1
+# # @tullio P33[i] := R1[i,j] * χ⁽²⁾₁[j,k,h] * R1i[k,a] * E1[a] * R1i[h,b] * E2[b] verbose=1
+# @assert Vector(P32) ≈ P3
+# @assert Vector(P33) ≈ P3
+# @assert χ⁽²⁾₁2 ≈ χ⁽²⁾₃
+#
+# import Rotations: Rotation
+#
+# function rotate(χ::AbstractArray{T,2},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+# 	@tullio χᵣ[i,j] := 𝓡[a,i] * 𝓡[b,j] * χ[a,b]  fastmath=true
+# end
+#
+# function rotate(χ::AbstractArray{T,3},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+# 	@tullio χᵣ[i,j,k] := 𝓡[a,i] * 𝓡[b,j] * 𝓡[c,k] * χ[a,b,c]  fastmath=true
+# end
+#
+# function rotate(χ::AbstractArray{T,4},𝓡::TR) where {T<:Real, TR<:StaticMatrix{3,3}}
+# 	@tullio χᵣ[i,j,k,l] := 𝓡[a,i] * 𝓡[b,j] * 𝓡[c,k] * 𝓡[d,l] * χ[a,b,c,d]  fastmath=true
+# end
+# Zygote.gradient(x->dot(E1,rotate(eps1,Zygote.forwarddiff(y->MRP(RotY(y)),x)),E1),0.1)[1]
+# ForwardDiff.derivative(x->dot(E1,rotate(eps1,MRP(RotY(x))),E1),0.1)
+# Zygote.hessian(x->dot(E1,rotate(eps1,Zygote.forwarddiff(y->MRP(RotY(y)),x)),E1),0.1)[1]
+#
+# rotate(χ⁽²⁾₃,R1)
+# @assert rotate(χ⁽²⁾₁,R1) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₃)
+# @assert rotate(χ⁽²⁾₃,R1') ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+# @assert rotate(rotate(χ⁽²⁾₁,R1),R1i) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+# @assert rotate(rotate(χ⁽²⁾₁,R1),inv(R1)) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+# @assert rotate(χ⁽²⁾₃,R3) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+#
+# round.(rotate(rotate(χ⁽²⁾₁,R1),inv(R1)),digits=3) ≈ MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+#
+# round.(rotate(rotate(χ⁽²⁾₁,R1),inv(R1)),digits=3) - MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+#
+#
+#
+#
+#
+# rotate(χ⁽²⁾₁,R3) - MArray{Tuple{3,3,3}}(χ⁽²⁾₃)
+#
+#
+# rotate(rotate(χ⁽²⁾₁,R1),R1i) - MArray{Tuple{3,3,3}}(χ⁽²⁾₁)
+#
+# χ⁽²⁾₁
+#
+# AngleAxis(R1)
+#
+#
+#
+#
+# transpose(MRP(R1))
+#
+#
+#
+#
+# R1
+#
+#
+# R3 = RotY(-π/2)
+# R3 ≈ inv(R1)
+# R1 * χ⁽²⁾₃
+# R1
+#
+#
+#
+#
+# inv(R1)
+#
+#
+#
+#
+# R1 ≈ inv(inv(R1))
+#
+# R1
+#
+# inv(R1)

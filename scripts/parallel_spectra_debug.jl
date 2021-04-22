@@ -1,4 +1,221 @@
 # using Revise
+using Revise
+using OptiMode
+using GeometryPrimitives
+using LinearAlgebra
+using StaticArrays
+using LoopVectorization
+using ChainRules
+using Zygote
+using ForwardDiff
+using UnicodePlots
+using OhMyREPL
+using Crayons.Box       # for color printing
+using Rotations: RotY, MRP
+using RuntimeGeneratedFunctions
+RuntimeGeneratedFunctions.init(@__MODULE__)
+LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))),name=:LiNbO₃)
+AD_style = BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style = BOLD*RED_FG
+MAN_style = BOLD*GREEN_FG
+AD_style_N = NEGATIVE*BOLD*BLUE_FG #NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+FD_style_N = NEGATIVE*BOLD*RED_FG
+MAN_style_N = NEGATIVE*BOLD*GREEN_FG
+
+Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
+grid = Grid(Δx,Δy,Nx,Ny)
+rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+p = [
+       1.7,                #   top ridge width         `w_top`         [μm]
+       0.7,                #   ridge thickness         `t_core`        [μm]
+       0.5,                #   ridge thickness         `t_core`        [μm]
+       π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
+               ];
+geom = rwg(p)
+##
+ms = ModeSolver(1.45, geom, grid, nev=4)
+ωs = range(0.6,0.8,length=8) |> collect
+using OptiMode: _solve_n_serial
+##
+TE_filter = αX->sum(abs2,𝓟x̄(ms.grid)*αX[2])>0.9
+TM_filter = αX->sum(abs2,𝓟x(ms.grid)*αX[2])>0.9
+ns_TE,ngs_TE,gvds_TE,Evs_TE = _solve_n_serial(ms,ωs,geom;f_filter=TE_filter)
+ns_TM,ngs_TM,gvds_TM,Evs_TM = _solve_n_serial(ms,ωs,geom;f_filter=TM_filter)
+##
+using GLMakie, AbstractPlotting
+using AbstractPlotting: lines, lines!, scatterlines, scatterlines!, GeometryBasics, Point, PointBased
+using Colors
+import Colors: JULIA_LOGO_COLORS
+logocolors = JULIA_LOGO_COLORS
+# AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = (GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),])),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+# plottype(::GeometryPrimitives.Polygon) = Poly
+# AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# plottype(::GeometryPrimitives.Box) = Poly
+#
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
+# plottype(::Geometry) = Poly
+#
+# import Base: convert
+# # convert(::Type{GeometryBasics.Polygon},x::GeometryPrimitives.Polygon) = GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),]))
+# # AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
+# # AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
+# #
+# convert(::Type{GeometryBasics.Rect2D},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
+# convert(::Type{<:GeometryBasics.HyperRectangle},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
+# # plottype(::GeometryPrimitives.Box) = Poly
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:GeometryPrimitives.Shape}) = (convert_arguments.((P,),x)...,)
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:Shape}) = (convert_arguments.((P,),x)...,)
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:Shape2}) = (convert_arguments.((P,),x)...,)
+# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:GeometryPrimitives.Shape}) = (convert_arguments.((P,),x)...,)
+# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:Shape}) = (convert_arguments.((P,),x)...,)
+# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:Shape2}) = (convert_arguments.((P,),x)...,)
+
+# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
+# plottype(::Geometry) = Poly
+
+##
+bg_color=:black
+strokecolor=:white
+strokewidth=2
+ax.backgroundcolor=bg_color
+n_shapes = size(geom.shapes,1)
+shape_colors = [getfield(geom.materials[geom.material_inds[i]],:color) for i=1:n_shapes]
+# poly!([convert_arguments(geom.shapes[1])...],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
+# poly!(convert_arguments(geom.shapes[2])[1],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
+# poly!(convert_arguments(geom.shapes[3])[1],color=color_subs, axis=ax, strokecolor=:white, strokewidth=2)
+plys = [ poly!(
+			geom.shapes[i],
+			color=shape_colors[i],
+			axis=ax,
+			strokecolor,
+			strokewidth,
+		) for i=1:n_shapes ]
+
+
+mat_leg = Legend(
+	fig[1,2],
+	[PolyElement(color = c, strokecolor = :black) for c in mat_colors],
+	String.(nameof.(geom.materials)),
+)
+
+
+
+##
+# interactions
+
+function indicator(ax::Axis,ob)
+    register_interaction!(ax, :indicator) do event::MouseEvent, axis
+    if event.type === MouseEventTypes.over
+        ob[] = event.data
+    end
+    end
+end
+function indicator(grid::GridLayout,ob)
+    foreach(Axis,grid;recursive=true) do ax
+    indicator(ax,ob)
+    end
+end
+function indicator(grid::GridLayout)
+    ob = Observable(Point2f0(0.,0.))
+    indicator(grid,ob)
+    ob
+end
+function indicator(fig,args...; tellwidth=false, kwargs...)
+    Label(
+        fig,
+        lift(ind->"x: $(ind[1])  y: $(ind[2])",indicator(fig.layout)),
+        args...; tellwidth=tellwidth, kwargs...
+    )
+end
+
+
+##
+function plot_rwg_geom(geom::Geometry,ax;color_core=logocolors[:green],color_subs=logocolors[:blue],color_bg=:black)
+    ax.backgroundcolor=:black
+    poly!([convert_arguments(geom.shapes[1])...],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
+    poly!(convert_arguments(geom.shapes[2])[1],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
+    poly!(convert_arguments(geom.shapes[3])[1],color=color_subs, axis=ax, strokecolor=:white, strokewidth=2)
+end
+
+#strokecolor=:black,strokewidth=1)
+# poly!(ax_geom,geom.shapes[2],color=:blue,strokecolor=:black,strokewidth=1)
+
+##
+
+ωind = 5
+Es = [ view(real(Evs_TE),i,:,:,ωind) for i=1:3 ]
+Emagmax = [sqrt(maximum(abs2.(Evs_TE[:,:,:,ωind]))) for i=1:3]
+
+fig = Figure()
+
+# dispersion plots
+disp = ( (ns_TE,ns_TM), (ngs_TE,ngs_TM), (gvds_TE,gvds_TM) )
+# labels_disp = ["n", "ng" ] .* [",TE",",TM"]
+
+n_disp = length(disp)
+n_modes = 2
+λs = inv.(ωs)
+ax_disp = fig[1:n_disp,1] = [Axis(fig) for i=1:n_disp]
+colors_disp = [:red,:blue]
+sls_disp 	= 	[scatterlines!(
+					ax_disp[i],
+					λs,
+					disp[i][j],
+					color=colors_disp[j],
+					markercolor=colors_disp[j],
+				) for i=1:n_disp, j=1:n_modes ]
+disp_models = [:n,:ng,:gvd]
+lns_bulk = [plot_model!(ax_disp[i],geom.materials;model=disp_models[i]) for i=1:3]
+
+# spatial plots
+xs = x(ms.grid)
+ys = y(ms.grid)
+ax_geom = fig[1,2] = Axis(fig)
+plot_shapes(geom,ax_geom)
+
+ax_n	= fig[1,3] = Axis(fig)
+ax_E 	= fig[2,2:3] = [Axis(fig) for i=1:2]
+
+# poly!(ax_geom,geom.shapes[1],color=:red,strokecolor=:black,strokewidth=1)
+# poly!(ax_geom,geom.shapes[2],color=:blue,strokecolor=:black,strokewidth=1)
+
+
+label_n = "nₓ"
+cmap_n 	  = :viridis
+n_spatial = sqrt.(getindex.(inv.(ms.M̂.ε⁻¹),1,1))
+n_spatial_max = maximum(n_spatial)
+heatmap_n = heatmap!(ax_n, xs, ys, n_spatial, colormap=cmap_n,label=label_n,colorrange=(1,n_spatial_max);overdraw=false)
+# wf_n = wireframe!(ax_n, xs, ys, n_spatial, colormap=cmap_n,linewidth=0.1,color=:white)
+cbar_n = Colorbar(fig[1,4], heatmap_n,  width=20 )
+text!(ax_n,label_n,position=(-1.4,1.1),textsize=0.7,color=:white)
+
+cmap_E = :diverging_bkr_55_10_c35_n256
+label_base = ["x","y"]
+labels_E = "E".*label_base
+heatmaps_E = [heatmap!(ax_E[j], xs, ys, Es[j],colormap=cmap_E,label=labels_E[j],colorrange=(-Emagmax[j],Emagmax[j])) for j=1:2]
+cbars_E = Colorbar(fig[2,4], heatmaps_E[2],  width=20 )
+# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
+map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax_E, labels_E )
+
+ax_spatial = vcat(ax_geom, ax_n, ax_E)
+hidexdecorations!.(ax_spatial[1:end-1,:])
+hideydecorations!.(ax_spatial[:,2:end])
+[axx.xlabel= "x [μm]" for axx in ax_spatial[1:end-1,:]]
+[axx.ylabel= "y [μm]" for axx in ax_spatial[:,1]]
+[ axx.aspect=DataAspect() for axx in ax_spatial ]
+linkaxes!(ax_spatial...)
+txt= fig[5,2] = indicator(fig)
+# for axx in ax_all
+# 	on(mouseposition) do mpos
+#
+# end
+
+fig
+
+##
+
 using Distributed
 pids = addprocs(8)
 @show wp = CachingPool(workers()) #default_worker_pool()
@@ -279,7 +496,7 @@ p̄_FD3 = FiniteDifferences.jacobian(central_fdm(3,1),x->calc_ng(x),p)[1][1,:]
 # https://discourse.julialang.org/t/passing-constructed-closures-to-child-processes/34723
 # where issues with closures are discussed
 using Distributed
-# addprocs(8)
+addprocs(8)
 @everywhere begin
   using OptiMode, ChainRules, Zygote
   function f_pmap_zygote_solve(ωs, p)

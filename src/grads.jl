@@ -2,7 +2,7 @@ using ForwardDiff
 using Zygote: @adjoint, Numeric, literal_getproperty, accum
 using ChainRules: Thunk, @non_differentiable
 export sum2, jacobian, ε⁻¹_bar!, ε⁻¹_bar, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ, ∂²ω²∂k²
-export ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!
+export ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!, neff_ng_gvd
 
 ### ForwardDiff Comoplex number support
 # ref: https://github.com/JuliaLang/julia/pull/36030
@@ -1105,13 +1105,21 @@ solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂
 """
 # function ∂²ω²∂k²(ω,ε⁻¹,nng⁻¹,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
 function ∂²ω²∂k²(ω,geom,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+
 	# nng⁻¹, nnginv_pb = Zygote.pullback(nngₛ⁻¹,ω,geom,grid)
 	# ε⁻¹, epsi_pb = Zygote.pullback(εₛ⁻¹,ω,geom,grid)
-	ngvd = ngvdₛ(ω,geom,grid)
-	nng⁻¹, nnginv_pb = Zygote.pullback(x->nngₛ⁻¹(x,geom,grid),ω)
-	ε⁻¹, epsi_pb = Zygote.pullback(x->εₛ⁻¹(x,geom,grid),ω)
+
+	# ngvd = ngvdₛ(ω,geom,grid)
+	# nng⁻¹, nnginv_pb = Zygote.pullback(x->nngₛ⁻¹(x,geom,grid),ω)
+	# ε⁻¹, epsi_pb = Zygote.pullback(x->εₛ⁻¹(x,geom,grid),ω)
+
 	# nng⁻¹, nnginv_pb = Zygote._pullback(Zygote.Context(),x->nngₛ⁻¹(x,dropgrad(geom),dropgrad(grid)),ω)
 	# ε⁻¹, epsi_pb = Zygote._pullback(Zygote.Context(),x->εₛ⁻¹(x,dropgrad(geom),dropgrad(grid)),ω)
+
+	ε, nng, ngvd = εₛ_nngₛ_ngvdₛ(ω,geom,grid)
+	nng⁻¹ = inv.(nng)
+	ε⁻¹ = inv.(ε)
+
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	∂ω²∂k_nd = 2 * H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
@@ -1125,29 +1133,52 @@ function ∂²ω²∂k²(ω,geom,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) wher
 	nngī2 = copy(reinterpret(SMatrix{3,3,T,9},copy(reshape( nngī , 9*Ns[1], Ns[2:end]...))))
 	nngī_herm = (real.(nngī2) .+ transpose.(real.(nngī2)) ) ./ 2
 	eī_herm = (real.(eī₁) .+ transpose.(real.(eī₁)) ) ./ 2
-	om̄₂ = nnginv_pb(nngī_herm)[1] #nngī2)
-	om̄₃ = epsi_pb(eī_herm)[1] #eī₁)
-	println("")
-	println("om̄₁: $(om̄₁)")
-	println("om̄₂: $(om̄₂)")
-	println("om̄₃: $(om̄₃)")
 
-	# om̄₂2 = sum(flat(nngī_herm	.* 	∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω)))
-	# om̄₃2 = sum(flat(eī_herm	.* 	∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω)))
-	om̄₂2 = dot(vec(flat(nngī_herm)), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
-	om̄₃2 = dot(vec(flat(eī_herm)), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
-	println("om̄₂2: $(om̄₂2)")
-	println("om̄₃2: $(om̄₃2)")
-	println("om̄₁ + om̄₂2 + om̄₃2: $(om̄₁ + om̄₂2 + om̄₃2)")
+	# om̄₂ = nnginv_pb(nngī_herm)[1] #nngī2)
+	# om̄₃ = epsi_pb(eī_herm)[1] #eī₁)
+	# println("")
+	# println("om̄₁: $(om̄₁)")
+	# println("om̄₂: $(om̄₂)")
+	# println("om̄₃: $(om̄₃)")
 
-	# om̄₂4 = dot(inv.(vec(flat(nngī_herm))), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
-	# om̄₃4 = dot(inv.(vec(flat(eī_herm))), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
-	# println("om̄₂4: $(om̄₂4)")
-	# println("om̄₃4: $(om̄₃4)")
+	om̄₂ = dot(vec(flat(nngī_herm)), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
+	om̄₃ = dot(vec(flat(eī_herm)), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
+	# println("om̄₂2: $(om̄₂2)")
+	# println("om̄₃2: $(om̄₃2)")
+	# println("om̄₁ + om̄₂2 + om̄₃2: $(om̄₁ + om̄₂2 + om̄₃2)")
 
 	om̄ = om̄₁ + om̄₂ + om̄₃
-	println("om̄: $(om̄)")
+	# println("om̄: $(om̄)")
 	return om̄
+end
+
+function neff_ng_gvd(ω,geom,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+	ε, nng, ngvd = εₛ_nngₛ_ngvdₛ(ω,geom,grid)
+	nng⁻¹ = inv.(nng)
+	ε⁻¹ = inv.(ε)
+	# calculate om̄ = ∂²ω²/∂k²
+	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+	mag,m⃗,n⃗ = mag_m_n(k,grid)
+	∂ω²∂k_nd = 2 * H_Mₖ_H(H⃗[:,eigind],ε⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	k̄, H̄, nngī  = ∇HMₖH(k,H⃗,nng⁻¹,grid; eigind)
+	( _, _, om̄₁, eī₁ ) = ∇solve_k(	  (k̄,H̄),
+									 	(k,H⃗[:,eigind]),
+									  	∂ω²∂k_nd,
+									   	ω,
+									    ε⁻¹,
+										grid; eigind)
+	nngī2 = copy(reinterpret(SMatrix{3,3,T,9},copy(reshape( nngī , 9*Ns[1], Ns[2:end]...))))
+	nngī_herm = (real.(nngī2) .+ transpose.(real.(nngī2)) ) ./ 2
+	eī_herm = (real.(eī₁) .+ transpose.(real.(eī₁)) ) ./ 2
+	om̄₂ = dot(vec(flat(nngī_herm)), 	vec(flat(∂nng⁻¹_∂ω(ε⁻¹,nng⁻¹,ngvd,ω))))
+	om̄₃ = dot(vec(flat(eī_herm)), 	vec(flat(∂ε⁻¹_∂ω(ε⁻¹,nng⁻¹,ω))))
+	om̄ = om̄₁ + om̄₂ + om̄₃
+	# calculate and return neff = k/ω, ng = ∂k/∂ω, gvd = ∂²k/∂ω²
+	∂ω²∂k_disp = 2 * H_Mₖ_H(H⃗[:,eigind],nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	neff = k / ω
+	ng = 2 * ω / ∂ω²∂k_disp # H_Mₖ_H(H⃗[:,eigind],nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗))) # ng = ∂k/∂ω
+	gvd = 2 / ∂ω²∂k_disp - ω * 4 / ∂ω²∂k_disp^2 * om̄ #( ng / ω ) * ( 1. - ( ng * om̄ ) ) 
+	return neff, ng, gvd
 end
 
 function ∂²ω²∂k²(ω,ε⁻¹,nng⁻¹,k,H⃗,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}

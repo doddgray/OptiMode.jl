@@ -4,7 +4,7 @@ using SymbolicUtils.Code: MakeArray
 
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
 export rotate, mult, unique_axes, plot_data, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
-export n²_sym_fmt1, n_sym_cauchy
+export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, plot_model!
 
 # RuntimeGeneratedFunctions.init(@__MODULE__)
 
@@ -59,6 +59,8 @@ function generate_array_fn(arg::Num,A::TA; expr_module=@__MODULE__(), parallel=S
 	return fn = generate_array_fn([arg,], A; expr_module, parallel)
 end
 
+@non_differentiable generate_array_fn(arg,A)
+
 """
 ################################################################################
 #																			   #
@@ -73,7 +75,11 @@ struct Material <: AbstractMaterial
 	models::Dict
 	defaults::Dict
 	name::Symbol
+	color::Color
 end
+# constructor adding random color when color is not specified
+Material(models::Dict,defaults::Dict,name::Symbol) = Material(models,defaults,name,RGBA(rand(3)...,1.0))
+
 
 import Base: nameof
 Base.nameof(mat::AbstractMaterial) = getfield(mat, :name)
@@ -99,15 +105,21 @@ function get_model(mat::AbstractMaterial,model_name::Symbol,args...)
 	return model_subs
 end
 
-function generate_fn(mat::AbstractMaterial,model_name::Symbol,args...)
+function generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 	model = get_model(mat,model_name,args...)
 	if typeof(model)<:AbstractArray
-		fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model)
+		fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model; expr_module, parallel)
 	else
 		fn = build_function(model,args...;expression=Val{false})
 	end
 	return fn
 end
+
+function has_model(mat::AbstractMaterial,model_name::Symbol)
+	return haskey(mat.models,model_name)
+end
+
+@non_differentiable generate_fn(mat::AbstractMaterial,model_name::Symbol,args...)
 
 """
 ################################################################################
@@ -122,6 +134,7 @@ struct RotatedMaterial{TM,TR} <: AbstractMaterial
 	rotation::TR
 	rotation_defaults::Dict
 	name::Symbol
+	color::Color
 end
 
 function mult(χ::AbstractArray{T,3},v₁::AbstractVector,v₂::AbstractVector) where T<:Real
@@ -146,7 +159,7 @@ end
 
 rotate(χ::Real,𝓡::StaticMatrix{3,3}) = χ
 
-function rotate(mat::TM,𝓡::TR;name=nothing) where {TM<:AbstractMaterial,TR<:AbstractMatrix}
+function rotate(mat::TM,𝓡::TR;name=nothing,color=mat.color) where {TM<:AbstractMaterial,TR<:AbstractMatrix}
 	if eltype(𝓡)<:Num
 		vars = get_variables(𝓡)
 		defs = Dict{Symbol,Real}([ tosymbol(var) => 0.0 for var in vars])
@@ -156,14 +169,14 @@ function rotate(mat::TM,𝓡::TR;name=nothing) where {TM<:AbstractMaterial,TR<:A
 	if isnothing(name)
 		name = Symbol(String(mat.name)*"_Rotated")
 	end
-	RotatedMaterial{TM,TR}(mat,𝓡,defs,name)
+	RotatedMaterial{TM,TR}(mat,𝓡,defs,name,color)
 end
 
-function rotate(mat::TM,𝓡::TR,defs::Dict;name=nothing) where {TM<:AbstractMaterial,TR<:AbstractMatrix}
+function rotate(mat::TM,𝓡::TR,defs::Dict;name=nothing,color=mat.color) where {TM<:AbstractMaterial,TR<:AbstractMatrix}
 	if isnothing(name)
 		name = Symbol(String(mat.name)*"_Rotated")
 	end
-	RotatedMaterial{TM,TR}(mat,𝓡,defs,name)
+	RotatedMaterial{TM,TR}(mat,𝓡,defs,name,color)
 end
 
 function get_model(mat::RotatedMaterial,model_name::Symbol,args...)
@@ -179,6 +192,10 @@ function get_model(mat::RotatedMaterial,model_name::Symbol,args...)
 	return model_subs
 end
 
+has_model(mat::RotatedMaterial,model_name::Symbol) = haskey(mat.parent.models,model_name)
+
+# material_name(mat::RotatedMaterial) = material_name(mat.parent)
+# Base.nameof(mat::RotatedMaterial) = getfield(mat.parent, :name)
 """
 ################################################################################
 #																			   #
@@ -248,13 +265,22 @@ function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
 	return gvd_model(n_model,λ) .* n_model
 end
 
+
 ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],get_model(mat,:ε,:λ))
+nn̂g_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nn̂g_model(mat))
+nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nĝvd_model(mat))
 
-nn̂g_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],nn̂g_model(mat))
-nĝvd_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],nĝvd_model(mat))
+function χ⁽²⁾_fn(mat::AbstractMaterial)
+	if has_model(mat,:χ⁽²⁾)
+		return generate_array_fn([Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃))],get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃))
+	else
+		return (lm1,lm2,lm3) -> zero(SArray{Tuple{3,3,3}})
+	end
+end
 
-nn̂g(mat::AbstractMaterial,lm::Real) = nn̂g_fn(mat)(lm)
-nĝvd(mat::AbstractMaterial,lm::Real) = nĝvd_fn(mat)(lm)
+
+nn̂g(mat::AbstractMaterial,lm::Real) = SMatrix{3,3}(nn̂g_fn(mat)(lm))
+nĝvd(mat::AbstractMaterial,lm::Real) = SMatrix{3,3}(nĝvd_fn(mat)(lm))
 
 """
 ################################################################################
@@ -264,8 +290,8 @@ nĝvd(mat::AbstractMaterial,lm::Real) = nĝvd_fn(mat)(lm)
 ################################################################################
 """
 
-function unique_axes(mat::AbstractMaterial)
-	e11,e22,e33 = diag(get_model(mat,:ε,:λ))
+function unique_axes(mat::AbstractMaterial;model=:ε)
+	e11,e22,e33 = diag(get_model(mat,model,:λ))
 	if isequal(e11,e22)
 		isequal(e11,e33) ? (return ( [1,], [""] )) : (return ( [1,3], ["₁,₂","₃"] )) # 1 == 2 == 3 (isotropic) : 1 == 2 != 3 (uniaxial)
 	elseif isequal(e22,e33)
@@ -283,37 +309,54 @@ end
 ################################################################################
 """
 
-function plot_data(mats::AbstractVector{<:AbstractMaterial})
-	# fes = getfield.(mats,:fε)
-	fes = generate_fn.(mats,(:ε,),(:λ,))
-	axind_axstr_unq = unique_axes.(mats)
-	axind_unq = getindex.(axind_axstr_unq,1)
-	axstr_unq = getindex.(axind_axstr_unq,2)
-	fns = vcat(map((ff,as)->[(x->sqrt(ff(x)[a,a])) for a in as ], fes, axind_unq)...)
-	# mat_names = chop.(String.(nameof.(fes)),head=2,tail=0)	# remove "ε_" from function names
-	mat_names = String.(nameof.(mats))
-	names = "n" .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...) # "n, n_i or n_i,j (Material)" for all unique axes and materials
-	return fns, names
+function plot_data(mats_in::AbstractVector{<:AbstractMaterial};model=:n)
+	if isequal(model,:n)
+		mats = filter(x->has_model(x,:ε),mats_in)
+		fes = generate_fn.(mats,(:ε,),(:λ,))
+		axind_axstr_unq = unique_axes.(mats)
+		axind_unq = getindex.(axind_axstr_unq,1)
+		axstr_unq = getindex.(axind_axstr_unq,2)
+		fns = vcat(map((ff,as)->[(x->sqrt(ff(x)[a,a])) for a in as ], fes, axind_unq)...)
+		mat_names = String.(nameof.(mats))
+		names = "n" .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...) # "n, n_i or n_i,j (Material)" for all unique axes and materials
+	else
+		mats = filter(x->has_model(x,model),mats_in)
+		fgs = generate_fn.(mats,(model,),(:λ,))
+		axind_axstr_unq = unique_axes.(mats)
+		axind_unq = getindex.(axind_axstr_unq,1)
+		axstr_unq = getindex.(axind_axstr_unq,2)
+		fns = vcat(map((ff,as)->[(x->sqrt(ff(x)[a,a])) for a in as ], fgs, axind_unq)...)
+		mat_names = String.(nameof.(mats))
+		names = String(model) .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...)
+	end
+	colors = vcat( [ [ mat.color for i=1:ll ] for (mat,ll) in zip(mats,length.(getindex.(axind_axstr_unq,(1,)))) ]...)
+	all_linestyles	=	[nothing,:dash,:dot,:dashdot,:dashdotdot]
+	linestyles  =	vcat( [ getindex.((all_linestyles,),1:ll) for ll in length.(getindex.(axind_axstr_unq,(1,))) ]... )
+	return fns, names, colors, linestyles
 end
-plot_data(mat::AbstractMaterial) = plot_data([mat,])
-plot_data(mats::NTuple{N,<:AbstractMaterial} where N) = plot_data([mats...])
+plot_data(mat::AbstractMaterial ; model=:n) = plot_data([mat,]; model)
+plot_data(mats::NTuple{N,<:AbstractMaterial} where N ; model=:n) = plot_data([mats...]; model)
+
+
 
 function uplot(x::Union{AbstractMaterial, AbstractVector{<:AbstractMaterial}, NTuple{N,<:AbstractMaterial} };
 		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n", kwargs...)  where N
-	fns, name = plot_data(x)
+	fns, name, colors, styles = plot_data(x)
 	UnicodePlots.lineplot(fns, xlim[1], xlim[2];
 	 	xlim,
 		ylim=map((a,b)->a(b,digits=1),(floor,ceil),ylims(fns;xlims=xlim)),
 		name,
 		xlabel,
 		ylabel,
+		width=75,
+		height=35,
 		kwargs...
 		)
 end
 
 function uplot!(plt::UnicodePlots.Plot,x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Material} };
 		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n")  where N
-	fns, name = plot_data(x)
+	fns, name, colors, styles = plot_data(x)
 	UnicodePlots.lineplot!(plt, fns; name ) #, xlim[1], xlim[2];
 	 	# xlim,
 		# ylim=round.( ylims(plt,ylims(fns;xlims=xlim)) ,digits=1),
@@ -323,10 +366,20 @@ function uplot!(plt::UnicodePlots.Plot,x::Union{Material, AbstractVector{<:Mater
 		# )
 end
 
-import Base: show
-Base.show(io::IO, ::MIME"text/plain", mat::Material) = uplot(mat;title="MIME version") #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
-Base.show(io::IO, mat::Material) = uplot(mat) #print(io, m.x, '(', m.y, ')')
+function plot_model!(ax, mats::AbstractVector{<:AbstractMaterial};model=:n,xrange=nothing)
+	if isnothing(xrange)
+		xmin = ax.limits[].origin[1]
+		xmax = xmin + ax.limits[].widths[1]
+	end
+	lns = [lines!(ax, xmin..xmax, fn; label=lbl, color=clr, linestyle=ls) for (fn,lbl,clr,ls) in zip(plot_data(mats; model)...)]
+end
+plot_model(ax, mat::AbstractMaterial ; model=:n, xrange=nothing) = plot_model([mat,]; model, xrange)
+plot_model(ax, mats::NTuple{N,<:AbstractMaterial} where N ; model=:n, xrange=nothing) = plot_model([mats...]; model, xrange)
 
+import Base: show
+Base.show(io::IO, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat) #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
+Base.show(io::IO, mat::AbstractMaterial) = uplot(mat) #print(io, m.x, '(', m.y, ')')
+Base.show(io, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat)
 ################################################################################
 #                                Load Materials                                #
 ################################################################################

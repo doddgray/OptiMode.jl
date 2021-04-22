@@ -26,6 +26,7 @@ using LoopVectorization
 using Tullio
 using IterativeSolvers
 using Rotations
+using Colors: Color, RGB, RGBA
 using RuntimeGeneratedFunctions
 # using ModelingToolkit, Unitful #, Latexify
 using Symbolics
@@ -101,6 +102,7 @@ include("materials.jl")
 include("grid.jl")
 include("geometry.jl")
 include("maxwell.jl")
+include("constraints.jl")
 include("fields.jl")
 include("smooth.jl")
 include("solve.jl")

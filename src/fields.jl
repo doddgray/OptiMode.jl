@@ -116,6 +116,28 @@ function H⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
 	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],mn(ms)), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
 	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
 end
+
+function H⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; svecs=true, normalized=true) where {ND,T<:Real}
+	Ns = size(grid)
+	mag,m⃗,n⃗ = mag_m_n(k,grid)
+	Hₜ = reshape(H⃗,(2,Ns...))
+	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+	# ε⁻¹ = εₛ⁻¹(ω,geom,grid)
+	ε⁻¹, nng⁻¹, ngvd⁻¹ = εₛ⁻¹_nngₛ⁻¹_ngvdₛ⁻¹(ω,geom,grid)
+	H = fft( tc( Hₜ,mns ), (2:1+ND) )
+	# if normalized
+	# 	imagmax = argmax(abs2.(E0))
+	# 	E1 = E0 / E0[imagmax]
+	# 	E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
+	# 	E1norm = sum(dot.(E1s, inv.(nng⁻¹) .* E1s )) * δ(grid)
+	# 	E = E1 / sqrt(E1norm)
+	# else
+	# 	E = E0
+	# end
+	svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  H) : H
+end
+
+
 H⃗x(ms::ModeSolver) = H⃗(ms;svecs=false)[1,eachindex(ms.grid)...]
 H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
 H⃗z(ms::ModeSolver) = H⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
@@ -126,7 +148,7 @@ function E⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
 	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Earr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Earr
 end
 
-function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::AbstractVector{<:Shape},grid::Grid{ND}; svecs=true, normalized=true) where {ND,T<:Real}
+function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; svecs=true, normalized=true) where {ND,T<:Real}
 	Ns = size(grid)
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	H = reshape(H⃗,(2,Ns...))

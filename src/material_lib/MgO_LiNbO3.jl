@@ -101,7 +101,12 @@ function make_MgO_LiNbO₃(;pₒ=pₒ,pₑ=pₑ,pᵪ₂=pᵪ₂)
 		:λs₃	=>		0.532,	# μm
 
 	])
-	Material(models, defaults, :MgO_LiNbO₃)
+	Material(
+		models,
+		defaults,
+		:MgO_LiNbO₃,
+		logocolors[:green], #RGB{N0f8}(0.22,0.596,0.149),	# 
+		)
 end
 
 ################################################################

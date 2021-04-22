@@ -1,4 +1,5 @@
-export kx_tc_sp_coo, kx_tc_sp, kx_ct_sp, zx_tc_sp_coo, zx_tc_sp, zx_ct_sp, ε⁻¹_sp_coo,  ε⁻¹_sp, nng⁻¹_sp, M̂_sp, M̂ₖ_sp
+export kx_tc_sp_coo, kx_tc_sp, kx_ct_sp, zx_tc_sp_coo, zx_tc_sp, zx_ct_sp, ε⁻¹_sp_coo
+export ε⁻¹_sp, nng⁻¹_sp, M̂_sp, M̂ₖ_sp, 𝓕_dense, 𝓕⁻¹_dense
 
 using SparseArrays
 using Zygote: Buffer
@@ -206,7 +207,7 @@ end
 
 zx_ct_sp(k,grid::Grid) = zx_tc_sp(k,grid::Grid)'
 
-function ε⁻¹_sp_coo(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
+function ε⁻¹_sp_coo(ω,geom::Geometry,grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
 	ei = εₛ⁻¹(ω,geom,grid) #wl doesnt affect anything for constant indices  #make_εₛ⁻¹(shapes,grid)
 	Ns = size(grid)
     NN = N(grid)
@@ -226,7 +227,7 @@ function ε⁻¹_sp_coo(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::
 	return sparse(I,J,V,3*NN,3*NN)
 end
 
-function ε⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
+function ε⁻¹_sp(ω,geom::Geometry,grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
 	ei = εₛ⁻¹(ω,geom,grid) #wl doesnt affect anything for constant indices  #make_εₛ⁻¹(shapes,grid)
 	Ns = size(grid)
     NN = N(grid)
@@ -243,7 +244,7 @@ function ε⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vect
     )
 end
 
-function nng⁻¹_sp(ω,geom::AbstractVector{<:Shape},grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
+function nng⁻¹_sp(ω,geom::Geometry,grid::Grid) #(ω,geom::Vector{<:Shape},grid::Grid{ND,T})
 	nnginv = nngₛ⁻¹(ω,geom,grid)
 	Ns = size(grid)
     NN = N(grid)
@@ -290,7 +291,7 @@ function M̂_sp(ω,k,geom,grid::Grid{2})
 	Ninv * kxtcsp' * 𝓕⁻¹ * eisp * 𝓕 * kxtcsp
 end
 
-function M̂ₖ_sp(ω,k,geom::Vector{<:Shape},grid::Grid{2})
+function M̂ₖ_sp(ω,k,geom::Geometry,grid::Grid{2})
 	Ns = size(grid)
 	Ninv = 1. / N(grid)
 	kxtcsp = kx_tc_sp(k,grid)
@@ -320,6 +321,11 @@ function M̂ₖ_sp(k,nnginv,grid::Grid{2})
 	Ninv * kxtcsp' * 𝓕⁻¹ * nnginvsp * 𝓕 * zxtcsp
 end
 
+𝓕_dense(grid::Grid{3}) = Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,grid.Nx,grid.Ny,grid.Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,grid.Nx,grid.Ny,grid.Nz),ishermitian=false,ismutating=false))
+𝓕⁻¹_dense(grid::Grid{3}) = Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(bfft(reshape(d,(3,grid.Nx,grid.Ny,grid.Nz)),(2:4)))::AbstractArray{ComplexF64,1},*(3,grid.Nx,grid.Ny,grid.Nz),ishermitian=false,ismutating=false))
+
+𝓕_dense(grid::Grid{2}) = Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(fft(reshape(d,(3,grid.Nx,grid.Ny)),(2:3)))::AbstractArray{ComplexF64,1},*(3,grid.Nx,grid.Ny),ishermitian=false,ismutating=false))
+𝓕⁻¹_dense(grid::Grid{2}) = Matrix(LinearMap{ComplexF64}(d::AbstractArray{ComplexF64,1} -> vec(bfft(reshape(d,(3,grid.Nx,grid.Ny)),(2:3)))::AbstractArray{ComplexF64,1},*(3,grid.Nx,grid.Ny),ishermitian=false,ismutating=false))
 
 # ## set discretization parameters and generate explicit dense matrices
 # Δx          =   6.                    # μm
