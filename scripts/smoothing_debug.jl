@@ -15,10 +15,11 @@ using ChainRules
 using Zygote
 using ForwardDiff
 using FiniteDifferences
-using UnicodePlots
+# using UnicodePlots
 using OhMyREPL
 using Crayons.Box       # for color printing
 using Zygote: @ignore, dropgrad
+using Setfield: @set
 using StaticArrays: Dynamic
 using IterativeSolvers: bicgstabl
 using Rotations: RotY, MRP
@@ -35,33 +36,310 @@ MAN_style_N = NEGATIVE*BOLD*GREEN_FG
 
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 128, 128, 1;
 grid = Grid(Δx,Δy,Nx,Ny)
-rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+# rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNx,SiO₂,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+
+LNxN = NumMat(LNx;expr_module=@__MODULE__())
+SiO₂N = NumMat(SiO₂;expr_module=@__MODULE__())
+rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNxN,SiO₂N,Δx,Δy) # partially etched ridge waveguide with dispersive materials, x[3] is partial etch fraction of top layer, x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
+
+
 p = [
        1.7,                #   top ridge width         `w_top`         [μm]
        0.7,                #   ridge thickness         `t_core`        [μm]
-       0.5,                #   ridge thickness         `t_core`        [μm]
+       0.5, #0.5,                #   ridge thickness         `t_core`        [μm]
        π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
                ];
 geom = rwg(p)
-ms = ModeSolver(1.45, geom, grid)
+
+##
+ω = 1.0/1.45
+ε⁻¹,nng,ngvd = smooth(ω,p,(:fεs,:fnn̂gs,:fnĝvds),[true,false,false],rwg,grid);
+ñₘₐₓ(ε⁻¹)
+k_g = ñₘₐₓ(ε⁻¹)*ω
+M̂ = HelmholtzMap(SVector(0.,0.,k_g), ε⁻¹, grid);
+ms = ModeSolver(k_g,ε⁻¹,grid; nev=3);
+
+##
 ωs = [0.65, 0.75]
 
-ω = 0.75
+omsq1,Hv1 = solve_ω²(ms,1.4);
+
+ω = 0.65
 eigind = 1
-# k,H⃗ = solve_k(ms,ω,rwg(p))
-k,H⃗ = solve_k(ω,rwg(p),grid)
-ε⁻¹ = ms.M̂.ε⁻¹
-Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
-H = reshape(H⃗[:,eigind],(2,Ns...))
+# k,Hv = solve_k(ms,ω,rwg(p))
+k,Hv = solve_k(ms,0.71,p,rwg)
+# k,Hv = solve_k(ω,rwg(p),grid)
+# ε⁻¹ = ms.M̂.ε⁻¹
+# Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+# Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+# H = reshape(H⃗[:,eigind],(2,Ns...))
 g⃗s = g⃗(dropgrad(grid))
 (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(x->mag_m_n(x,g⃗s),k)
-m = ms.M̂.m
-n = ms.M̂.n
-mns = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
+# m = ms.M̂.m
+# n = ms.M̂.n
+# mns = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
+##
+using CairoMakie
+function plot_field2!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+	xs = x(grid)
+	ys = y(grid)
+	ax = [Axis(pos[1,j]) for j=1:2]
+	labels = label.*label_base
+	Fs = [view(F,j,:,:) for j=1:2]
+	magmax = maximum(abs,F)
+	heatmaps = [heatmap!(ax[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
+	cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
+	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
+	map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
+	hideydecorations!.(ax[2])
+	[axx.xlabel= "x [μm]" for axx in ax]
+	[axx.ylabel= "y [μm]" for axx in ax[1:1]]
+	[ axx.aspect=DataAspect() for axx in ax ]
+	linkaxes!(ax...)
+	return heatmaps
+end
+
+function plot_field2(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+	fig=Figure()
+	hms = plot_field2!(fig[1,1],F,grid;cmap,label_base,label)
+	fig
+end
+
+
+##
+function solve_omsq!(k⃗,ε⁻¹,grid; nev=1,eigind=1,maxiter=3000,tol=1.6e-8,log=false,f_filter=nothing)::Tuple{Vector{T},Matrix{Complex{T}}} where {ND,T<:Real}
+	M̂ = HelmholtzMap(k⃗, ε⁻¹, grid)
+		# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
+
+		res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂)
+		copyto!(ms.H⃗,res.X)
+		copyto!(ms.ω²,res.λ)
+
+	if isnothing(f_filter)
+		return (copy(real(ms.ω²)), copy(ms.H⃗))
+	else
+		return filter_eigs(ms, f_filter)
+	end
+end
+
+##
+using Base.Iterators: product
+using Symbolics: Num, Differential, Sym, build_function
+
+mats = [LNx, SiO₂, Si₃N₄];
+models = (:ε, (nn̂g_model,:ε), (nĝvd_model,:ε))
+args = (:λ,)
+
+mods1 = map( ij->get_model(mats[ij[1]],models[ij[2]],args...), Iterators.product(eachindex(mats),eachindex(models)) )
+mods2 = mapreduce( ij->get_model(mats[ij[1]],models[ij[2]],args...), hcat, Iterators.product(eachindex(mats),eachindex(models)) )
+mods3 = mapreduce( ij->get_model(mats[ij[1]],models[ij[2]],args...), vcat, Iterators.product(eachindex(mats),eachindex(models)) )
+function generate_geometry_materials_fn(mats,models,args...)
+	models_vcat = mapreduce(
+		ij->get_model(mats[ij[1]],models[ij[2]],args...),
+		vcat,
+		Iterators.product(eachindex(mats),eachindex(models)),
+	)
+	geom_mats_fn = build_function(
+		models_vcat,
+		[Num(Sym{Real}(arg)) for arg in args]...;
+		# force_SA=true,
+		# convert_oop=false,
+		expression=Val{false},
+	)[1]
+	return geom_mats_fn
+end
+
+
+geom_fn1 = generate_geometry_materials_fn(mats,models,args...)
+geom_fn2 = generate_geometry_materials_fn(mats,models,args...)
+geom_fn3 = eval(generate_geometry_materials_fn(mats,models,args...))
+##
+
+
+struct Geometry2{TF1,TF2,TP,TM1,TM2}
+	shapes_fn::TF1
+	materials_fn::TF2
+	params::TP
+	materials::TM1
+	models::TM2
+end
+
+function Geometry2(shapes_fn,param_defaults,material_models)  #where S<:Shape{N} where N
+	shapes = shapes_fn(param_defaults)
+	mats =  materials(shapes)
+	material_inds = matinds(shapes)
+	shapes_fn_matinds = p -> [ (@set shp.data = matidx) for (shp,matidx) in zip(shapes_fn(p),material_inds) ]
+	mats_fn = generate_geometry_materials_fn(mats,material_models,:λ)
+	mat_names = getfield.(mats,(:name,))
+	return Geometry2(
+		shapes_fn_matinds,
+		mats_fn,
+		param_defaults,
+		material_models,
+		material_models,
+	)
+end
+
+
+gg21 = Geometry2(x->rwg(x).shapes,p,(:ε,))
+gg22 = Geometry2(x->rwg(x).shapes,p,(:ε, (nn̂g_model,:ε), (nĝvd_model,:ε)))
+
+## check gradients
+gradRM(fn,in) 		= 	Zygote.gradient(fn,in)[1]
+gradFM(fn,in) 		= 	ForwardDiff.gradient(fn,in)
+gradFD(fn,in;n=3)	=	FiniteDifferences.grad(central_fdm(n,1),fn,in)[1]
+
 
 ##
 
+ff1 = x->sum(sum(foo10(x[1],x[2:5],:fεs,rwg,Grid(6.,4.,128,128))))
+ff2 = x->sum(sum(foo11(x[1],x[2:5],(:fεs,:fnn̂gs),rwg,Grid(6.,4.,128,128))))
+in1 = [0.6,p...]
+##
+println("ff1 grads: ")
+@show dff1RM = gradRM(ff1,in1)
+@show dff1FM = gradFM(ff1,in1)
+@show dff1FD = gradFD(ff1,in1)
+println("\nff2 grads: ")
+@show dff2RM = gradRM(ff2,in1)
+@show dff2FM = gradFM(ff2,in1)
+@show dff2FD = gradFD(ff2,in1)
+
+##
+Zygote.gradient(x->sum(sum(foo10(x[1],x[2:5],:fεs,rwg,Grid(6.,4.,128,128)))),[0.6,p...])[1]
+# ([3463.713922016181, 2490.3847632820093, 23034.200708066717, -16297.824941034361, 909.190141685666],)
+Zygote.gradient(x->sum(sum(foo11(x[1],x[2:5],(:fεs,:fnn̂gs),rwg,Grid(6.,4.,128,128)))),[0.6,p...])
+# ([5138.615248004345, 5055.878458463492, 46735.540925488545, -33011.18691659402, 1845.5821824636203],)
+
+ForwardDiff.gradient(x->sum(sum(foo10(x[1],x[2:5],:fεs,rwg,Grid(6.,4.,128,128)))),[0.6,p...])
+ForwardDiff.gradient(x->sum(sum(foo11(x[1],x[2:5],(:fεs,:fnn̂gs),rwg,Grid(6.,4.,128,128)))),[0.6,p...])
+
+FiniteDifferences.grad()
+
+##
+geom = rwg(p)
+om=0.6  # frequency ω = 1/λ
+ix,iy = 84,71	 # smoothed pixel inds on rwg sidewall boundry using default params `p`
+
+sinds = proc_sinds(corner_sinds(geom.shapes,xyzc))
+mat_vals1 = map(f->SMatrix{3,3}(f(inv(om))),geom.fεs)
+mat_vals2 = mapreduce(ss->[ map(f->SMatrix{3,3}(f(inv(om))),getfield(geom,ss))... ], hcat, [:fεs,:fnn̂gs,:fnĝvds]);
+
+sv1 = smooth_val(sinds[ix,iy],geom.shapes,geom.material_inds,mat_vals1,xyz[ix,iy],vxlmin[ix,iy],vxlmax[ix,iy])
+sv2 = smooth_val(sinds[ix,iy],geom.shapes,geom.material_inds,mat_vals2,xyz[ix,iy],vxlmin[ix,iy],vxlmax[ix,iy])
+
+
+function fsv1(om_p; ix,iy,grid=Grid(6.,4.,128,128))
+	geom = rwg(om_p[2:5])
+	xyz,xyzc,vxlmin,vxlmax,sinds,fs = Zygote.@ignore begin
+		xyz = x⃗(grid)
+		xyzc = x⃗c(grid)
+		vxlmin = @view xyzc[1:max((end-1),1),1:max((end-1),1)]
+		vxlmax = @view xyzc[min(2,end):end,min(2,end):end]
+		sinds = proc_sinds(corner_sinds(geom.shapes,xyzc))
+		fs = geom.fεs
+		return xyz,xyzc,vxlmin,vxlmax,sinds,fs
+	end
+	mat_vals = map(f->SMatrix{3,3}(f(inv(first(om_p)))),fs)
+	sv1 = smooth_val(sinds[ix,iy],geom.shapes,geom.material_inds,mat_vals,xyz[ix,iy],vxlmin[ix,iy],vxlmax[ix,iy])
+end
+
+fsv1([0.6,p...];ix=84,iy=71)[1,2]
+Zygote.gradient(a->fsv1(a;ix=84,iy=71)[1,2],[0.6,p...])
+ForwardDiff.gradient(a->fsv1(a;ix=84,iy=71)[1,2],[0.6,p...])
+FiniteDifferences.grad(central_fdm(3,1),a->fsv1(a;ix=84,iy=71)[1,2],[0.6,p...])
+
+##
+
+
+##
+
+Srvol = S_rvol(geom,grid)
+ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+minds = geom.material_inds
+es = vcat(map(f->SMatrix{3,3}(f( 1. / ω )),geom.fεs),[εᵥ,])
+eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+##
+LNxN = NumMat(LNx;expr_module=@__MODULE__())
+SiO2N = NumMat(SiO₂;expr_module=@__MODULE__())
+rwg1(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNxN,SiO2N,Δx,Δy)
+rwg2(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,NumMat(LNx),NumMat(SiO₂),Δx,Δy)
+
+geom1 = rwg1(p)
+geom2 = rwg2(p)
+
+## single ω solve_n gradient checks, ms created within solve_n
+function gradtest_solve_n(ω0)
+        err_style = NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
+        println("...............................................................")
+        println("solve_n (single ω) gradient checks, ms created within solve_n: ")
+        @show ω0
+        neff1,ng1,gvd1,E1 = solve_n(ω0+rand()*0.1,rwg(p),grid)
+
+        println("∂n_om, dispersive materials:")
+        om = ω0 #+rand()*0.1
+        println("\t∂n_om (Zygote):")
+        ∂n_om_RAD = Zygote.gradient(x->solve_n(x,rwg(p),grid)[1],om)[1]
+        println("\t$∂n_om_RAD")
+        solve_n(om+rand()*0.2,rwg(p),grid)
+        println("\t∂n_om (FD):")
+        ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg(p),grid)[1],om)[1]
+        println("\t$∂n_om_FD")
+        println(err_style("∂n_om_err:"))
+        ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
+        println("$∂n_om_err")
+        n_disp = solve_n(om,rwg(p),grid)[1]
+        ng_manual_disp = n_disp + om * ∂n_om_FD
+        println("ng_manual: $ng_manual_disp")
+
+        println("∂ng_om, dispersive materials:")
+        # om = ω0+rand()*0.1
+        println("\t∂ng_om (Zygote):")
+        ∂ng_om_RAD = Zygote.gradient(x->solve_n(x,rwg(p),grid)[2],om)[1]
+        println("\t$∂ng_om_RAD")
+        solve_n(om+rand()*0.2,rwg(p),grid)
+        println("\t∂ng_om (FD):")
+        ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg(p),grid)[2],om)[1]
+        println("\t$∂ng_om_FD")
+        println(err_style("∂ng_om_err:"))
+        ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs.(∂ng_om_FD)
+        println("$∂ng_om_err")
+
+        println("∂n_p, dispersive materials:")
+        # om = ω0+rand()*0.1
+        println("\t∂n_p (Zygote):")
+        ∂n_p_RAD =  Zygote.gradient(x->solve_n(om,rwg(x),grid)[1],p)[1]
+        println("\t$∂n_p_RAD")
+        solve_n(om+rand()*0.2,rwg(p),grid)
+        println("\t∂n_p (FD):")
+        ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg(x),grid)[1],p)[1]
+        println("\t$∂n_p_FD")
+        println(err_style("∂n_p_err:"))
+        ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
+        println("$∂n_p_err")
+
+        println("∂ng_p, dispersive materials:")
+        # om = ω0+rand()*0.1
+        println("\t∂ng_p (Zygote):")
+        ∂ng_p_RAD = Zygote.gradient(x->solve_n(om,rwg(x),grid)[2],p)[1]
+        println("\t$∂ng_p_RAD")
+        solve_n(om+rand()*0.2,rwg(p),grid)
+        println("\t∂ng_p (FD):")
+        ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg(x),grid)[2],p)[1]
+        println("\t$∂ng_p_FD")
+        println(err_style("∂ng_p_err:"))
+        ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
+                println("$∂ng_p_err")
+                println("...............................................................")
+end
+
+gradtest_solve_n(0.5)
+gradtest_solve_n(0.7)
+gradtest_solve_n(0.8)
+gradtest_solve_n(0.9)
+
+##
 Δx,Δy,Δz,Nx,Ny,Nz = 6.0, 4.0, 1.0, 32, 32, 1;
 grid = Grid(Δx,Δy,Nx,Ny)
 kxtcsp = kx_tc_sp(k,grid)
@@ -953,130 +1231,7 @@ n̄2r ./ n̄mf
 @show maximum(abs.(n̄mf))
 
 
-## single ω solve_n gradient checks, ms created within solve_n
-function gradtest_solve_n(ω0)
-        err_style = NEGATIVE*BOLD*BLUE_FG      # defined in Crayons.Box
-        println("...............................................................")
-        println("solve_n (single ω) gradient checks, ms created within solve_n: ")
-        @show ω0
-        neff1,ng1 = solve_n(ω0+rand()*0.1,rwg(p),gr)
-        neff2,ng2 = solve_n(ω0+rand()*0.1,rwg2(p),gr)
 
-        println("∂n_om, non-dispersive materials:")
-        om = ω0 #+rand()*0.1
-        println("\t∂n_om (Zygote):")
-        ∂n_om_RAD = Zygote.gradient(x->solve_n(x,rwg2(p),gr)[1],om)[1]
-        println("\t$∂n_om_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂n_om (FD):")
-        ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg2(p),gr)[1],om)[1]
-        println("\t$∂n_om_FD")
-        println(err_style("∂n_om_err:"))
-        ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
-        println("$∂n_om_err")
-        n_ndisp = solve_n(om,rwg2(p),gr)[1]
-        ng_manual_ndisp = n_ndisp + om * ∂n_om_FD
-        println("ng_manual: $ng_manual_ndisp")
-
-        println("∂ng_om, non-dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂ng_om (Zygote):")
-        ∂ng_om_RAD = Zygote.gradient(x->solve_n(x,rwg2(p),gr)[2],om)[1]
-        println("\t$∂ng_om_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂ng_om (FD):")
-        ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg2(p),gr)[2],om)[1]
-        println("\t$∂ng_om_FD")
-        println(err_style("∂ng_om_err:"))
-        ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs(∂ng_om_FD)
-        println("$∂ng_om_err")
-
-        println("∂n_om, dispersive materials:")
-        om = ω0 #+rand()*0.1
-        println("\t∂n_om (Zygote):")
-        ∂n_om_RAD = Zygote.gradient(x->solve_n(x,rwg(p),gr)[1],om)[1]
-        println("\t$∂n_om_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂n_om (FD):")
-        ∂n_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg(p),gr)[1],om)[1]
-        println("\t$∂n_om_FD")
-        println(err_style("∂n_om_err:"))
-        ∂n_om_err = abs(∂n_om_RAD - ∂n_om_FD) / abs(∂n_om_FD)
-        println("$∂n_om_err")
-        n_disp = solve_n(om,rwg(p),gr)[1]
-        ng_manual_disp = n_disp + om * ∂n_om_FD
-        println("ng_manual: $ng_manual_disp")
-
-        println("∂ng_om, dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂ng_om (Zygote):")
-        ∂ng_om_RAD = Zygote.gradient(x->solve_n(x,rwg(p),gr)[2],om)[1]
-        println("\t$∂ng_om_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂ng_om (FD):")
-        ∂ng_om_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(x,rwg(p),gr)[2],om)[1]
-        println("\t$∂ng_om_FD")
-        println(err_style("∂ng_om_err:"))
-        ∂ng_om_err = abs( ∂ng_om_RAD -  ∂ng_om_FD) /  abs.(∂ng_om_FD)
-        println("$∂ng_om_err")
-
-        println("∂n_p, non-dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂n_p (Zygote):")
-        ∂n_p_RAD =  Zygote.gradient(x->solve_n(om,rwg2(x),gr)[1],p)[1]
-        println("\t$∂n_p_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂n_p (FD):")
-        ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg2(x),gr)[1],p)[1]
-        println("\t$∂n_p_FD")
-        println(err_style("∂n_p_err:"))
-        ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
-        println("$∂n_p_err")
-
-        println("∂n_p, dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂n_p (Zygote):")
-        ∂n_p_RAD =  Zygote.gradient(x->solve_n(om,rwg(x),gr)[1],p)[1]
-        println("\t$∂n_p_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂n_p (FD):")
-        ∂n_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg(x),gr)[1],p)[1]
-        println("\t$∂n_p_FD")
-        println(err_style("∂n_p_err:"))
-        ∂n_p_err = abs.(∂n_p_RAD .- ∂n_p_FD) ./ abs.(∂n_p_FD)
-        println("$∂n_p_err")
-
-        println("∂ng_p, non-dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂ng_p (Zygote):")
-        ∂ng_p_RAD = Zygote.gradient(x->solve_n(om,rwg2(x),gr)[2],p)[1]
-        println("\t$∂ng_p_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂ng_p (FD):")
-        ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg2(x),gr)[2],p)[1]
-        println("\t$∂ng_p_FD")
-        println(err_style("∂ng_p_err:"))
-        ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
-        println("$∂ng_p_err")
-
-        println("∂ng_p, dispersive materials:")
-        # om = ω0+rand()*0.1
-        println("\t∂ng_p (Zygote):")
-        ∂ng_p_RAD = Zygote.gradient(x->solve_n(om,rwg(x),gr)[2],p)[1]
-        println("\t$∂ng_p_RAD")
-        solve_n(om+rand()*0.2,rwg(p),gr)
-        println("\t∂ng_p (FD):")
-        ∂ng_p_FD =  FiniteDifferences.grad(central_fdm(3,1),x->solve_n(om,rwg(x),gr)[2],p)[1]
-        println("\t$∂ng_p_FD")
-        println(err_style("∂ng_p_err:"))
-        ∂ng_p_err = abs.(∂ng_p_RAD .- ∂ng_p_FD) ./ ∂ng_p_FD
-                println("$∂ng_p_err")
-                println("...............................................................")
-end
-
-gradtest_solve_n(0.7)
-gradtest_solve_n(0.8)
-gradtest_solve_n(0.9)
 ##
 
 ## single ω solve_n gradient checks, ms created within solve_n
@@ -2214,3 +2369,215 @@ function ff2(p::SVector{N}, kd::KDTree{N}, sbg::Shape{N}) where {N}
         return ff2(p, kd.s, sbg)
     end
 end
+##
+# function foo1(ω,geom::Geometry,grid::Grid)
+# 	Srvol = S_rvol(geom,grid)
+# 	ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+# 	minds = geom.material_inds
+# 	es = vcat(map(f->SMatrix{3,3}(f( 1. / ω )),geom.fεs),[εᵥ,])
+# 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+# 	ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+# end
+#
+# function foo2(ω,pp::Vector{<:Real},grid::Grid)
+# 	geom = rwg(pp)
+# 	Srvol = S_rvol(geom,grid)
+# 	ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+# 	minds = geom.material_inds
+# 	es = vcat(map(f->SMatrix{3,3}(f( 1. / ω )),geom.fεs),[εᵥ,])
+# 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+# 	ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+# end
+#
+# function foo3(ω,pp::Vector{<:Real},grid::Grid)
+# 	geom = rwg(pp)
+# 	# Srvol = S_rvol(geom,grid)
+# 	# ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+# 	# minds = geom.material_inds
+# 	es = vcat(map(f->SMatrix{3,3}(f( 1. / ω )),geom.fεs),[εᵥ,])
+# 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+# 	# ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+# 	sum(sum(eis))
+# end
+#
+# function foo4(ω,pp::Vector{<:Real},grid::Grid)
+# 	geom = rwg(pp)
+# 	Srvol = S_rvol(geom,grid)
+# 	# ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+# 	# minds = geom.material_inds
+# 	# es = vcat(map(f->SMatrix{3,3}(f( 1. / ω )),geom.fεs),[εᵥ,])
+# 	# eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
+# 	# ei_new = εₛ⁻¹(es,eis,dropgrad(ps),dropgrad(minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
+# 	sum(sum([srv[1] for srv in Srvol]))
+# end
+#
+#
+#
+# function _V32(v::SVector{2,T})::SVector{3,T} where T<:Real
+# 	return vcat(v,0.0)
+# end
+#
+# _V32(v::SVector{3}) = v
+#
+# make_KDTree(shapes::AbstractVector{<:Shape}) = (tree = @ignore (KDTree(shapes)); tree)::KDTree
+#
+#
+# function foo5(ω,pp::Vector{<:Real},grid::Grid)
+# 	geom = rwg(pp)
+# 	xyz::Matrix{SVector{3, Float64}} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+# 	xyzc::Matrix{SVector{3, Float64}} = Zygote.@ignore(x⃗c(grid))
+# 	ps::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+#
+# 	# xyz = x⃗(grid)		# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+# 	# xyzc = x⃗c(grid)
+# 	# ps = proc_sinds(geom.shapes,grid)
+# 	vxlmin = @view xyzc[1:max((end-1),1),1:max((end-1),1)]
+# 	vxlmax = @view xyzc[min(2,end):end,min(2,end):end]
+# 	# # Srvol = Zygote.forwarddiff(p) do p
+# 	# # 	geom = rwg(pp)
+# 	# # 	# f(sp,xx,vn,vp) = let s=geom.shapes
+# 	# # 	map(ps,xyz,vxlmin,vxlmax) do sp,xx,vn,vp
+# 	# # 		# _S_rvol(sp,x,vn,vp,s)
+# 	# # 		if iszero(sp[2])
+# 	# # 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)
+# 	# # 		elseif iszero(sp[3])
+# 	# # 			r₀,n⃗ = surfpt_nearby(_V32(xx), geom.shapes[sp[1]])
+# 	# # 			rvol = volfrac((vn,vp),n⃗,r₀)
+# 	# # 			return normcart(_V32(n⃗)), rvol # normcart(n⃗), rvol #
+# 	# # 		else
+# 	# # 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)  # naive averaging to be used
+# 	# # 		end
+# 	# # 	end
+# 	# # 	# map(f,ps,xyz,vxlmin,vxlmax)
+# 	# # 	# [f(ps[i],xyz[i],vxlmin[i],vxlmax[i]) for i in eachindex(ps)]
+# 	# # end
+# 	Srvol = map(ps,xyz,vxlmin,vxlmax) do sp,xx,vn,vp
+#
+# 		if iszero(sp[2])
+# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)
+# 		elseif iszero(sp[3])
+# 			r₀,n⃗ = surfpt_nearby(xx, geom.shapes[sp[1]])
+# 			rvol = volfrac((vn,vp),n⃗,r₀)
+# 			return normcart(n⃗), rvol # normcart(n⃗), rvol #
+# 		else
+# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)  # naive averaging to be used
+# 		end
+# 	end
+# 	sum(sum([srv[1] for srv in Srvol]))
+# end
+#
+# function foo6(ω,pp::Vector{T},grid::Grid) where T<:Real
+# 	xyz::Matrix{SVector{3, Float64}} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+# 	xyzc::Matrix{SVector{3, Float64}} = Zygote.@ignore(x⃗c(grid))
+#
+# 	vxlmin = @view xyzc[1:max((end-1),1),1:max((end-1),1)]
+# 	vxlmax = @view xyzc[min(2,end):end,min(2,end):end]
+#
+# 	# Srvol::Matrix{Tuple{SMatrix{3, 3, T, 9}, T}} = Zygote.forwarddiff(p) do p
+# 	# 	shapes::Vector{Shape2{Matrix{T},T}} = rwg2(pp)
+# 	# 	ps::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(shapes,grid))
+# 	# 	# f(sp,xx,vn,vp) = let s=shapes
+# 	# 	map(ps,xyz,vxlmin,vxlmax) do sp,xx,vn,vp
+# 	# 		# _S_rvol(sp,x,vn,vp,s)
+# 	# 		if iszero(sp[2])
+# 	# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)
+# 	# 		elseif iszero(sp[3])
+# 	# 			r₀,n⃗ = surfpt_nearby(xx, shapes[sp[1]])
+# 	# 			rvol = volfrac((vn,vp),n⃗,r₀)
+# 	# 			return normcart(n⃗), rvol # normcart(n⃗), rvol #
+# 	# 		else
+# 	# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)  # naive averaging to be used
+# 	# 		end
+# 	# 	end
+# 	# 	# map(f,ps,xyz,vxlmin,vxlmax)
+# 	# 	# [f(ps[i],xyz[i],vxlmin[i],vxlmax[i]) for i in eachindex(ps)]
+# 	# end
+#
+# 	shapes::Vector{Shape2{Matrix{T},T}} = rwg2(pp)
+# 	ps::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(shapes,grid))
+#
+# 	Srvol::Matrix{Tuple{SMatrix{3, 3, T, 9}, T}} = map(ps,xyz,vxlmin,vxlmax) do sp,xx,vn,vp
+#
+# 		if iszero(sp[2])
+# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)
+# 		elseif iszero(sp[3])
+# 			r₀,n⃗ = surfpt_nearby(xx, shapes[sp[1]])
+# 			rvol = volfrac((vn,vp),n⃗,r₀)
+# 			return normcart(n⃗), rvol # normcart(n⃗), rvol #
+# 		else
+# 			return (SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.), 0.)  # naive averaging to be used
+# 		end
+# 	end
+#
+# 	sum(sum([srv[1] for srv in Srvol]))
+# end
+#
+#
+#
+# function sidx1(xx::SVector{N,T},shapes::AbstractArray{S},def_idx::TI) where {N,T,S,TI<:Int}
+# 	idx0 = findfirst(ss->in(xx,ss),shapes)
+# 	idx::TI = isnothing(idx0) ? def_idx : idx0
+# end
+#
+# function sidx1(xx::SVector{N,T},tree::KDTree,def_idx::TI) where {N,T,TI<:Int}
+# 	idx0 = findfirst(xx,tree)
+# 	idx::TI = isnothing(idx0) ? def_idx : idx0
+# end
+#
+# function f_sidx1(shapes::AbstractArray{S},def_idx::TI) where {S,TI<:Int}
+# 	ff = let shapes=shapes, def_idx=def_idx
+# 		xx->sidx1(xx,shapes,def_idx)
+# 	end
+# 	return ff
+# end
+#
+# function sidx3(xx::SVector{N,T},shapes::AbstractArray{S}) where {N,T,S}
+# 	xin(ss) = let xx=xx
+# 		in(xx,ss)
+# 	end
+# 	idx0 = findfirst(xin,shapes)
+# 	idx::Int64 = isnothing(idx0) ? length(shapes)+1 : idx0
+# end
+#
+# # function cs1(corner_sinds,shapes::Vector{S},xyz,xyzc::AbstractArray{T}) where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
+# # 	ps = pairs(shapes)
+# # 	lsp1 = length(shapes) + 1
+# # 	map!(corner_sinds,xyzc) do p
+# # 		let ps=ps, lsp1=lsp1
+# # 			for (i, a) in ps #pairs(s)
+# # 				in(p::T,a::S)::Bool && return i
+# # 			end
+# # 			return lsp1
+# # 		end
+# # 	end
+# # end
+# #
+# # function ps2(cs::AbstractArray{Int,2},xyz)
+# # 	unq = [0,0,0,0]
+# # 	sinds = zeros(Int64,(4,size(xyz)...)) #zeros(eltype(first(corner_sinds)),size(corner_sinds).-1)
+# # 	@inbounds for I ∈ CartesianIndices(xyz)
+# # 	 	unq = [		cs[I],
+# # 					cs[I+CartesianIndex(1,0)],
+# # 					cs[I+CartesianIndex(0,1)],
+# # 					cs[I+CartesianIndex(1,1)]
+# # 			  ]
+# # 		unique!( sort!(unq) )
+# # 		sinds[1:length(unq),I] = unq
+# # 	end
+# # 	return sinds
+# # end
+#
+# function foo9(ω::T1,p::AbstractVector{T2},fname::Symbol,f_geom::F,grid::Grid) where {T1<:Real,T2<:Real,F}
+# 	n_p = length(p)
+# 	om_p = vcat(ω,p)
+# 	arr_flat = Zygote.forwarddiff(om_p) do om_p
+# 		geom = f_geom(om_p[2:n_p+1])
+# 		Srvol = S_rvol(geom,grid)
+# 		ps = Zygote.@ignore(proc_sinds(geom.shapes,grid))
+# 		minds = geom.material_inds
+# 		es = vcat(map(f->SMatrix{3,3}(f( inv(first(om_p)) )),getfield(geom,fname)),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
+# 		return flat(εₛ(es,dropgrad(ps),dropgrad(minds),Srvol))  # new spatially smoothed ε tensor array
+# 	end
+# 	# return arr_flat
+# 	return parent(parent(arr_flat))
+# end

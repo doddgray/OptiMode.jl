@@ -49,7 +49,7 @@ function make_Si₃N₄(;p_n²=p_n²_Si₃N₄)
 		:T		=>		p_n².T₀,	# °C
 
 	])
-	Material(models, defaults, :Si₃N₄)
+	Material(models, defaults, :Si₃N₄, colorant"firebrick1")
 end
 
 ################################################################

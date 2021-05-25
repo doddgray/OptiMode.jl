@@ -1,4 +1,3 @@
-# using Revise
 using Revise
 using OptiMode
 using GeometryPrimitives
@@ -9,6 +8,7 @@ using ChainRules
 using Zygote
 using ForwardDiff
 using UnicodePlots
+using FFTW
 using OhMyREPL
 using Crayons.Box       # for color printing
 using Rotations: RotY, MRP
@@ -34,11 +34,21 @@ p = [
 geom = rwg(p)
 ##
 ms = ModeSolver(1.45, geom, grid, nev=4)
-ωs = range(0.6,0.8,length=8) |> collect
+ωs = range(0.6,0.8,length=16) |> collect
 using OptiMode: _solve_n_serial
 ##
-TE_filter = αX->sum(abs2,𝓟x̄(ms.grid)*αX[2])>0.9
-TM_filter = αX->sum(abs2,𝓟x(ms.grid)*αX[2])>0.9
+
+function E_relpower_xyz(ms::ModeSolver{ND,T},ω²H) where {ND,T<:Real}
+    E = 1im * ε⁻¹_dot( fft( kx_tc( reshape(ω²H[2],(2,size(ms.grid)...)),mn(ms),ms.M̂.mag), (2:1+ND) ), flat( ms.M̂.ε⁻¹ ))
+    Es = reinterpret(reshape, SVector{3,Complex{T}},  E)
+    Pₑ_xyz_rel = normalize([mapreduce((ee,epss)->(abs2(ee[a])*inv(epss)[a,a]),+,Es,ms.M̂.ε⁻¹) for a=1:3],1)
+    return Pₑ_xyz_rel
+end
+# E_relpower_xyz(ms,(real(ms.ω²[eigind]),ms.H⃗[:,eigind]))
+TE_filter = (ms,ω²H)->E_relpower_xyz(ms,ω²H)[1]>0.7
+TM_filter = (ms,ω²H)->E_relpower_xyz(ms,ω²H)[2]>0.7
+oddX_filter = αX->sum(abs2,𝓟x̄(ms.grid)*αX[2])>0.9
+evenX_filter = αX->sum(abs2,𝓟x(ms.grid)*αX[2])>0.9
 ns_TE,ngs_TE,gvds_TE,Evs_TE = _solve_n_serial(ms,ωs,geom;f_filter=TE_filter)
 ns_TM,ngs_TM,gvds_TM,Evs_TM = _solve_n_serial(ms,ωs,geom;f_filter=TM_filter)
 ##
@@ -47,59 +57,6 @@ using AbstractPlotting: lines, lines!, scatterlines, scatterlines!, GeometryBasi
 using Colors
 import Colors: JULIA_LOGO_COLORS
 logocolors = JULIA_LOGO_COLORS
-# AbstractPlotting.convert_arguments(x::GeometryPrimitives.Polygon) = (GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),])),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
-# plottype(::GeometryPrimitives.Polygon) = Poly
-# AbstractPlotting.convert_arguments(x::GeometryPrimitives.Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
-# plottype(::GeometryPrimitives.Box) = Poly
-#
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
-# plottype(::Geometry) = Poly
-#
-# import Base: convert
-# # convert(::Type{GeometryBasics.Polygon},x::GeometryPrimitives.Polygon) = GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),]))
-# # AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
-# # AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
-# #
-# convert(::Type{GeometryBasics.Rect2D},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
-# convert(::Type{<:GeometryBasics.HyperRectangle},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
-# AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
-# # plottype(::GeometryPrimitives.Box) = Poly
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:GeometryPrimitives.Shape}) = (convert_arguments.((P,),x)...,)
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:Shape}) = (convert_arguments.((P,),x)...,)
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Vector{<:Shape2}) = (convert_arguments.((P,),x)...,)
-# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:GeometryPrimitives.Shape}) = (convert_arguments.((P,),x)...,)
-# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:Shape}) = (convert_arguments.((P,),x)...,)
-# AbstractPlotting.convert_arguments(P::PointBased, x::Vector{<:Shape2}) = (convert_arguments.((P,),x)...,)
-
-# AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::Geometry) = (x.shapes...,)
-# plottype(::Geometry) = Poly
-
-##
-bg_color=:black
-strokecolor=:white
-strokewidth=2
-ax.backgroundcolor=bg_color
-n_shapes = size(geom.shapes,1)
-shape_colors = [getfield(geom.materials[geom.material_inds[i]],:color) for i=1:n_shapes]
-# poly!([convert_arguments(geom.shapes[1])...],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
-# poly!(convert_arguments(geom.shapes[2])[1],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
-# poly!(convert_arguments(geom.shapes[3])[1],color=color_subs, axis=ax, strokecolor=:white, strokewidth=2)
-plys = [ poly!(
-			geom.shapes[i],
-			color=shape_colors[i],
-			axis=ax,
-			strokecolor,
-			strokewidth,
-		) for i=1:n_shapes ]
-
-
-mat_leg = Legend(
-	fig[1,2],
-	[PolyElement(color = c, strokecolor = :black) for c in mat_colors],
-	String.(nameof.(geom.materials)),
-)
-
 
 
 ##
@@ -131,16 +88,6 @@ function indicator(fig,args...; tellwidth=false, kwargs...)
 end
 
 
-##
-function plot_rwg_geom(geom::Geometry,ax;color_core=logocolors[:green],color_subs=logocolors[:blue],color_bg=:black)
-    ax.backgroundcolor=:black
-    poly!([convert_arguments(geom.shapes[1])...],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
-    poly!(convert_arguments(geom.shapes[2])[1],color=color_core, axis=ax, strokecolor=:white, strokewidth=2)
-    poly!(convert_arguments(geom.shapes[3])[1],color=color_subs, axis=ax, strokecolor=:white, strokewidth=2)
-end
-
-#strokecolor=:black,strokewidth=1)
-# poly!(ax_geom,geom.shapes[2],color=:blue,strokecolor=:black,strokewidth=1)
 
 ##
 
@@ -152,22 +99,36 @@ fig = Figure()
 
 # dispersion plots
 disp = ( (ns_TE,ns_TM), (ngs_TE,ngs_TM), (gvds_TE,gvds_TM) )
+# labels_disp = [la*lb for la in ["neff", "ng", "gvd"], lb in [" TE₀₀", " TM₀₀"]]
+labels_disp = [" TE₀₀", " TM₀₀"]
 # labels_disp = ["n", "ng" ] .* [",TE",",TM"]
 
 n_disp = length(disp)
 n_modes = 2
 λs = inv.(ωs)
 ax_disp = fig[1:n_disp,1] = [Axis(fig) for i=1:n_disp]
-colors_disp = [:red,:blue]
+colors_disp = [logocolors[:red],logocolors[:blue]]
 sls_disp 	= 	[scatterlines!(
 					ax_disp[i],
 					λs,
 					disp[i][j],
 					color=colors_disp[j],
 					markercolor=colors_disp[j],
+					strokecolor=colors_disp[j],
+					markersize=2,
+					linewidth=2,
+					label=labels_disp[j],
 				) for i=1:n_disp, j=1:n_modes ]
 disp_models = [:n,:ng,:gvd]
-lns_bulk = [plot_model!(ax_disp[i],geom.materials;model=disp_models[i]) for i=1:3]
+lns_bulk = [plot_model!(ax_disp[i],[LNx,];model=disp_models[i],linewidth=3) for i=1:3]
+
+fig[4,1] = Legend(fig,ax_disp[1],orientation=:horizontal)
+
+hidexdecorations!.(ax_disp[1:end-1])
+[axx.xlabel= "λ [μm]" for axx in ax_disp[end,:]]
+[axx.ylabel= lbl for (axx,lbl) in zip(ax_disp,["neff","ng","gvd"])]
+linkxaxes!(ax_disp...)
+
 
 # spatial plots
 xs = x(ms.grid)
@@ -202,11 +163,11 @@ map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax_E
 ax_spatial = vcat(ax_geom, ax_n, ax_E)
 hidexdecorations!.(ax_spatial[1:end-1,:])
 hideydecorations!.(ax_spatial[:,2:end])
-[axx.xlabel= "x [μm]" for axx in ax_spatial[1:end-1,:]]
+[axx.xlabel= "x [μm]" for axx in ax_spatial[end,:]]
 [axx.ylabel= "y [μm]" for axx in ax_spatial[:,1]]
 [ axx.aspect=DataAspect() for axx in ax_spatial ]
 linkaxes!(ax_spatial...)
-txt= fig[5,2] = indicator(fig)
+txt= fig[4,2] = indicator(fig)
 # for axx in ax_all
 # 	on(mouseposition) do mpos
 #

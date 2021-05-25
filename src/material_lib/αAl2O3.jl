@@ -52,7 +52,7 @@ function make_αAl₂O₃(;p_n=p_n_αAl₂O₃)
 		:T		=>		p_n.T₀,		# °C
 
 	])
-	Material(models, defaults, :αAl₂O₃)
+	Material(models, defaults, :αAl₂O₃,colorant"royalblue1")
 end
 
 ################################################################

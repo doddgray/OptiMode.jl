@@ -51,9 +51,20 @@ function make_SiO₂(;p_n²=p_n²_SiO₂)
 		:T		=>		p_n².T₀,	# °C
 
 	])
-	Material(models, defaults, :SiO₂)
+	Material(models, defaults, :SiO₂, colorant"aqua")
 end
 
 ################################################################
 
 SiO₂ = make_SiO₂()
+# SiO₂_num = 
+
+# struct NumMaterial{T,F1,F2,F3,TC} where {T, F1<:Function, F2<:Function, F3<:Function, TC}
+# 	ε::T
+# 	fε::F1
+# 	fng::F2
+# 	fgvd::F3
+# 	fχ⁽²⁾::F4
+# 	name::Symbol
+# 	color::TC
+# end

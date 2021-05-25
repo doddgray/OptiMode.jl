@@ -40,6 +40,12 @@ function flat(ε::AbstractArray{TA}) where TA<:SMatrix{3,3,T} where T<:Real
     reshape(reinterpret(reshape,T,ε),(3,3,size(ε)...))
 end
 
+function flat(ε::AbstractArray{TA}) where TA<:SMatrix{3,3,T,N} where {T<:Real,N}
+    reshape(reinterpret(reshape,T,ε),(3,3,size(ε)...))
+end
+
+flat(A::Matrix{SMatrix{3, 3, T, 9} where T}) = reshape(reinterpret(reshape,T,A),(3,3,size(A)...))
+
 """
 ################################################################################
 #																			   #

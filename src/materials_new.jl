@@ -5,7 +5,6 @@ using SymbolicUtils.Code: MakeArray
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
 export rotate, mult, unique_axes, plot_data, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
 export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, plot_model!, n_model, ng_model, gvd_model
-export NumMat #, nĝvd_model, nn̂g_model
 
 # RuntimeGeneratedFunctions.init(@__MODULE__)
 
@@ -79,30 +78,6 @@ struct Material <: AbstractMaterial
 	color::Color
 end
 
-struct NumMat{T,F1,F2,F3,F4,TC} # <: AbstractMaterial
-	ε::T
-	fε::F1
-	fnng::F2
-	fngvd::F3
-	fχ⁽²⁾::F4
-	name::Symbol
-	color::TC
-end
-
-function NumMat(mat::AbstractMaterial;expr_module=@__MODULE__())
-	eps_model = get_model(mat,:ε,:λ)
-	feps = generate_fn(mat,:ε,:λ; expr_module)
-	fnng = generate_fn(mat,nn̂g_model(mat),:λ; expr_module)
-	fngvd = generate_fn(mat,nĝvd_model(mat),:λ; expr_module)
-	fchi2 = χ⁽²⁾_fn(mat)
-	return NumMat(eps_model,feps,fnng,fngvd,fchi2,nameof(mat),mat.color)
-end
-Material(nmat::NumMat) = nmat
-get_model(nmat::NumMat,epssymb,args...) = nmat.ε
-ε_fn(mat::NumMat) = mat.fε
-nn̂g_fn(mat::NumMat) =  mat.fnng
-nĝvd_fn(mat::NumMat) = mat.fngvd
-χ⁽²⁾_fn(mat::NumMat) = mat.fχ⁽²⁾
 
 
 # constructor adding random color when color is not specified
@@ -111,7 +86,6 @@ Material(models::Dict,defaults::Dict,name::Symbol) = Material(models,defaults,na
 
 import Base: nameof
 Base.nameof(mat::AbstractMaterial) = getfield(mat, :name)
-Base.nameof(mat::NumMat) = getfield(mat, :name)
 
 material_name(x::Real) = Symbol("Const_Material_$x")
 material_name(x::AbstractVector) = Symbol("Const_Material_$(x[1])_$(x[2])_$(x[3])")
@@ -134,28 +108,13 @@ function get_model(mat::AbstractMaterial,model_name::Symbol,args...)
 	return model_subs
 end
 
-function get_model(mat::AbstractMaterial,fn_model::Tuple{TF,Symbol},args...) where TF<:Function
-	first(fn_model)(get_model(mat,fn_model[2],args...))
-end
-
 function generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 	model = get_model(mat,model_name,args...)
 	if typeof(model)<:AbstractArray
 		# fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model; expr_module, parallel)
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})[1]
+		fn = build_function(model,args...;expression=Val{false})[2]
 	else
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})
-	end
-	return fn
-end
-
-function generate_fn(mat::AbstractMaterial,model,args...; expr_module=@__MODULE__(), parallel=SerialForm())
-	# model = get_model(mat,model_name,args...)
-	if typeof(model)<:AbstractArray
-		# fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model; expr_module, parallel)
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})[1]
-	else
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})
+		fn = build_function(model,args...;expression=Val{false})
 	end
 	return fn
 end
@@ -225,11 +184,9 @@ function rotate(mat::TM,𝓡::TR,defs::Dict;name=nothing,color=mat.color) where 
 end
 
 function get_model(mat::RotatedMaterial,model_name::Symbol,args...)
-	# model = rotate(mat.parent.models[model_name],mat.rotation)
-	model = rotate(get_model(mat.parent,model_name,args...),mat.rotation)
-	# defs = merge(mat.parent.defaults,mat.rotation_defaults)
-	# missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),defs)
-	missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),mat.rotation_defaults)
+	model = rotate(mat.parent.models[model_name],mat.rotation)
+	defs = merge(mat.parent.defaults,mat.rotation_defaults)
+	missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),defs)
 	subs =  Dict([(Sym{Real}(k),v) for (k,v) in missing_var_defaults])
 	if typeof(model)<:AbstractArray
 		model_subs = substitute.(model, (subs,))
@@ -238,12 +195,6 @@ function get_model(mat::RotatedMaterial,model_name::Symbol,args...)
 	end
 	return model_subs
 end
-
-# get_model(mat::RotatedMaterial,model_name::Symbol,model_fn::Function,args...) = model_fn(get_model(mat,model_name,args...))
-function get_model(mat::RotatedMaterial,fn_model::Tuple{TF,Symbol},args...) where TF<:Function
-	first(fn_model)(get_model(mat,fn_model[2],args...))
-end
-
 
 has_model(mat::RotatedMaterial,model_name::Symbol) = haskey(mat.parent.models,model_name)
 
@@ -306,43 +257,26 @@ end
 
 function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	# Dλ = Differential(λ)
+	Dλ = Differential(λ)
 	n_model = sqrt.(get_model(mat,:ε,symbol))
 	return ng_model(n_model,λ) .* n_model
 end
 
 function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	# Dλ = Differential(λ)
+	Dλ = Differential(λ)
 	n_model = sqrt.(get_model(mat,:ε,symbol))
 	return gvd_model(n_model,λ) .* n_model
 end
 
-function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(ε_model)
-	return ng_model(n_model,λ) .* n_model
-end
-
-function nĝvd_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(ε_model)
-	return gvd_model(n_model,λ) .* n_model
-end
-
-# generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 
 ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],get_model(mat,:ε,:λ))
 nn̂g_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nn̂g_model(mat))
 nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nĝvd_model(mat))
 
-
-
-function χ⁽²⁾_fn(mat::AbstractMaterial,expr_module=@__MODULE__())
+function χ⁽²⁾_fn(mat::AbstractMaterial)
 	if has_model(mat,:χ⁽²⁾)
-		return generate_array_fn([Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃))],get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃); expr_module)
-		# return generate_fn(mat,get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃),Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃)); expr_module, parallel=SerialForm())
-		# return generate_fn(mat,:χ⁽²⁾,Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃)); expr_module, parallel=SerialForm())
+		return generate_array_fn([Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃))],get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃))
 	else
 		return (lm1,lm2,lm3) -> zero(SArray{Tuple{3,3,3}})
 	end

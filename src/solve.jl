@@ -1,6 +1,5 @@
-using  IterativeSolvers, Roots # , KrylovKit
 export solve_ω, _solve_Δω², solve_k, solve_n, ng, k_guess, solve_nω, solve_ω², replan_ffts!, filter_eigs
-using Zygote: Buffer
+
 
 """
 ################################################################################
@@ -102,40 +101,36 @@ end
 # add try/catch with
 # res = DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
 
+# struct Eigensolver end
+# struct IS_LOBPCG <: Eigensolver end
+# struct DFTK_LOBPCG <: Eigensolver end
 
-function filter_eigs(ω²,H⃗,f_filter)
-	# f_filter takes in eigenvalue/vector pair `αX` and outputs boolean,
-	# ex. f_filter = αX->sum(abs2,𝓟x(ms.grid)*αX[2])>0.9
-	# filter_bools = f_filter.([(ω²[i],H⃗[:,i]) for i=1:length(ω²)])
-	# ω²H_filt = filter(αXbool->αXbool[3], [(ω²[i],H⃗[:,i],filter_bools[i]) for i=1:length(ω²)] )
 
-	ω²H_filt = filter(f_filter, [(ω²[i],H⃗[:,i]) for i=1:length(ω²)] )
-	return getindex.(ω²H_filt,1), hcat(getindex.(ω²H_filt,2)...) # ω²_filt, H_filt
+
+"""
+f_filter takes in a ModeSolver and an eigenvalue/vector pair `αX` and outputs boolean,
+ex. f_filter = (ms,αX)->sum(abs2,𝓟x(ms.grid)*αX[2])>0.9
+where the modesolver `ms` is passed for access to any auxilary information
+"""
+function filter_eigs(ms::ModeSolver{ND,T},f_filter::Function)::Tuple{Vector{T},Matrix{Complex{T}}} where {ND,T<:Real}
+	ω²H_filt = filter(ω²H->f_filter(ms,ω²H), [(real(ms.ω²[i]),ms.H⃗[:,i]) for i=1:length(ms.ω²)] )
+	return copy(getindex.(ω²H_filt,1)), copy(hcat(getindex.(ω²H_filt,2)...)) # ω²_filt, H_filt
 end
 
-function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=3000,tol=1.6e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-		# ; kwargs...) where T<:Real
-		# ;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false) where T<:Real
-		res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
-		# res = lobpcg!(ms.eigs_itr; log=true,not_zeros=false,maxiter,tol=1e-12)
-		# res = lobpcg(ms.M̂, false, 1; P=ms.P̂, log=true,maxiter,tol=1e-12)
-		# M̂ = HelmholtzMap(ms.M̂.k⃗, ms.M̂.ε⁻¹, ms.grid)
-		# P̂ = HelmholtzPreconditioner(M̂)
-		# eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],1)),P̂,nothing)
-		# res = lobpcg!(eigs_itr; log=true,not_zeros=false,maxiter,tol=1e-7)
-		# # show(res)
-		# println("\t\t\t\tEigs (LOBPCG) @ k = $( ms.M̂.k⃗[3] ) :")
-		# println("\t\t\t\t\tconverged: $(res.converged)")
-		# println("\t\t\t\t\titerations: $(res.iterations)   ($(res.maxiter) max)")
-		# println("\t\t\t\t\teigenvalue: $(res.λ[eigind])")
-		# println("\t\t\t\t\tresidual_norm: $(res.residual_norms[eigind])   (tol: $(res.tolerance))")
-		# return (real(ms.ω²[eigind]), ms.H⃗[:,eigind])
-		# return (copy(real(ms.ω²[eigind])), copy(ms.H⃗[:,eigind]))
+# function _solve_ω²(ms::ModeSolver{ND,T},::;nev=1,eigind=1,maxiter=3000,tol=1.6e-8
+
+function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=3000,tol=1.6e-8,log=false,f_filter=nothing)::Tuple{Vector{T},Matrix{Complex{T}}} where {ND,T<:Real}
+
+		# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
+
+		res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂)
+		copyto!(ms.H⃗,res.X)
+		copyto!(ms.ω²,res.λ)
+
 	if isnothing(f_filter)
 		return (copy(real(ms.ω²)), copy(ms.H⃗))
 	else
-		# filter_eigs(copy(real(ms.ω²)), copy(ms.H⃗), f_filter)
-		return filter_eigs(copy(real(ms.ω²)), copy(ms.H⃗), f_filter)
+		return filter_eigs(ms, f_filter)
 	end
 end
 
@@ -200,14 +195,6 @@ end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::Vector{T},ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND}; nev=1,eigind=1,
 		maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	ε⁻¹ = εₛ⁻¹(shapes;ms=dropgrad(ms))
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
-end
-
-function solve_ω²(k::Vector{T},ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND},gr::Grid{ND}; nev=1,eigind=1,
-		maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	ms = @ignore(ModeSolver(first(k), shapes, gr))  #; nev, eigind, maxiter, tol, log))
 	ε⁻¹ = εₛ⁻¹(shapes;ms=dropgrad(ms))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
@@ -289,10 +276,13 @@ modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x))
 """
 
 function _solve_Δω²(ms::ModeSolver{ND,T},k::Union{T,SVector{3,T}},ωₜ::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real} #,ω²_tol=1e-6)
+	println("k: $(k)")
 	ω²,H⃗ = solve_ω²(ms,k; nev, eigind, maxiter, tol=1e-12, log, f_filter)
 	Δω² = copy(ω²[eigind]) - ωₜ^2
 	# ms.∂ω²∂k[eigind] = 2 * H_Mₖ_H(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
 	∂ω²∂k = 2 * H_Mₖ_H(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+	ms.∂ω²∂k[eigind] = ∂ω²∂k
+	println("∂ω²∂k: $(∂ω²∂k)")
     return Δω² , Δω² / ∂ω²∂k #Δω² / copy(ms.∂ω²∂k[eigind])
 end
 
@@ -314,32 +304,38 @@ end
 # end
 
 # function solve_k(ω,ε⁻¹;Δx=6.0,Δy=4.0,Δz=1.0,k_guess=ω*sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])),neigs=1,eigind=1,maxiter=3000,tol=1e-8)
-function solve_k(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real} #
+function solve_k(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real} #
 	if iszero(ms.M̂.k⃗[3])
 		# println("iszero(ms.M̂.k⃗[3]) cond. in solve_k: ms.M̂.k⃗ = $(ms.M̂.k⃗)")
 		ms.M̂.k⃗ = SVector(0., 0., ω*ñₘₐₓ(ms.M̂.ε⁻¹))
 	end
-    kz = Roots.find_zero(x -> _solve_Δω²(ms,x,ω;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton()) #; verbose=true) #;rtol=ω²_tol)
+    kz = Roots.find_zero(x -> _solve_Δω²(ms,x,ω;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton()) #; verbose=true)
 	# println("\tkz = $kz")
 	if isnothing(f_filter)
 		Hv = copy(ms.H⃗[:,eigind])
 	else
-		Hv = filter_eigs(copy(real(ms.ω²)), copy(ms.H⃗), f_filter)[2][:,eigind]
+		# Hv = filter_eigs(copy(real(ms.ω²)), copy(ms.H⃗), f_filter)[2][:,eigind]
+		Hv = filter_eigs(ms, f_filter)[2][:,eigind]
 	end
     return ( kz, Hv ) # maybe copy(ds.H⃗) instead?
 end
 
-function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
+function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_k(ms, ω; nev, eigind, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ms::ModeSolver{ND,T},ω::T,geom::Geometry;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
+function solve_k(ms::ModeSolver{ND,T},ω::T,geom::Geometry;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms=dropgrad(ms)) # make_εₛ⁻¹(shapes,dropgrad(ms))
 	solve_k(ms, ω, ε⁻¹; nev, eigind, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ω::T,geom::Geometry,gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
+function solve_k(ms::ModeSolver{ND,T},ω::T,p::AbstractVector{T},geom_fn::F;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F}
+	ε⁻¹,nng = smooth(ω,p,(:fεs,:fnn̂gs),[true,false],geom_fn,ms.grid);
+	solve_k(ms, ω, ε⁻¹; nev, eigind, maxiter, tol, log, f_filter)
+end
+
+function solve_k(ω::T,geom::Geometry,gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real}
 	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr))
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms=dropgrad(ms))
 	solve_k(ms, ω, ε⁻¹; nev, eigind, maxiter, tol, log, f_filter)
@@ -397,32 +393,35 @@ end
 ################################################################################
 """
 
-function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nnginv::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log, f_filter) #ω²_tol)
-	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
-	ng = ω / H_Mₖ_H(H⃗[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
-	gvd = ∂²ω²∂k²(ω,geom,k,Hv,grid)
-	E = E⃗(k,reshape(H⃗[:,eigind],(2,size(ms.grid)...)),ω,geom,ms.grid; svecs=false, normalized=true)
-	return ( k/ω, ng, E )
-end
+# function solve_n(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nnginv::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
+# 	@ignore(update_ε⁻¹(ms,ε⁻¹))
+# 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log, f_filter) #ω²_tol)
+# 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
+# 	ng = ω / H_Mₖ_H(H⃗,nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
+# 	gvd = ∂²ω²∂k²(ω,geom,k,Hv,grid)
+# 	neff, ng, gvd = neff_ng_gvd(ω,geom,k,Hv,ms.grid; eigind)
+# 	E = E⃗(k,reshape(H⃗,(2,size(ms.grid)...)),ω,geom,ms.grid; svecs=false, normalized=true)
+# 	return ( k/ω, ng, E )
+# end
 
-function solve_n(ms::ModeSolver{ND,T},ω::T,geom::Geometry;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
+function solve_n(ms::ModeSolver{ND,T},ω::T,geom::Geometry;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
 	ε⁻¹ = εₛ⁻¹(ω,geom;ms) # make_εₛ⁻¹(ω,shapes,dropgrad(ms))
 	nnginv = nngₛ⁻¹(ω,geom;ms)
 	# solve_n(ms, ω,ε⁻¹,nnginv; nev, eigind, maxiter, tol, log, f_filter)
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
+	# update_ε⁻¹(ms,ε⁻¹)
 	k, Hv = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log, f_filter) #ω²_tol)
 	(mag,m⃗,n⃗) = mag_m_n(k,dropgrad(ms.M̂.g⃗))
-	ng = ω / H_Mₖ_H(Hv[:,eigind],nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
-	gvd = ∂²ω²∂k²(ω,geom,k,Hv,ms.grid; eigind)
-	E = E⃗(k,reshape(Hv[:,eigind],(2,size(ms.grid)...)),ω,geom,ms.grid; svecs=false, normalized=true)
-	return ( k/ω, ng, gvd, E )
+	# ng::T = ω / H_Mₖ_H(Hv,nnginv,real(mag),real(reinterpret(reshape,T,m⃗)),real(reinterpret(reshape,T,n⃗))) # new, material disp. included
+	# neff::T = k/ω
+	# gvd = 0.0
+	neff, ng, gvd = neff_ng_gvd(ω,geom,k,Hv,ms.grid; eigind)
+	E = E⃗(k,reshape(Hv,(2,size(ms.grid)...)),ω,geom,ms.grid; normalized=true)
+	return ( neff, ng, gvd, E )
 end
 
 
-function solve_n(ω::T,geom::Geometry,gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,f_filter=nothing) where {ND,T<:Real}
-	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr))
+function solve_n(ω::T,geom::Geometry,gr::Grid{ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+	ms = @ignore(ModeSolver(kguess(ω,geom), geom, gr;nev))
 	solve_n(dropgrad(ms), ω, geom; nev, eigind, maxiter, tol, log, f_filter)
 end
 
@@ -485,7 +484,7 @@ function _solve_n_serial(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Geometry;nev=
 	# 	@inbounds ngs[ωind] = nng[2]
 	# end
 	Srvol = S_rvol(geom;ms=dropgrad(ms))
-	ms_copies = @ignore( [ deepcopy(ms) for om in 1:length(ωs) ] )
+	# ms_copies = @ignore( [ deepcopy(ms) for om in 1:length(ωs) ] )
 
 	nω = length(ωs)
 	n_buff = Buffer(ωs,nω)
@@ -513,7 +512,7 @@ function _solve_n_serial(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Geometry;nev=
 		neff_ω, ng_ω, gvd_ω = neff_ng_gvd(ωs[ωind],geom,k_ω,Hv_ω,ms.grid; eigind)
 
 
-		E_buff[1:3,axes(ms.grid)...,ωind] = E⃗(k_ω,reshape(Hv_ω[:,eigind],(2,size(ms.grid)...)),ωs[ωind],geom,ms.grid; svecs=false, normalized=true)
+		E_buff[1:3,axes(ms.grid)...,ωind] = E⃗(k_ω,reshape(Hv_ω,(2,size(ms.grid)...)),ωs[ωind],geom,ms.grid; normalized=true)
 		n_buff[ωind] =  neff_ω #k_ω/ωs[ωind]
 		ng_buff[ωind] = ng_ω
 		gvd_buff[ωind] = gvd_ω
@@ -537,12 +536,12 @@ end
 
 
 function solve_n(ms::ModeSolver{ND,T},ωs::Vector{T},geom::Geometry;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing,f_filter=nothing) where {ND,T<:Real}
-	_solve_n_serial(ms, ωs, geom; nev, eigind, maxiter, tol, log, ng_nodisp,f_filter)
+	_solve_n_serial(ms, ωs, geom; nev, eigind, maxiter, tol, log,f_filter=dropgrad(f_filter))
 end
 
 function solve_n(ωs::Vector{T},geom::Geometry,gr::Grid;nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,wp=nothing,f_filter=nothing) where {ND,T<:Real}
 	ms = @ignore(ModeSolver(kguess(first(ωs),geom), geom, gr))
-	_solve_n_serial(ms,ωs, geom; nev, eigind, maxiter, tol, log, ng_nodisp,f_filter)
+	_solve_n_serial(ms,ωs, geom; nev, eigind, maxiter, tol, log,f_filter=dropgrad(f_filter))
 end
 
 
@@ -631,7 +630,7 @@ end
 # end
 
 
-# function solve(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nng⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol,ng_nodisp=false) where {ND,T<:Real}
+# function solve(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{<:SMatrix{3,3},ND},nng⁻¹::AbstractArray{<:SMatrix{3,3},ND};nev=1,eigind=1,maxiter=3000,tol=1e-8,log=false,ω²_tol=tol) where {ND,T<:Real}
 # 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 # 	k, H⃗ = solve_k(ms,ω,ε⁻¹;nev,eigind,maxiter,tol,log) #ω²_tol)
 # 	mag,m⃗,n⃗ = mag_m_n(k,grid)
@@ -713,3 +712,5 @@ end
 function uplot(ms::ModeSolver;xlim=[0.5,1.8])
 	ls_mats = uplot(ms.materials;xlim)
 end
+
+uplot(ch::IterativeSolvers.ConvergenceHistory; kwargs...) = lineplot(log10.(ch.data[:resnorm]); name="log10(resnorm)", kwargs...)

@@ -123,7 +123,7 @@ function make_LiB₃O₅(;p_n₁²=p_n₁²_LiB₃O₅, p_n₂²=p_n₂²_LiB₃
 		:λs₂	=>		1.064,		# μm
 		:λs₃	=>		0.532,		# μm
 	])
-	Material(models, defaults, :LiB₃O₅)
+	Material(models, defaults, :LiB₃O₅, colorant"mediumorchid1")
 end
 
 ################################################################

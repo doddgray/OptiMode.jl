@@ -15,6 +15,7 @@ using ArrayInterface
 using StaticArrays
 using HybridArrays
 using StructArrays
+using RecursiveArrayTools
 using FFTW
 using AbstractFFTs
 using GeometryPrimitives
@@ -26,12 +27,14 @@ using LoopVectorization
 using Tullio
 using IterativeSolvers
 using Rotations
-using Colors: Color, RGB, RGBA
+using Colors: Color, RGB, RGBA, @colorant_str
 using RuntimeGeneratedFunctions
 # using ModelingToolkit, Unitful #, Latexify
 using Symbolics
 using SymbolicUtils
 using UnicodePlots, AbstractPlotting
+# using KrylovKit
+using DFTK: LOBPCG
 using StaticArrays: Dynamic, SVector
 using Zygote: Buffer, bufferfrom, @ignore, dropgrad, forwarddiff
 using AbstractPlotting.GeometryBasics

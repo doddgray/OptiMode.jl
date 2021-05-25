@@ -18,32 +18,61 @@ matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(get_model(Material(s.dat
 
 materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Material.(getfield.(shapes,:data)))) # # unique!(getfield.(shapes,:data))
 # εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
-fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(ε_fn.(materials(shapes)) )
-fεs(mats::AbstractVector{<:AbstractMaterial}) = Zygote.@ignore(ε_fn.(mats) )
-εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->SMatrix{3,3}(f(lm)),fεs(shapes))
+# fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(ε_fn.(materials(shapes)) )
+# fεs(mats::AbstractVector{<:AbstractMaterial}) = [(ff=(ε_fn(mat)); lm->ff(lm)) for mat in mats]
+# εs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->SMatrix{3,3}(f(lm)),fεs(shapes))
+#
+# fnn̂gs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) =  Zygote.@ignore( nn̂g_fn.(materials(shapes)) )
+# fnn̂gs(mats::AbstractVector{<:AbstractMaterial}) =   [(ff=(nn̂g_fn(mat)); lm->ff(lm)) for mat in mats]
+# nn̂gs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = [SMatrix{3,3}(f(lm)) for f in nn̂g_fn.(materials(shapes))  ] #map(f->SMatrix{3,3}(f(lm)),fnn̂gs(shapes))
+#
+# fnĝvds(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore( nĝvd_fn.(materials(shapes)) )
+# fnĝvds(mats::AbstractVector{<:AbstractMaterial}) =  [(ff=(nĝvd_fn(mat)); lm->ff(lm)) for mat in mats]
+# nĝvds(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->SMatrix{3,3}(f(lm)),fnĝvds(shapes))
+#
+# fχ⁽²⁾s(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore( χ⁽²⁾_fn.(materials(shapes)) )
+# fχ⁽²⁾s(mats::AbstractVector{<:AbstractMaterial}) =  [(ff=(χ⁽²⁾_fn(mat)); lm->ff(lm)) for mat in mats]
 
-fnn̂gs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) =  Zygote.@ignore( nn̂g_fn.(materials(shapes)) )
-fnn̂gs(mats::AbstractVector{<:AbstractMaterial}) =  Zygote.@ignore( nn̂g_fn.(mats) )
-nn̂gs(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = [SMatrix{3,3}(f(lm)) for f in nn̂g_fn.(materials(shapes))  ] #map(f->SMatrix{3,3}(f(lm)),fnn̂gs(shapes))
+# function f_χ⁽²⁾_vac = SArray{Tuple{3,3,3}}(zeros(Float64,(3,3,3)))
+fεs(mats::AbstractVector{<:NumMat})	   =  vcat( getproperty.(mats,(:fε,)) 	 , x->εᵥ	   )
+fnn̂gs(mats::AbstractVector{<:NumMat})	=  vcat( getproperty.(mats,(:fnng,))  , x->εᵥ	 	)
+fnĝvds(mats::AbstractVector{<:NumMat}) =  vcat( getproperty.(mats,(:fngvd,)) , x->zero(εᵥ) )
+fχ⁽²⁾s(mats::AbstractVector{<:NumMat}) =  vcat( getproperty.(mats,(:fχ⁽²⁾,)) , x->χ⁽²⁾_vac )
 
-fnĝvds(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore( nĝvd_fn.(materials(shapes)) )
-fnĝvds(mats::AbstractVector{<:AbstractMaterial}) = Zygote.@ignore( nĝvd_fn.(mats) )
-nĝvds(shapes::AbstractVector{<:GeometryPrimitives.Shape},lm::Real) = map(f->SMatrix{3,3}(f(lm)),fnĝvds(shapes))
+# fεs(mats)	   =  ( getproperty.(mats,(:fε,))... 	 , x->εᵥ	   )
+# fnn̂gs(mats)	=  ( getproperty.(mats,(:fnng,))...  , x->εᵥ	 	)
+# fnĝvds(mats)   =  ( getproperty.(mats,(:fngvd,))... , x->zero(εᵥ) )
+# fχ⁽²⁾s(mats)   =  ( getproperty.(mats,(:fχ⁽²⁾,))... , x->χ⁽²⁾_vac )
 
-fχ⁽²⁾s(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore( χ⁽²⁾_fn.(materials(shapes)) )
-fχ⁽²⁾s(mats::AbstractVector{<:AbstractMaterial}) = Zygote.@ignore( χ⁽²⁾_fn.(mats) )
 
 struct Geometry
 	shapes::Vector #{<:Shape{N}}
 	materials::Vector #{AbstractMaterial}
 	material_inds::Vector #{Int}
-	fεs::Vector #{Function}
-	fnn̂gs::Vector #{Function}
-	fnĝvds::Vector #{Function}
-	fχ⁽²⁾s::Vector #{Function}
+	fεs #{Function}
+	fnn̂gs #{Function}
+	fnĝvds #{Function}
+	fχ⁽²⁾s #{Function}
 	# material_props::Vector{Symbol}
 	# material_fns::Vector{Function}
 end
+
+# function Geometry(shapes)  #where S<:Shape{N} where N
+# 	mats =  materials(shapes)
+# 	fes = fεs(mats)
+# 	fnngs = fnn̂gs(mats)
+# 	fngvds = fnĝvds(mats)
+# 	fchi2s = fχ⁽²⁾s(mats)
+# 	return Geometry(
+# 		shapes,
+# 		mats,
+# 		matinds(shapes,mats),
+# 		fes,
+# 		fnngs,
+# 		fngvds,
+# 		fchi2s,
+# 	)
+# end
 
 function Geometry(shapes)  #where S<:Shape{N} where N
 	mats =  materials(shapes)
@@ -54,13 +83,15 @@ function Geometry(shapes)  #where S<:Shape{N} where N
 	return Geometry(
 		shapes,
 		mats,
-		matinds(shapes,mats),
+		matinds(shapes),
 		fes,
 		fnngs,
 		fngvds,
 		fchi2s,
 	)
 end
+
+
 
 # matinds(geom::Geometry) = vcat((matinds0 = map(s->findfirst(m->isequal(get_model(Material(s.data),:ε,:λ),get_model(m,:ε,:λ)), materials(geom)),geom.shapes); matinds0),maximum(matinds0)+1)
 # matinds(geom::Geometry) = vcat(map(s->findfirst(m->isequal(s.data,m), materials(geom.shapes)),geom.shapes),length(geom.shapes)+1)
@@ -187,6 +218,53 @@ function ridge_wg_partial_etch(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ:
 	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_subs_y],           	# c: center
                     [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_subs,					 # data: any type, data associated with box shape
+                )
+	# return [core,b_unetch,b_subs]
+	return Geometry([core,b_unetch,b_subs])
+end
+
+function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
+	z_span = 2.0
+	t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+    # ε_core = ε_tensor(n_core)
+    # ε_subs = ε_tensor(n_subs)
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+
+	t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_unetch/2.
+    # verts =     [   wt_half     -wt_half     -wb_half    wb_half
+    #                 tc_half     tc_half    -tc_half      -tc_half    ]'
+	# verts = [   wt_half     tc_half
+	# 			-wt_half    tc_half
+	# 			-wb_half    -tc_half
+	# 			wb_half     -tc_half    ]
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.PolygonalPrism(					                        # Instantiate 2D polygon, here a trapazoid
+					SVector(0.,0.,0.),
+					verts,			                            # v: polygon vertices in counter-clockwise order
+					z_span,
+					[0.,0.,1.],
+					mat_core,					                                    # data: any type, data associated with box shape
+                )
+    ax = [      1.     0.		0.
+                0.     1.      	0.
+				0.		0.		1.		]
+
+	b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_unetch_y, 0.],           	# c: center
+                    [Δx - edge_gap, t_unetch, z_span ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_core,					 # data: any type, data associated with box shape
+                )
+
+	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_subs_y, 0.],           	# c: center
+                    [Δx - edge_gap, t_subs, z_span ],	# r: "radii" (half span of each axis)
                     ax,	    		        	# axes: box axes
                     mat_subs,					 # data: any type, data associated with box shape
                 )

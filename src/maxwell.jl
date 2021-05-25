@@ -177,7 +177,7 @@ function H_Mₖ_H(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Re
 	# @tullio out := conj.(H)[b,i,j,k] * kxscales[b] * kpg_mag[i,j,k] * ε⁻¹_dot_t(zx_t2c(H,mn),ε⁻¹)[a,i,j,k] * mn[a,kxinds[b],i,j,k] nograd=(kxscales,kxinds) nograd=(kxscales,kxinds) fastmath=false
 	# return abs(out[1])
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(flat(ε⁻¹))), (2:3)),mn,mag) ) )
+	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function H_Mₖ_H(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
@@ -227,6 +227,15 @@ function kx_ct!(H::AbstractArray{Complex{T},4},e::AbstractArray{Complex{T},4},m:
     end
     return H
 end
+
+# function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
+#     @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
+#         e[1+h,i,j,k] =  ε⁻¹[1+h,1+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,1+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,1+l,i,j,k]*d[3+l,i,j,k]
+#         e[2+h,i,j,k] =  ε⁻¹[1+h,2+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,2+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,2+l,i,j,k]*d[3+l,i,j,k]
+#         e[3+h,i,j,k] =  ε⁻¹[1+h,3+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,3+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,3+l,i,j,k]*d[3+l,i,j,k]
+#     end
+#     return e
+# end
 
 function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
     @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
@@ -305,14 +314,14 @@ function kx_ct!(H::AbstractArray{Complex{T},3},e::AbstractArray{Complex{T},3},m:
     return H
 end
 
-# function eid!(e::AbstractArray{Complex{T},3},ε⁻¹,d::AbstractArray{Complex{T},3})::AbstractArray{Complex{T},3} where T<:Real
-#     @avx for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
-#         e[1+h,i,j] =  ε⁻¹[1+h,1+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,1+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,1+l,i,j]*d[3+l,i,j]
-#         e[2+h,i,j] =  ε⁻¹[1+h,2+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,2+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,2+l,i,j]*d[3+l,i,j]
-#         e[3+h,i,j] =  ε⁻¹[1+h,3+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,3+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,3+l,i,j]*d[3+l,i,j]
-#     end
-#     return e
-# end
+function eid!(e::AbstractArray{Complex{T},3},ε⁻¹,d::AbstractArray{Complex{T},3}) where T<:Real
+    @avx for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
+        e[1+h,i,j] =  ε⁻¹[1+h,1+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,1+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,1+l,i,j]*d[3+l,i,j]
+        e[2+h,i,j] =  ε⁻¹[1+h,2+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,2+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,2+l,i,j]*d[3+l,i,j]
+        e[3+h,i,j] =  ε⁻¹[1+h,3+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,3+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,3+l,i,j]*d[3+l,i,j]
+    end
+    return e
+end
 
 function eid!(e::AbstractArray{Complex{T},3},ε⁻¹::AbstractArray{TA,2},d::AbstractArray{Complex{T},3})::AbstractArray{Complex{T},3} where {T<:Real,TA<:SMatrix{3,3}}
     er = reinterpret(reshape,SVector{3,Complex{T}},e)
@@ -474,7 +483,7 @@ mutable struct HelmholtzMap{ND,T} <: LinearMap{T}
 	𝓕⁻¹!::FFTW.cFFTWPlan #AbstractFFTs.ScaledPlan
 	𝓕::FFTW.cFFTWPlan
 	𝓕⁻¹::FFTW.cFFTWPlan #AbstractFFTs.ScaledPlan
-	ε⁻¹::Array{SMatrix{3,3,T,9},ND} #HybridArray #{Tuple{Dynamic(),Dynamic(),Dynamic(),3,3},T,5,5,Array{T,5}}
+	ε⁻¹::HybridArray{Tuple{3,3,Dynamic(),Dynamic()},T,4,4,Array{T,4}} #Array{SMatrix{3,3,T,9},ND} #HybridArray #{Tuple{Dynamic(),Dynamic(),Dynamic(),3,3},T,5,5,Array{T,5}}
 	ε_ave::Array{T,ND}  # for preconditioner
 	inv_mag::Array{T,ND} # for preconditioner
 	shift::T
@@ -485,30 +494,30 @@ mutable struct HelmholtzPreconditioner{ND,T} <: LinearMap{T}
 end
 
 mutable struct ModeSolver{ND,T}
-	geom::Geometry
-	materials::Vector{<:AbstractMaterial}
+	# geom::Geometry
+	# materials #::Vector{<:AbstractMaterial}
 	grid::Grid{ND,T}
 	M̂::HelmholtzMap{ND,T}
 	P̂::HelmholtzPreconditioner{ND,T}
-	eigs_itr::IterativeSolvers.LOBPCGIterator
+	# eigs_itr::IterativeSolvers.LOBPCGIterator
 	H⃗::Matrix{Complex{T}}
 	ω²::Vector{Complex{T}}
 	∂ω²∂k::Vector{T}
-	λ⃗::Vector{Complex{T}}
-	b⃗::Vector{Complex{T}}
-	λd::HybridArray
-	λẽ::HybridArray
-	ε⁻¹_bar::Array{SMatrix{3,3,T,9}, ND}
-	kx̄_m⃗::Array{SVector{3, T}, ND}
-	kx̄_n⃗::Array{SVector{3, T}, ND}
-	māg::Array{T,ND}
-	k̄_kx::SVector{3,T}
-	ω̄::T
-	adj_itr::IterativeSolvers.BiCGStabIterable
-	corner_sinds::Array{Int,ND}
-	sinds_proc::Array #{NTuple{8,Int},ND}
-	Srvol::Array{Tuple{SMatrix{3,3,T,9},T},ND}
-	minds::Vector{Int}
+	# λ⃗::Vector{Complex{T}}
+	# b⃗::Vector{Complex{T}}
+	# λd::HybridArray
+	# λẽ::HybridArray
+	# ε⁻¹_bar::Array{SMatrix{3,3,T,9}, ND}
+	# kx̄_m⃗::Array{SVector{3, T}, ND}
+	# kx̄_n⃗::Array{SVector{3, T}, ND}
+	# māg::Array{T,ND}
+	# k̄_kx::SVector{3,T}
+	# ω̄::T
+	# adj_itr::IterativeSolvers.BiCGStabIterable
+	# corner_sinds::Array{Int,ND}
+	# sinds_proc::Array #{NTuple{8,Int},ND}
+	# Srvol::Array{Tuple{SMatrix{3,3,T,9},T},ND}
+	# minds::Vector{Int}
 end
 
 """
@@ -544,7 +553,7 @@ function HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹, gr::Grid{3,T}; shift=0. 
 			plan_fft(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
 			plan_bfft(d0,fftax,flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
 			ε⁻¹,
-			[ 3. * inv(sum(diag(einv))) for einv in ε⁻¹],
+			[ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix=1:gr.Nx,iy=1:gr.Ny], #[ 3. * inv(sum(diag(einv))) for einv in ε⁻¹],
 			[ inv(mm) for mm in mag ], # inverse |k⃗+g⃗| magnitudes for precond. ops
 			shift,
 		)
@@ -575,7 +584,7 @@ function HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹, gr::Grid{2,T}; shift=0. 
 			plan_fft(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
 			plan_bfft(d0,fftax,flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
 			ε⁻¹,
-			[ 3. * inv(sum(diag(einv))) for einv in ε⁻¹],
+			[ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix=1:gr.Nx,iy=1:gr.Ny], # [ 3. * inv(sum(diag(einv))) for einv in ε⁻¹],
 			[ inv(mm) for mm in mag ], # inverse |k⃗+g⃗| magnitudes for precond. ops
 			shift,
 		)
@@ -585,51 +594,52 @@ function HelmholtzMap(kz::T, ε⁻¹, gr::Grid; shift=0.) where {T<:Real}
 	HelmholtzMap(SVector{3,T}(0.,0.,kz), ε⁻¹, gr::Grid; shift)
 end
 
-function ModeSolver(k⃗::SVector{3,T}, geom::Geometry, gr::Grid{ND}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {ND,T<:Real}
+# function ModeSolver(k⃗::SVector{3,T}, geom::Geometry, grid::Grid{ND}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {ND,T<:Real}
+function ModeSolver(k⃗::SVector{3,T}, ε⁻¹, grid::Grid{ND}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {ND,T<:Real}
 	# run inital smoothing sub-processes
-	# ε⁻¹ = εₛ⁻¹( (1. / ω₀), geom, gr)
-	sinds,sinds_proc,Srvol,mats,minds,ε⁻¹ = _εₛ⁻¹_init( (1. / ω₀), geom.shapes, gr)
-	M̂ = HelmholtzMap(k⃗, ε⁻¹, gr)
+	# ε⁻¹ = εₛ⁻¹( (1. / ω₀), geom, grid)
+	# sinds,sinds_proc,Srvol,mats,minds,ε⁻¹ = _εₛ⁻¹_init( (1. / ω₀), geom.shapes, grid)
+	M̂ = HelmholtzMap(k⃗, ε⁻¹, grid)
 	P̂ = HelmholtzPreconditioner(M̂)
-	eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],nev)),P̂,constraint)
-	λ⃗ = randn(Complex{T},2*M̂.N)
-	b⃗ = similar(λ⃗)
-	adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
-                             Pl = Identity(),
-                             max_mv_products = size(M̂, 2),
-                             abstol = zero(T),
-                             reltol = sqrt(eps(T)),
-                             initial_zero = false)
+	# eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],nev)),P̂,constraint)
+	# λ⃗ = randn(Complex{T},2*M̂.N)
+	# b⃗ = similar(λ⃗)
+	# adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
+    #                          Pl = Identity(),
+    #                          max_mv_products = size(M̂, 2),
+    #                          abstol = zero(T),
+    #                          reltol = sqrt(eps(T)),
+    #                          initial_zero = false)
 	ModeSolver{ND,T}(
-		geom,
-		mats,
-		gr,
+		# geom,
+		# mats,
+		grid,
 		M̂,
 		P̂,
-		eigs_itr,
-		eigs_itr.XBlocks.block,
-		eigs_itr.λ,
+		# eigs_itr,
+		randn(Complex{T},2*N(grid),nev), #eigs_itr.XBlocks.block,
+		zeros(Complex{T},nev),
 		zeros(T,nev),
-		λ⃗,
-		b⃗,
-		similar(M̂.d),							# λ⃗d
-		similar(M̂.e),							# λ⃗ẽ
-		similar(M̂.ε⁻¹),						# ε⁻¹_bar
-		similar(M̂.m⃗),							 # kx̄_m⃗
-		similar(M̂.n⃗),							# kx̄_n⃗
-		similar(M̂.mag),						# māg
-		zero(SVector{3,Float64}),				# k̄_kx
-		0.,										# ω̄
-		adj_itr,
-		sinds,
-		sinds_proc,
-		Srvol,
-		minds,
+		# λ⃗,
+		# b⃗,
+		# similar(M̂.d),							# λ⃗d
+		# similar(M̂.e),							# λ⃗ẽ
+		# similar(M̂.ε⁻¹),						# ε⁻¹_bar
+		# similar(M̂.m⃗),							 # kx̄_m⃗
+		# similar(M̂.n⃗),							# kx̄_n⃗
+		# similar(M̂.mag),						# māg
+		# zero(SVector{3,Float64}),				# k̄_kx
+		# 0.,										# ω̄
+		# adj_itr,
+		# sinds,
+		# sinds_proc,
+		# Srvol,
+		# minds,
 	)
 end
 
-function ModeSolver(kz::T, geom::Geometry, gr::Grid{ND}; nev=1, tol=1e-8, maxiter=3000,constraint=nothing,) where {ND,T<:Real}
-	ModeSolver(SVector{3,T}(0.,0.,kz), geom, gr; nev, tol, maxiter, constraint)
+function ModeSolver(kz::T, ε⁻¹, gr::Grid{ND}; nev=1, tol=1e-8, maxiter=3000,constraint=nothing,) where {ND,T<:Real}
+	ModeSolver(SVector{3,T}(0.,0.,kz), ε⁻¹, gr; nev, tol, maxiter, constraint)
 end
 
 """
@@ -758,20 +768,14 @@ update_k!(ms::ModeSolver,k) = update_k!(ms.M̂,k)
 function update_ε⁻¹(M̂::HelmholtzMap{ND,T},ε⁻¹) where {ND,T<:Real}
 	@assert size(M̂.ε⁻¹) == size(ε⁻¹)
 	M̂.ε⁻¹ = ε⁻¹
+	M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix in axes(ε⁻¹,3), iy in axes(ε⁻¹,3)]
 end
 
 function update_ε⁻¹(ms::ModeSolver{ND,T},ε⁻¹) where {ND,T<:Real}
 	@assert size(ms.M̂.ε⁻¹) == size(ε⁻¹)
 	ms.M̂.ε⁻¹ = ε⁻¹
+	ms.M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix=1:ms.grid.Nx, iy=1:ms.grid.Ny]
 end
-
-# function S_rvol(geom;ms::ModeSolver)
-# 	es = vcat(εs(ms.geom,( 1. / ω )),[εᵥ,])		# dielectric tensors for each material, vacuum permittivity tensor appended
-# 	eis = inv.(es)	# corresponding list of inverse dielectric tensors for each material
-# 	ei_new = εₛ⁻¹(es,eis,dropgrad(ms.sinds_proc),dropgrad(ms.minds),Srvol)  # new spatially smoothed ε⁻¹ tensor array
-# end
-
-
 
 # property methods
 Base.size(A::HelmholtzMap) = (2*A.N, 2*A.N)

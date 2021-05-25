@@ -47,16 +47,16 @@ Base.size(gr::Grid,d::Int) = Base.size(gr)[d]
 
 # voxel/pixel center positions
 function x(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
- 	( ( g.Δx / g.Nx ) .* (0:(g.Nx-1))) .- g.Δx/2.
-	# ( ( g.Δx / (g.Nx-1) ) .* (0:(g.Nx-1))) .- g.Δx/2
+ 	# ( ( g.Δx / g.Nx ) .* (0:(g.Nx-1))) .- g.Δx/2.
+	LinRange(-g.Δx/2, g.Δx/2 - g.Δx/g.Nx, g.Nx)
 end
 function y(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
- 	( ( g.Δy / g.Ny ) .* (0:(g.Ny-1))) .- g.Δy/2.
-	# ( ( g.Δy / (g.Ny-1) ) .* (0:(g.Ny-1))) .- g.Δy/2
+ 	# ( ( g.Δy / g.Ny ) .* (0:(g.Ny-1))) .- g.Δy/2.
+	LinRange(-g.Δy/2, g.Δy/2 - g.Δy/g.Ny, g.Ny)
 end
 function z(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
- 	( ( g.Δz / g.Nz ) .* (0:(g.Nz-1))) .- g.Δz/2.
-	# ( ( g.Δz / (g.Nz-1) ) .* (0:(g.Nz-1))) .- g.Δz/2
+ 	# ( ( g.Δz / g.Nz ) .* (0:(g.Nz-1))) .- g.Δz/2.
+	LinRange(-g.Δz/2, g.Δz/2 - g.Δz/g.Nz, g.Nz)
 end
 function x⃗(g::Grid{2,T})::Array{SVector{3,T},2} where T<:Real
 	( (xx,yy) = (x(g),y(g)); [SVector{3,T}(xx[ix],yy[iy],0.) for ix=1:g.Nx,iy=1:g.Ny] ) # (Nx × Ny ) 2D-Array of (x,y,z) vectors at pixel/voxel centers

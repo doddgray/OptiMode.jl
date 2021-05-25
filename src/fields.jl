@@ -103,9 +103,11 @@ end
 
 @inline function unflat(f,grid::Grid)
 	Ns = size(grid)
-	nev = size(f,2)
-	ratio = length(f) // ( nev * N(grid) ) |> Int # (length of vector) / (number of grid points)
-	[reshape(f[:,i],(ratio,Ns...)) for i=1:nev]
+	# nev = 1 # size(f,2)
+	# ratio = length(f) // ( nev * N(grid) ) |> Int # (length of vector) / (number of grid points)
+	# [reshape(f[:,i],(ratio,Ns...)) for i=1:nev]
+	ratio = length(f) //  N(grid) |> Int # (length of vector) / (number of grid points)
+	reshape(f,(ratio,Ns...))
 end
 
 mn(ms::ModeSolver) = vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
@@ -114,7 +116,8 @@ mn(ms::ModeSolver) = vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M�
 
 function H⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
 	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],mn(ms)), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
-	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
+	# svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
+	return Harr
 end
 
 function H⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; svecs=true, normalized=true) where {ND,T<:Real}
@@ -134,7 +137,8 @@ function H⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{
 	# else
 	# 	E = E0
 	# end
-	svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  H) : H
+	# svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  H) : H
+	return H
 end
 
 
@@ -143,12 +147,18 @@ H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
 H⃗z(ms::ModeSolver) = H⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
 
 function E⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
-	# eif = flat(ε⁻¹)
 	Earr = [ 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ ))) for eigind=1:size(ms.H⃗,2) ]
-	svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Earr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Earr
+	# svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Earr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Earr
+	return Earr
 end
 
-function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; svecs=true, normalized=true) where {ND,T<:Real}
+function E⃗(ms::ModeSolver{ND,T}, eigind::Int; svecs=true) where {ND,T<:Real}
+	E = 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
+	# svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
+	return E
+end
+
+function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	Ns = size(grid)
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	H = reshape(H⃗,(2,Ns...))
@@ -165,7 +175,29 @@ function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{
 	else
 		E = E0
 	end
-	svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
+	#svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
+	return E
+end
+
+function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
+	Ns = size(grid)
+	mag,m⃗,n⃗ = mag_m_n(k,grid)
+	H = reshape(H⃗,(2,Ns...))
+	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+	# ε⁻¹ = εₛ⁻¹(ω,geom,grid)
+	# ε⁻¹, nng⁻¹, ngvd⁻¹ = εₛ⁻¹_nngₛ⁻¹_ngvdₛ⁻¹(ω,geom,grid)
+	E0 = 1im * ε⁻¹_dot( fft( kx_tc( H,mns,mag), (2:1+ND) ), ε⁻¹)
+	if normalized
+		imagmax = argmax(abs2.(E0))
+		E1 = E0 / E0[imagmax]
+		E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
+		E1norm = sum(dot.(E1s, reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(nng,(9,Ns...))) .* E1s )) * δ(grid)
+		E = E1 / sqrt(E1norm)
+	else
+		E = E0
+	end
+	#svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
+	return E
 end
 
 E⃗x(ms::ModeSolver) = [ E[1,eachindex(ms.grid)...] for E in E⃗(ms;svecs=false) ]
@@ -238,6 +270,11 @@ end
 #
 # end
 
+
+
+
+
+
 """
 ################################################################################
 #																			   #
@@ -245,3 +282,31 @@ end
 #																			   #
 ################################################################################
 """
+
+
+export plot_field, plot_field!
+
+function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+	xs = x(grid)
+	ys = y(grid)
+	ax = [Axis(pos[1,j]) for j=1:2]
+	labels = label.*label_base
+	Fs = [view(F,j,:,:) for j=1:2]
+	magmax = maximum(abs,F)
+	heatmaps = [heatmap!(ax[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
+	cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
+	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
+	map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
+	hideydecorations!.(ax[2])
+	[axx.xlabel= "x [μm]" for axx in ax]
+	[axx.ylabel= "y [μm]" for axx in ax[1:1]]
+	[ axx.aspect=DataAspect() for axx in ax ]
+	linkaxes!(ax...)
+	return heatmaps
+end
+
+function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+	fig=Figure()
+	hms = plot_field!(fig[1,1],F,grid;cmap,label_base,label)
+	fig
+end
