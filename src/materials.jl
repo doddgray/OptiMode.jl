@@ -3,7 +3,7 @@ using SymbolicUtils.Code: MakeArray
 # using Rotations
 
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
-export rotate, mult, unique_axes, plot_data, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
+export rotate, unique_axes, plot_data, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
 export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, plot_model!, n_model, ng_model, gvd_model
 export NumMat #, nĝvd_model, nn̂g_model
 
@@ -26,7 +26,7 @@ end
 
 # adjoint/rrule for SymbolicUtils.Code.create_array
 # https://github.com/JuliaSymbolics/SymbolicUtils.jl/pull/278/files
-# function ChainRulesCore.rrule(::typeof(SymbolicUtils.Code.create_array), A::Type{<:AbstractArray}, T, u::Val{j}, d::Val{dims}, elems...) where {dims, j}
+# function rrule(::typeof(SymbolicUtils.Code.create_array), A::Type{<:AbstractArray}, T, u::Val{j}, d::Val{dims}, elems...) where {dims, j}
 #   y = SymbolicUtils.Code.create_array(A, T, u, d, elems...)
 #   function create_array_pullback(Δ)
 #     dx = Δ
@@ -104,6 +104,16 @@ nn̂g_fn(mat::NumMat) =  mat.fnng
 nĝvd_fn(mat::NumMat) = mat.fngvd
 χ⁽²⁾_fn(mat::NumMat) = mat.fχ⁽²⁾
 
+function NumMat(eps_in;color=RGB(0,0,0))
+	constant_epsilon = ε_tensor(eps_in)
+	eps_model = constant_epsilon
+	feps = x->constant_epsilon
+	fnng = x->constant_epsilon
+	fngvd = x->zero(constant_epsilon)
+	fchi2 = (x1,x2,x3)->zeros(eltype(constant_epsilon),3,3,3)
+	return NumMat(eps_model,feps,fnng,fngvd,fchi2,material_name(eps_in),color)
+end
+
 
 # constructor adding random color when color is not specified
 Material(models::Dict,defaults::Dict,name::Symbol) = Material(models,defaults,name,RGBA(rand(3)...,1.0))
@@ -180,14 +190,6 @@ struct RotatedMaterial{TM,TR} <: AbstractMaterial
 	rotation_defaults::Dict
 	name::Symbol
 	color::Color
-end
-
-function mult(χ::AbstractArray{T,3},v₁::AbstractVector,v₂::AbstractVector) where T<:Real
-	@tullio v₃[i] := χ[i,j,k] * v₁[j] * v₂[k]
-end
-
-function mult(χ::AbstractArray{T,4},v₁::AbstractVector,v₂::AbstractVector,v₃::AbstractVector) where T<:Real
-	@tullio v₄[i] := χ[i,j,k,l] * v₁[j] * v₂[k] * v₃[l]
 end
 
 function rotate(χ::AbstractMatrix,𝓡::AbstractMatrix)
@@ -270,7 +272,8 @@ end
 function Δₘ_factors(λs,ε_sym)
 	λ = Num(first(get_variables(sum(ε_sym))))
 	diagε_m1 = Vector(diag(ε_sym)) .- 1
-	mapreduce(lm->substitute.( diagε_m1, ([λ=>lm],)), .*, λs)
+	# mapreduce(lm->substitute.( diagε_m1, ([λ=>lm],)), .*, λs)
+	mapreduce(i->substitute.( diagε_m1, [λ=>λs[i]]), .*, 1:length(λs))
 end
 
 function Δₘ(λs::AbstractVector,ε_sym, λᵣs::AbstractVector, χᵣ::AbstractArray{T,3}) where T
@@ -281,12 +284,12 @@ end
 # Symbolic Differentiation
 function ng_model(n_model::Num, λ::Num)
 	Dλ = Differential(λ)
-	return n_model - ( λ * expand_derivatives(Dλ(n_model)) )
+	return n_model - ( λ * expand_derivatives(Dλ(n_model),true) )
 end
 
 function gvd_model(n_model::Num, λ::Num)
 	Dλ = Differential(λ)
-	return λ^3 * expand_derivatives(Dλ(Dλ(n_model)))
+	return λ^3 * expand_derivatives(Dλ(Dλ(n_model)),true)
 end
 
 ng_model(n_model::AbstractArray{Num}, λ::Num) = ng_model.(n_model,(λ,))
@@ -304,30 +307,71 @@ function gvd_model(mat::AbstractMaterial; symbol=:λ)
 	return gvd_model(n_model,λ)
 end
 
+# function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
+# 	λ = Num(Sym{Real}(symbol))
+# 	# Dλ = Differential(λ)
+# 	n_model = sqrt.(get_model(mat,:ε,symbol))
+# 	return ng_model(n_model,λ) .* n_model
+# end
+
+# function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
+# 	λ = Num(Sym{Real}(symbol))
+# 	# Dλ = Differential(λ)
+# 	n_model = sqrt.(get_model(mat,:ε,symbol))
+# 	return gvd_model(n_model,λ) .* n_model
+# end
+
+# function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
+# 	λ = Num(Sym{Real}(symbol))
+# 	n_model = sqrt.(ε_model)
+# 	return ng_model(n_model,λ) .* n_model
+# end
+#
+# function nĝvd_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
+# 	λ = Num(Sym{Real}(symbol))
+# 	n_model = sqrt.(ε_model)
+# 	return gvd_model(n_model,λ) .* n_model
+# end
+
 function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	# Dλ = Differential(λ)
-	n_model = sqrt.(get_model(mat,:ε,symbol))
-	return ng_model(n_model,λ) .* n_model
+	Dλ = Differential(λ)
+	ε_model = get_model(mat,:ε,symbol)
+	# ω∂ε∂ω_model =   -1 * λ .* expand_derivatives.(Dλ.(ε_model),(true,))
+	# return ω∂ε∂ω_model ./ 2
+	∂∂ω_ωε_model =   (-1 * λ^2) .* expand_derivatives.(Dλ.(ε_model./λ),(true,))
+	return ∂∂ω_ωε_model
 end
 
 function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	# Dλ = Differential(λ)
-	n_model = sqrt.(get_model(mat,:ε,symbol))
-	return gvd_model(n_model,λ) .* n_model
+	Dλ = Differential(λ)
+	# ∂ε∂ω_model = nn̂g_model(mat; symbol) .* (2 / λ)
+	# ω∂²ε∂ω²_model =   -1 * λ .* expand_derivatives.(Dλ.(∂ε∂ω_model),(true,))
+	# return (∂ε∂ω_model .+ ω∂²ε∂ω²_model) ./ 2
+	nng_model = nn̂g_model(mat; symbol)
+	∂²∂ω²_ωε_model =   (-1 * λ^2) .* expand_derivatives.(Dλ.(nng_model),(true,))
+	return ∂²∂ω²_ωε_model
 end
 
 function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(ε_model)
-	return ng_model(n_model,λ) .* n_model
+	Dλ = Differential(λ)
+	# ω∂ε∂ω_model =   -1 * λ .* expand_derivatives.(Dλ.(ε_model),(true,))
+	# return ω∂ε∂ω_model ./ 2
+	∂∂ω_ωε_model =   (-1 * λ^2) .* expand_derivatives.(Dλ.(ε_model./λ),(true,))
+	return ∂∂ω_ωε_model
 end
 
 function nĝvd_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(ε_model)
-	return gvd_model(n_model,λ) .* n_model
+	Dλ = Differential(λ)
+	# ∂ε∂ω_model = nn̂g_model(ε_model; symbol) .* (2 / λ)
+	# ω∂²ε∂ω²_model =   -1 * λ .* expand_derivatives.(Dλ.(∂ε∂ω_model),(true,))
+	# return (∂ε∂ω_model .+ ω∂²ε∂ω²_model) ./ 2
+	nng_model = nn̂g_model(ε_model; symbol)
+	∂²∂ω²_ωε_model =   (-1 * λ^2) .* expand_derivatives.(Dλ.(nng_model),(true,))
+	return ∂²∂ω²_ωε_model
 end
 
 # generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
@@ -448,10 +492,10 @@ end
 plot_model(ax, mat::AbstractMaterial ; model=:n, xrange=nothing, kwargs...) = plot_model([mat,]; model, xrange, kwargs...)
 plot_model(ax, mats::NTuple{N,<:AbstractMaterial} where N ; model=:n, xrange=nothing, kwargs...) = plot_model([mats...]; model, xrange, kwargs...)
 
-import Base: show
-Base.show(io::IO, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat) #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
-Base.show(io::IO, mat::AbstractMaterial) = uplot(mat) #print(io, m.x, '(', m.y, ')')
-Base.show(io, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat)
+# import Base: show
+# Base.show(io::IO, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat) #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
+# Base.show(io::IO, mat::AbstractMaterial) = uplot(mat) #print(io, m.x, '(', m.y, ')')
+# Base.show(io, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat)
 ################################################################################
 #                                Load Materials                                #
 ################################################################################

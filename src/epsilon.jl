@@ -1,5 +1,5 @@
 export ε_tensor, εᵥ, flat
-export mult, Δₘ
+export Δₘ
 
 # vacuum relative dielectric permittivity tensor
 # NB: I would use I/UniformScaling, but seems worse for type stability, vectorization, AD...

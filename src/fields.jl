@@ -6,9 +6,12 @@
 ################################################################################
 """
 
-export unflat, _d2ẽ!, _H2d!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z, normE!, Ex_norm, Ey_norm
+export unflat, _d2ẽ!, _H2d!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z
+export normE!, Ex_norm, Ey_norm, mn
+# export _cross, _cross_x, _cross_y, _cross_z, _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
+# export _outer
+ #, slice_inv 	# stuff to get rid of soon
 
-export mn 	# stuff to get rid of soon
 
 """
 In-place/mutating methods
@@ -141,6 +144,35 @@ function H⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{
 	return H
 end
 
+function H⃗(k,Hv::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}; normalized=true, nnginv=false)::Array{Complex{T},ND+1} where {ND,T<:Real}
+	Ns = size(grid)
+	mag,m⃗,n⃗ = mag_m_n(k,grid)
+	Hₜ = reshape(Hv,(2,Ns...))
+	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+	# H0 = fft( tc( Hₜ,mns ), (2:1+ND) )
+	if normalized
+		E0 = 1im * ε⁻¹_dot( fft( kx_tc( Hₜ,mns,mag), (2:1+ND) ), ε⁻¹)
+		imagmax = argmax(abs2.(E0))
+		E0magmax = copy(E0[imagmax])
+		E1 = E0 / E0[imagmax]
+		# E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
+		if nnginv
+			E1norm = dot(E1,_dot(slice_inv(copy(nng.data)),E1)) * δ(grid)
+		else
+			E1norm = dot(E1,_dot(nng,E1)) * δ(grid)
+		end
+		E = E1 / sqrt(E1norm)
+		# fieldnorm = E0magmax * sqrt(E1norm)
+		H1 = fft(tc(kx_ct( ifft( E, (2:1+ND) ), mns,mag), mns),(2:1+ND) ) / ω
+		# H1 = -1.0 * fft( tc( Hₜ,mns ), (2:1+ND) ) / E0magmax / sqrt(E1norm) / ω
+	else
+		# E = E0
+		# fieldnorm = 1.0
+		H1 = fft( tc( Hₜ,mns ), (2:1+ND) )
+	end
+
+	return H1
+end
 
 H⃗x(ms::ModeSolver) = H⃗(ms;svecs=false)[1,eachindex(ms.grid)...]
 H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
@@ -179,7 +211,7 @@ function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{
 	return E
 end
 
-function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
+function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}; normalized=true, nnginv=false)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	Ns = size(grid)
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	H = reshape(H⃗,(2,Ns...))
@@ -190,8 +222,12 @@ function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}
 	if normalized
 		imagmax = argmax(abs2.(E0))
 		E1 = E0 / E0[imagmax]
-		E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
-		E1norm = sum(dot.(E1s, reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(nng,(9,Ns...))) .* E1s )) * δ(grid)
+		# E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
+		if nnginv
+			E1norm = dot(E1,_dot(slice_inv(copy(nng.data)),E1)) * δ(grid)
+		else
+			E1norm = dot(E1,_dot(nng,E1)) * δ(grid)
+		end
 		E = E1 / sqrt(E1norm)
 	else
 		E = E0
@@ -253,12 +289,12 @@ end
 
 # function ngdisp1(ω,H,geom,mag,m,n)
 # 	ω = sqrt(real(ms.ω²[eigind]))
-# 	ω / H_Mₖ_H(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+# 	ω / HMₖH(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
 # end
 #
 # function ngdisp1(ms,eigind)
 # 	ω = sqrt(real(ms.ω²[eigind]))
-# 	ω / H_Mₖ_H(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+# 	ω / HMₖH(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
 # end
 # ( sum( dot.( ( inv.(ms.M̂.ε⁻¹) .* E⃗(ms)[1] ), E⃗(ms)[1]))*δ(ms.grid) ) ./ ( sum.(S⃗z(ms))*δ(ms.grid) )
 
@@ -283,30 +319,43 @@ end
 ################################################################################
 """
 
-
+using Makie: heatmap
 export plot_field, plot_field!
 
-function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing)
 	xs = x(grid)
 	ys = y(grid)
-	ax = [Axis(pos[1,j]) for j=1:2]
+	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
+	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
+
+		# ax = [Axis(pos[1,j]) for j=1:2]
+	# ax = [Axis(pos[j]) for j=1:2]
 	labels = label.*label_base
 	Fs = [view(F,j,:,:) for j=1:2]
 	magmax = maximum(abs,F)
-	heatmaps = [heatmap!(ax[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
-	cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
+	ax1 = pos[1]
+	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
+	hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	ax2 = pos[2]
+	hm1 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
+	hms = [hm1,hm2]
+	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
 	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
-	map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
-	hideydecorations!.(ax[2])
-	[axx.xlabel= "x [μm]" for axx in ax]
-	[axx.ylabel= "y [μm]" for axx in ax[1:1]]
-	[ axx.aspect=DataAspect() for axx in ax ]
-	linkaxes!(ax...)
-	return heatmaps
+	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
+	# hideydecorations!.(ax[2])
+	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
+	# for axx in ax
+	# 	axx.xlabel= "x [μm]"
+	# 	xlims!(axx,xlim)
+	# 	ylims!(axx,ylim)
+	# 	axx.aspect=DataAspect()
+	# end
+	# linkaxes!(ax...)
+	return hms
 end
 
-function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E")
+function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing)
 	fig=Figure()
-	hms = plot_field!(fig[1,1],F,grid;cmap,label_base,label)
+	hms = plot_field!(fig[1,1],F,grid;cmap,label_base,label,xlim,ylim)
 	fig
 end

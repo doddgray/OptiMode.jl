@@ -1,5 +1,5 @@
 export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, kguess, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds
-export εₘₐₓ, nₘₐₓ, materials, plot_shapes #TODO: generalize these methods for materials and ε data
+export εₘₐₓ, nₘₐₓ, materials, plot_shapes, k_guess, ridge_wg_partial_etch3D #TODO: generalize these methods for materials and ε data
 
 
 # Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
@@ -37,7 +37,7 @@ materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(u
 fεs(mats::AbstractVector{<:NumMat})	   =  vcat( getproperty.(mats,(:fε,)) 	 , x->εᵥ	   )
 fnn̂gs(mats::AbstractVector{<:NumMat})	=  vcat( getproperty.(mats,(:fnng,))  , x->εᵥ	 	)
 fnĝvds(mats::AbstractVector{<:NumMat}) =  vcat( getproperty.(mats,(:fngvd,)) , x->zero(εᵥ) )
-fχ⁽²⁾s(mats::AbstractVector{<:NumMat}) =  vcat( getproperty.(mats,(:fχ⁽²⁾,)) , x->χ⁽²⁾_vac )
+fχ⁽²⁾s(mats::AbstractVector{<:NumMat}) =  vcat( getproperty.(mats,(:fχ⁽²⁾,)) , (x1,x2,x3)->zeros(eltype(εᵥ),3,3,3) )#χ⁽²⁾_vac )
 
 # fεs(mats)	   =  ( getproperty.(mats,(:fε,))... 	 , x->εᵥ	   )
 # fnn̂gs(mats)	=  ( getproperty.(mats,(:fnng,))...  , x->εᵥ	 	)
@@ -132,6 +132,11 @@ end
 
 kguess(ω,geom) = nₘₐₓ(ω,geom) * ω
 
+k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3])) ); kg  )
+k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
+k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
+k_guess(ω,geom::Geometry) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(geom.shapes) ); kg  )
+
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[1]
 # fεs!(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[2]
 
@@ -221,12 +226,50 @@ function ridge_wg_partial_etch(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ:
                     ax,	    		        	# axes: box axes
                     mat_subs,					 # data: any type, data associated with box shape
                 )
-	# return [core,b_unetch,b_subs]
+	# # return [core,b_unetch,b_subs]
+	# return Geometry([core,b_unetch,b_subs])
+	## add horizontal isosceles trianges of vacuum on top of slab and substrate dielectrics
+	## near edges of the simulated region. These act as notches to prevent FP modes in the
+	## slab and substrate. Kind of hacky.
+	# vacuum = NumMat(1.0)
+	# t_unetch_r = GeometryPrimitives.isosceles(
+	# 				( 	SVector((Δx-edge_gap)/2.,c_unetch_y-t_unetch/2.),	# notch triangle base
+	# 					SVector((Δx-edge_gap)/2.,c_unetch_y+t_unetch/2.),
+	# 						),
+	# 				edge_gap/4.,				# sideways isoceles triangle "height"
+	# 				vacuum,  # vacuum permitivity
+	# 			)
+	# t_unetch_l = GeometryPrimitives.isosceles(
+	# 				( 	SVector(-(Δx-edge_gap)/2.,c_unetch_y+t_unetch/2.),	# notch triangle base
+	# 					SVector(-(Δx-edge_gap)/2.,c_unetch_y-t_unetch/2.),
+	# 						),
+	# 				edge_gap/4.,				# sideways isosceles triangle "height"
+	# 				vacuum,  # vacuum permitivity
+	# 			)
+	# t_subs_r = GeometryPrimitives.isosceles(
+	# 				( 	SVector((Δx-edge_gap)/2.,c_subs_y-t_subs/2.),	# notch triangle base
+	# 					SVector((Δx-edge_gap)/2.,c_subs_y+t_subs/2.),
+	# 						),
+	# 				edge_gap/4.,				# sideways isosceles triangle "height"
+	# 				vacuum,  # vacuum permitivity
+	# 			)
+	# t_subs_l = GeometryPrimitives.isosceles(
+	# 				( 	SVector(-(Δx-edge_gap)/2.,c_subs_y+t_subs/2.),	# notch triangle base
+	# 					SVector(-(Δx-edge_gap)/2.,c_subs_y-t_subs/2.),
+	# 						),
+	# 				edge_gap/4.,				# sideways isosceles triangle "height"
+	# 				vacuum,  # vacuum permitivity
+	# 			)
+	# return Geometry([t_unetch_r,t_unetch_l,t_subs_r,t_subs_l,core,b_unetch,b_subs])
 	return Geometry([core,b_unetch,b_subs])
+
 end
 
-function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
-	z_span = 2.0
+
+
+
+function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real,Δz::Real) #::Geometry{2}
+
 	t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
     # ε_core = ε_tensor(n_core)
@@ -247,7 +290,7 @@ function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,�
     core = GeometryPrimitives.PolygonalPrism(					                        # Instantiate 2D polygon, here a trapazoid
 					SVector(0.,0.,0.),
 					verts,			                            # v: polygon vertices in counter-clockwise order
-					z_span,
+					Δz,
 					[0.,0.,1.],
 					mat_core,					                                    # data: any type, data associated with box shape
                 )
@@ -257,19 +300,31 @@ function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,�
 
 	b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_unetch_y, 0.],           	# c: center
-                    [Δx - edge_gap, t_unetch, z_span ],	# r: "radii" (half span of each axis)
+                    [Δx - edge_gap, t_unetch, Δz ],	# r: "radii" (half span of each axis)
                     ax,	    		        	# axes: box axes
                     mat_core,					 # data: any type, data associated with box shape
                 )
 
 	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
                     [0. , c_subs_y, 0.],           	# c: center
-                    [Δx - edge_gap, t_subs, z_span ],	# r: "radii" (half span of each axis)
+                    [Δx - edge_gap, t_subs, Δz ],	# r: "radii" (half span of each axis)
                     ax,	    		        	# axes: box axes
                     mat_subs,					 # data: any type, data associated with box shape
                 )
-	# return [core,b_unetch,b_subs]
+
+	# etched pattern in slab cladding
+	# vacuum = NumMat(1.0)
+	# ax_cyl = SVector(0.,1.,0.)
+	# dx_sw_cyl = 0.5	# distance of etched cylinder centers from sidewalls
+	# r_cyl = 0.1
+	# z_cyl = 0.0
+	# c_cyl1 = SVector(wb_half+dx_sw_cyl, c_unetch_y, z_cyl)
+	# c_cyl2 = SVector(-wb_half-dx_sw_cyl, c_unetch_y, z_cyl)
+	# cyl1 = GeometryPrimitives.Cylinder(c_cyl1,r_cyl,t_unetch,SVector(0.,1.,0.),vacuum)
+	# cyl2 = GeometryPrimitives.Cylinder(c_cyl2,r_cyl,t_unetch,SVector(0.,1.,0.),vacuum)
+
 	return Geometry([core,b_unetch,b_subs])
+	# return Geometry([cyl1,cyl2,core,b_unetch,b_subs])
 end
 
 function demo_shapes(p::T) where T<:Real
@@ -313,9 +368,9 @@ function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::
                     ε_core,					        # data: any type, data associated with box shape
                 )
     b_subs = GeometryPrimitives.Box(					                # Instantiate N-D box, here N=2 (rectangle)
-                    [0. , c_subs_y],            	# c: center
+                    [0. , c_subs_y],            # c: center
                     [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
-                    ax,	    		        # axes: box axes
+                    ax,	    		        	# axes: box axes
                     ε_subs,					        # data: any type, data associated with box shape
                 )
     # return Geometry([b_core,b_subs])
@@ -334,18 +389,18 @@ end
 #                Plotting conversions for geometry components                  #
 ################################################################################
 import Base: convert
-using AbstractPlotting: lines, lines!, scatterlines, scatterlines!, GeometryBasics, Point, PointBased
-import AbstractPlotting: convert_arguments
+using Makie: lines, lines!, scatterlines, scatterlines!, GeometryBasics, Point, PointBased
+import Makie: convert_arguments
 # polygon
 convert(::Type{GeometryBasics.Polygon},x::GeometryPrimitives.Polygon) = GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),]))
-AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
-AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
+Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
+Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
 # box
 convert(::Type{GeometryBasics.Rect2D},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
 convert(::Type{<:GeometryBasics.HyperRectangle},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
 convert(::Type{<:GeometryBasics.Polygon},x::GeometryPrimitives.Box) = (pts=decompose(Point,convert(GeometryBasics.Rect2D,x));GeometryBasics.Polygon(vcat(pts,[pts[1],])))
-AbstractPlotting.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
-AbstractPlotting.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
+Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
 
 # function plot_data(geom::Geometry)
 # 	n_shapes 	= 	size(geom.shapes,1)
@@ -384,9 +439,9 @@ end
 # 	[lines!(ax_disp[1], 1.2..1.7, fn; label=lbl) for (fn,lbl) in zip(plot_data(geom.materials)...)]
 # end
 
-# AbstractPlotting.convert_arguments(x::Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+# Makie.convert_arguments(x::Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
 # plottype(::Polygon) = Poly
-# AbstractPlotting.convert_arguments(x::Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# Makie.convert_arguments(x::Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
 # plottype(::Box) = Poly
 
 # function shape(b::Box)

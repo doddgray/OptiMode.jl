@@ -89,7 +89,7 @@ end
 @inline N(g::Grid)::Int = *(size(g)...)
 
 import Base: eachindex
-@inline eachindex(g::Grid) = (1:NN for NN in size(g))
+@inline eachindex(g::Grid) = CartesianIndices(size(g)) #(1:NN for NN in size(g))
 
 
 # reciprocal lattice vectors (from fftfreqs)

@@ -14,8 +14,8 @@ using LinearMaps
 using ArrayInterface
 using StaticArrays
 using HybridArrays
-using StructArrays
-using RecursiveArrayTools
+# using StructArrays
+# using RecursiveArrayTools
 using FFTW
 using AbstractFFTs
 using GeometryPrimitives
@@ -32,12 +32,19 @@ using RuntimeGeneratedFunctions
 # using ModelingToolkit, Unitful #, Latexify
 using Symbolics
 using SymbolicUtils
-using UnicodePlots, AbstractPlotting
+using UnicodePlots
+using Makie
 # using KrylovKit
 using DFTK: LOBPCG
+using KrylovKit: eigsolve
 using StaticArrays: Dynamic, SVector
-using Zygote: Buffer, bufferfrom, @ignore, dropgrad, forwarddiff
-using AbstractPlotting.GeometryBasics
+using ChainRulesCore
+using ChainRulesCore: rrule, frule, @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
+# using ChainRules: ChainRulesCore, @non_differentiable,  NoTangent, @thunk, @not_implemented, AbstractZero
+using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
+using GeometryPrimitives: Cylinder
+using Makie.GeometryBasics
+
 
 RuntimeGeneratedFunctions.init(@__MODULE__)
 # using Plots: plot, heatmap, plot!, heatmap!
@@ -50,6 +57,7 @@ export plot_data, uplot, uplot!, xlims, ylims
 # Import methods that we will overload for custom types
 import Base: size, eltype
 import LinearAlgebra: mul!
+import ChainRulesCore: rrule
 
 # FFTW settings
 FFTW.set_num_threads(1)     # chosen for thread safety when combined with other parallel code, consider increasing
@@ -100,6 +108,7 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 ## Includes ##
 
 # include("plot.jl")
+include("linalg.jl")
 include("epsilon.jl")
 include("materials.jl")
 include("grid.jl")
