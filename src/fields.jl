@@ -93,6 +93,10 @@ end
 	reinterpret(reshape,T,f)
 end
 
+@inline function flat(f::AbstractArray{T}) where {T<:Number}
+	return f #reinterpret(reshape,T,f)
+end
+
 @inline function unflat(f,nvec::Int,Ns)
 	reshape(f,(nvec,Ns...))
 end
@@ -113,7 +117,7 @@ end
 	reshape(f,(ratio,Ns...))
 end
 
-mn(ms::ModeSolver) = vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
+mn(ms::ModeSolver) = ms.M̂.mn # vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
 
 
 

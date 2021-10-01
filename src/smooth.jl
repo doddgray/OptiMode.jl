@@ -205,15 +205,31 @@ end
 
 @non_differentiable proc_sinds(geom,grid)
 
-function normcart(n0::AbstractVector{T}) where T<:Real #::SMatrix{3,3,T,9} where T<:Real
+function vec3D(v::AbstractVector{T}) where T
+	vout = (length(v)==3 ? v : SVector{3,T}(v[1],v[2],0.))
+	return vout
+end
+
+function normcart(n0::AbstractVector{T}) where T #::SMatrix{3,3,T,9} where T<:Real
 	# Create `S`, a local Cartesian coordinate system from a surface-normal
 	# 3-vector n0 (pointing outward) from shape
-	n = n0 / norm(n0)
+	# n = n0 / norm(n0)
+	n = vec3D(n0) / norm(n0)
 	# Pick `h` to be a vector that is not along n.
 	h = any(iszero.(n)) ? n × normalize(iszero.(n)) :  n × SVector(1., 0. , 0.)
 	v = n × h
 	S = SMatrix{3,3,T,9}([n h v])  # unitary
 end
+
+# function normcart(n0::SVector{2,T}) where T #::SMatrix{3,3,T,9} where T<:Real
+# 	# Create `S`, a local Cartesian coordinate system from a surface-normal
+# 	# 3-vector n0 (pointing outward) from shape
+# 	n = SVector{3,T}(n0[1],n0[2],0.) / norm(n0)
+# 	# Pick `h` to be a vector that is not along n.
+# 	h = any(iszero.(n)) ? n × normalize(iszero.(n)) :  n × SVector(1., 0. , 0.)
+# 	v = n × h
+# 	S = SMatrix{3,3,T,9}([n h v])  # unitary
+# end
 
 # function smooth(sinds::AbstractArray{NTuple{NI, TI}},shapes,minds,mat_vals,xx,vxl_min,vxl_max) where {NI,TI<:Int}
 function smooth(sinds::NTuple{NI, TI},shapes,minds,mat_vals,xx,vxl_min,vxl_max) where {NI,TI<:Int}
@@ -310,7 +326,7 @@ function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{N,Symbol},f_geom::F,
 	arr_flat_r = copy(arr_flatB)
 	Nx = size(grid,1)
 	Ny = size(grid,2)
-	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid),n),grid) for n=1:n_fns]
+	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid)...,n),grid) for n=1:n_fns]
 	return fn_arrs
 end
 
@@ -343,7 +359,7 @@ function smooth(ω::AbstractVector{T1},p::AbstractVector{T2},fnames::NTuple{NF,S
 		arr_flat_r = copy(arr_flatB)
 		Nx = size(grid,1)
 		Ny = size(grid,2)
-		fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid),n),grid) for n=1:n_fns]
+		fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid)...,n),grid) for n=1:n_fns]
 		return fn_arrs
 	end
 	return arr_omcat
@@ -377,7 +393,7 @@ function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{NF,Symbol},invert_fn
 	arr_flat_r = real(copy(arr_flatB)) # copy(arr_flatB)
 	Nx = size(grid,1)
 	Ny = size(grid,2)
-	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid),n),grid) for n=1:n_fns]
+	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid)...,n),grid) for n=1:n_fns]
 	return fn_arrs
 end
 
@@ -412,7 +428,7 @@ function smooth(ω::AbstractVector{T1},p::AbstractVector{T2},fnames::NTuple{NF,S
 		arr_flat_r = copy(arr_flatB)
 		Nx = size(grid,1)
 		Ny = size(grid,2)
-		fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid),n),grid) for n=1:n_fns]
+		fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid)...,n),grid) for n=1:n_fns]
 		return fn_arrs
 	end
 	return arr_omcat
@@ -504,7 +520,7 @@ function volfrac_smoothing(sinds::NTuple{NI, TI},shapes,minds,mat_vals,mat_vals_
 end
 
 
-function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{NF,Symbol},invert_fn::Vector{Bool},f_geom::F,grid::Grid,smoothing_fn::TF) where {NF,T1<:Real,T2<:Real,F<:Function,TF<:Function}
+function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{NF,Symbol},invert_fn::Vector{Bool},f_geom::F,grid::Grid{ND},smoothing_fn::TF) where {NF,T1<:Real,T2<:Real,F<:Function,TF<:Function,ND}
 	n_p = length(p)
 	n_fns=length(fnames)
 	om_p = vcat(ω,p)
@@ -532,7 +548,7 @@ function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{NF,Symbol},invert_fn
 	arr_flat_r = copy(arr_flatB)
 	Nx = size(grid,1)
 	Ny = size(grid,2)
-	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid),n),grid) for n=1:n_fns]
+	fn_arrs = [hybridize(view(reshape(arr_flat_r,3,3,size(grid)...,n_fns),1:3,1:3,axes(grid)...,n),grid) for n=1:n_fns]
 	return fn_arrs
 end
 

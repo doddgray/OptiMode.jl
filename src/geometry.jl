@@ -1,4 +1,4 @@
-export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, kguess, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds
+export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds
 export εₘₐₓ, nₘₐₓ, materials, plot_shapes, k_guess, ridge_wg_partial_etch3D #TODO: generalize these methods for materials and ε data
 
 
@@ -130,7 +130,7 @@ function nₘₐₓ(ω::T,geom::Geometry) where T<:Real
     sqrt( εₘₐₓ(ω,geom.shapes) )
 end
 
-kguess(ω,geom) = nₘₐₓ(ω,geom) * ω
+k_guess(ω,geom) = nₘₐₓ(ω,geom) * ω
 
 k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3])) ); kg  )
 k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )

@@ -1,7 +1,7 @@
 export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, update_k, update_k!
 export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, mag_mn, kx_ct, kx_tc, zx_tc, zx_ct
 export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
-export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z
+export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z, eid!
 
 """
 ################################################################################
@@ -33,7 +33,7 @@ end
 function kx_tc(H::AbstractArray{T,4},mn,mag) where T
 	kxscales = [-1.; 1.]
 	kxinds = [2; 1]
-    @tullio d[a,i,j,k] := kxscales[b] * H[kxinds[b],i,j,k] * mn[b,a,i,j,k] * mag[i,j,k] nograd=(kxscales,kxinds) # fastmath=false
+    @tullio d[a,i,j,k] := kxscales[b] * H[kxinds[b],i,j,k] * mn[a,b,i,j,k] * mag[i,j,k] nograd=(kxscales,kxinds) # fastmath=false
 	# @tullio d[a,i,j,k] := H[2,i,j,k] * m[a,i,j,k] * mag[i,j,k] - H[1,i,j,k] * n[a,i,j,k] * mag[i,j,k]  # nograd=(kxscales,kxinds) fastmath=false
 end
 
@@ -44,7 +44,7 @@ function kx_ct(e⃗::AbstractArray{T,4},mn,mag) where T
 	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	kxscales = [-1.; 1.]
     kxinds = [2; 1]
-    @tullio H[b,i,j,k] := kxscales[b] * e⃗[a,i,j,k] * mn[kxinds[b],a,i,j,k] * mag[i,j,k] nograd=(kxinds,kxscales) # fastmath=false
+    @tullio H[b,i,j,k] := kxscales[b] * e⃗[a,i,j,k] * mn[a,kxinds[b],i,j,k] * mag[i,j,k] nograd=(kxinds,kxscales) # fastmath=false
 end
 
 """
@@ -53,7 +53,7 @@ end
 function zx_tc(H::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxH[a,i,j,k] := zxscales[a] * H[b,i,j,k] * mn[b,zxinds[a],i,j,k] nograd=(zxscales,zxinds) # fastmath=false
+	@tullio zxH[a,i,j,k] := zxscales[a] * H[b,i,j,k] * mn[zxinds[a],b,i,j,k] nograd=(zxscales,zxinds) # fastmath=false
 end
 
 """
@@ -84,7 +84,7 @@ end
 
 function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
@@ -93,15 +93,35 @@ function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m:
 	HMₖH(Ha,ε⁻¹,mag,m,n)
 end
 
+function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn)::T where T<:Real
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+end
+
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},mn::AbstractArray{T,5})::T where T<:Real
+	Nx,Ny,Nz = size(mag)
+	Ha = reshape(H,(2,Nx,Ny,Nz))
+	HMₖH(Ha,ε⁻¹,mag,mn)
+end
+
 function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	HMH(Ha,ε⁻¹,mag,m,n)
+end
+
+function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn)::T where T<:Real
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+end
+
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
+	Nx,Ny,Nz = size(mag)
+	Ha = reshape(H,(2,Nx,Ny,Nz))
+	HMH(Ha,ε⁻¹,mag,mn)
 end
 
 function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
@@ -119,30 +139,96 @@ function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray
 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
 end
 
+function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
+	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
+	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
+	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
+	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
+	return W / (2*real(P_z))
+end
+
+function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
+	Nx,Ny,Nz = size(mag)
+	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
+	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
+end
+
 
 # 2D
+
+# """
+#     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
+# """
+# function tc(H::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
+#     @tullio h[a,i,j] := H[b,i,j] * mn[a,b,i,j]
+# end
+#
+# """
+#     ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
+# """
+# function ct(h::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
+#     @tullio H[a,i,j] := h[b,i,j] * mn[b,a,i,j]
+# end
+#
+# """
+#     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
+# """
+# function kx_tc(H::AbstractArray{T,3},mn,mag) where T
+# 	kxscales = [-1.; 1.]
+# 	kxinds = [2; 1]
+#     @tullio d[a,i,j] := kxscales[b] * H[kxinds[b],i,j] * mn[a,b,i,j] * mag[i,j] nograd=(kxscales,kxinds) # fastmath=false
+# 	# @tullio d[a,i,j] := H[2,i,j] * m[a,i,j] * mag[i,j] - H[1,i,j] * n[a,i,j] * mag[i,j]  # nograd=(kxscales,kxinds) fastmath=false
+# end
+#
+# """
+#     kx_c2t: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
+# """
+# function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
+# 	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
+# 	kxscales = [-1.; 1.]
+#     kxinds = [2; 1]
+#     @tullio H[b,i,j] := kxscales[b] * e⃗[a,i,j] * mn[a,kxinds[b],i,j] * mag[i,j] nograd=(kxinds,kxscales) # fastmath=false
+# end
+#
+# """
+#     zx_t2c: a⃗ (cartesian vector) = ẑ × v⃗ (transverse vector)
+# """
+# function zx_tc(H::AbstractArray{T,3},mn) where T
+# 	zxinds = [2; 1; 3]
+# 	zxscales = [-1.; 1.; 0.]
+# 	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[zxinds[a],b,i,j] nograd=(zxscales,zxinds) # fastmath=false
+# end
+#
+# """
+#     zx_c2t: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
+# """
+# function zx_ct(e⃗::AbstractArray{T,3},mn) where T
+# 	zxinds = [2; 1; 3]
+# 	zxscales = [-1.; 1.; 0.]
+# 	@tullio zxe⃗[b,i,j] := zxscales[a] * e⃗[a,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) threads=false # fastmath=false
+# end
 
 """
     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
 """
 function tc(H::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-    @tullio h[a,i,j] := H[b,i,j] * mn[b,a,i,j]
+    @tullio h[a,i,j] := H[b,i,j] * mn[a,b,i,j]
 end
 
 """
     ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
 """
 function ct(h::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-    @tullio H[a,i,j] := h[b,i,j] * mn[a,b,i,j]
+    @tullio H[a,i,j] := h[b,i,j] * mn[b,a,i,j]
 end
 
 """
     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
 """
 function kx_tc(H::AbstractArray{T,3},mn,mag) where T
-	kxscales = [-1.; 1.]
+	kxscales = [1.; -1.] #[-1.; 1.]
 	kxinds = [2; 1]
-    @tullio d[a,i,j] := kxscales[b] * H[kxinds[b],i,j] * mn[b,a,i,j] * mag[i,j] nograd=(kxscales,kxinds) # fastmath=false
+    @tullio d[a,i,j] := kxscales[b] * H[kxinds[b],i,j] * mn[a,b,i,j] * mag[i,j] nograd=(kxscales,kxinds) # fastmath=false
 	# @tullio d[a,i,j] := H[2,i,j] * m[a,i,j] * mag[i,j] - H[1,i,j] * n[a,i,j] * mag[i,j]  # nograd=(kxscales,kxinds) fastmath=false
 end
 
@@ -151,9 +237,9 @@ end
 """
 function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
 	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	kxscales = [-1.; 1.]
+	kxscales = [1.; -1.] #[-1.; 1.]
     kxinds = [2; 1]
-    @tullio H[b,i,j] := kxscales[b] * e⃗[a,i,j] * mn[kxinds[b],a,i,j] * mag[i,j] nograd=(kxinds,kxscales) # fastmath=false
+    @tullio H[b,i,j] := kxscales[b] * e⃗[a,i,j] * mn[a,kxinds[b],i,j] * mag[i,j] nograd=(kxinds,kxscales) # fastmath=false
 end
 
 """
@@ -162,7 +248,7 @@ end
 function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) # fastmath=false
+	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[zxinds[a],b,i,j] nograd=(zxscales,zxinds) # fastmath=false
 end
 
 """
@@ -193,7 +279,7 @@ end
 
 function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
@@ -202,15 +288,35 @@ function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m:
 	HMₖH(Ha,ε⁻¹,mag,m,n)
 end
 
+function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn)::T where T<:Real
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+end
+
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+	Nx,Ny = size(mag)
+	Ha = reshape(H,(2,Nx,Ny))
+	HMₖH(Ha,ε⁻¹,mag,mn)
+end
+
 function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, -kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
 	Nx,Ny = size(mag)
 	Ha = reshape(H,(2,Nx,Ny))
 	HMH(Ha,ε⁻¹,mag,m,n)
+end
+
+function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn)::T where T<:Real
+	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+end
+
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+	Nx,Ny = size(mag)
+	Ha = reshape(H,(2,Nx,Ny))
+	HMH(Ha,ε⁻¹,mag,mn)
 end
 
 function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
@@ -226,6 +332,20 @@ function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray
 	Nx,Ny = size(mag)
 	Ha = reshape(Hₜ,(2,Nx,Ny))
 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
+end
+
+function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
+	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
+	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
+	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
+	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
+	return W / (2*real(P_z))
+end
+
+function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+	Nx,Ny = size(mag)
+	Ha = reshape(Hₜ,(2,Nx,Ny))
+	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
 end
 
 """
@@ -774,7 +894,7 @@ function HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹, gr::Grid{2,T}; shift=0. 
 	mag, mn = mag_mn(k⃗,g⃗s)
 	d0 = randn(Complex{T}, (3,size(gr)...))
 	fftax = _fftaxes(gr)
-	return HelmholtzMap{2,T,4,5}(
+	return HelmholtzMap{2,T,3,4}(
 			SVector{3,T}(k⃗),
 			gr.Nx,
 			gr.Ny,

@@ -115,7 +115,7 @@ function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1,maxite
 	ω²,H⃗ = solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
 	Δω² = ω²[eigind] - ωₜ^2
 	# ms.∂ω²∂k[eigind] = 2 * HMₖH(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
-	∂ω²∂k = 2 * HMₖH(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n)
+	∂ω²∂k = 2 * HMₖH(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
 	# println("Δω²: $(Δω²)")
 	# println("∂ω²∂k: $(∂ω²∂k)")
@@ -197,6 +197,11 @@ end
 
 function solve(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND};kguess=nothing,Hguess=nothing,dk̂=SVector(0.0,0.0,1.0),nev=1,eigind=1,maxiter=500,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function} # output type ::Tuple{T,T,T,Vector{Complex{T}}}
 	ε,ε⁻¹,nng,nng⁻¹ = deepcopy(smooth(ω,p,(:fεs,:fεs,:fnn̂gs,:fnn̂gs),[false,true,false,true],geom_fn,grid));
+	# ε = smooth(ω,p,:fεs,false,geom_fn,grid)
+	# ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
+	# nng = smooth(ω,p,:fnn̂gs,false,geom_fn,grid)
+	# nng⁻¹ = smooth(ω,p,:fnn̂gs,true,geom_fn,grid)
+
 	ngvd,nng2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs),[false,false],geom_fn,grid,volfrac_smoothing));
 	ms = ignore() do
 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
