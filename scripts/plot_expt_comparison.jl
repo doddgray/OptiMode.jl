@@ -5,12 +5,14 @@ using OptiMode
 using LinearAlgebra
 using StaticArrays
 using Rotations
-using CairoMakie
-using AbstractPlotting
+using Makie
+# using AbstractPlotting
 using Interpolations
 using FFTW
-using AbstractPlotting: lines, lines!, heatmap, heatmap!
-using AbstractPlotting.GeometryBasics
+# using AbstractPlotting: lines, lines!, heatmap, heatmap!
+# using AbstractPlotting.GeometryBasics
+using Makie: lines, lines!, heatmap, heatmap!
+using Makie.GeometryBasics
 using Colors
 import Colors: JULIA_LOGO_COLORS
 logocolors = JULIA_LOGO_COLORS
