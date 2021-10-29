@@ -1,7 +1,7 @@
 export _mult, _dot
 export _cross, _cross_x, _cross_y, _cross_z
 export _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
-export _outer
+export _outer, _expect
 export slice_inv
 
 
@@ -56,6 +56,32 @@ end
 
 function _dot(χ::AbstractArray{T,5},v₁::AbstractArray{Complex{T},4}) where T<:Real
 	@tullio v₂[i,ix,iy,iz] := χ[i,j,k,ix,iy,iz] * v₁[j,ix,iy,iz]
+end
+
+# first-order (linear) vector-tensor-vector muliplication (three element dot product)
+function _3dot(v₂::AbstractVector,χ::AbstractArray{T,2},v₁::AbstractVector) where T<:Real
+	@tullio out := conj(v₂)[i] * χ[i,j] * v₁[j]
+end
+
+function _3dot(v₂::AbstractArray{Complex{T},3},χ::AbstractArray{T,4},v₁::AbstractArray{Complex{T},3}) where T<:Real
+	@tullio out[i,ix,iy] := conj(v₂)[i,ix,iy] * χ[i,j,ix,iy] * v₁[j,ix,iy]
+end
+
+function _3dot(v₂::AbstractArray{Complex{T},4},χ::AbstractArray{T,5},v₁::AbstractArray{Complex{T},4}) where T<:Real
+	@tullio out[i,ix,iy,iz] := conj(v₂)[i,ix,iy,iz] * χ[i,j,k,ix,iy,iz] * v₁[j,ix,iy,iz]
+end
+
+# expectation value/inner product of vector field over tensor 
+function _expect(χ::AbstractArray{T,2},v₁::AbstractVector) where T<:Real
+	@tullio out := conj(v₁)[i] * χ[i,j] * v₁[j]
+end
+
+function _expect(χ::AbstractArray{T,4},v₁::AbstractArray{Complex{T},3}) where T<:Real
+	@tullio out := conj(v₁)[i,ix,iy] * χ[i,j,ix,iy] * v₁[j,ix,iy] 
+end
+
+function _expect(χ::AbstractArray{T,5},v₁::AbstractArray{Complex{T},4}) where T<:Real
+	@tullio out := conj(v₁)[i,ix,iy,iz] * χ[i,j,k,ix,iy,iz] * v₁[j,ix,iy,iz]
 end
 
 # first-order (linear) tensor-tensor muliplication

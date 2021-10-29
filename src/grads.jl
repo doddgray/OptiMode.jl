@@ -1,438 +1,10 @@
 export sum2, jacobian, ε⁻¹_bar!, ε⁻¹_bar, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ, ∂²ω²∂k², herm
 export ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!, neff_ng_gvd, ∂ε⁻¹_∂ω, ∂nng⁻¹_∂ω
 export ∇ₖmag_mn
-### ForwardDiff Comoplex number support
-# ref: https://github.com/JuliaLang/julia/pull/36030
-# https://github.com/JuliaDiff/ForwardDiff.jl/pull/455
-# Base.float(d::ForwardDiff.Dual{T}) where T = ForwardDiff.Dual{T}(float(d.value), d.partials)
-# Base.prevfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(prevfloat(float(d.value)), d.partials)
-# Base.nextfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(nextfloat(float(d.value)), d.partials)
-# function Base.ldexp(x::T, e::Integer) where T<:ForwardDiff.Dual
-#     if e >=0
-#         x * (1<<e)
-#     else
-#         x / (1<<-e)
-#     end
-# end
-
-### ForwardDiff FFT support
-# ref: https://github.com/JuliaDiff/ForwardDiff.jl/pull/495/files
-# https://discourse.julialang.org/t/forwarddiff-and-zygote-cannot-automatically-differentiate-ad-function-from-c-n-to-r-that-uses-fft/52440/18
-ForwardDiff.value(x::Complex{<:ForwardDiff.Dual}) =
-    Complex(x.re.value, x.im.value)
-
-ForwardDiff.partials(x::Complex{<:ForwardDiff.Dual}, n::Int) =
-    Complex(ForwardDiff.partials(x.re, n), ForwardDiff.partials(x.im, n))
-
-ForwardDiff.npartials(x::Complex{<:ForwardDiff.Dual{T,V,N}}) where {T,V,N} = N
-ForwardDiff.npartials(::Type{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N} = N
-
-# AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = float.(x .+ 0im)
-AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.complexfloat.(x)
-AbstractFFTs.complexfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d) + 0im
-
-AbstractFFTs.realfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.realfloat.(x)
-AbstractFFTs.realfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d)
-
-for plan in [:plan_fft, :plan_ifft, :plan_bfft]
-    @eval begin
-
-        AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
-            AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
-
-        AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, region=1:ndims(x)) =
-            AbstractFFTs.$plan(ForwardDiff.value.(x), region)
-
-    end
-end
-
-# rfft only accepts real arrays
-AbstractFFTs.plan_rfft(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
-    AbstractFFTs.plan_rfft(ForwardDiff.value.(x), region)
-
-for plan in [:plan_irfft, :plan_brfft]  # these take an extra argument, only when complex?
-    @eval begin
-
-        AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
-            AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
-
-        AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, d::Integer, region=1:ndims(x)) =
-            AbstractFFTs.$plan(ForwardDiff.value.(x), d, region)
-
-    end
-end
-
-for P in [:Plan, :ScaledPlan]  # need ScaledPlan to avoid ambiguities
-    @eval begin
-
-        Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:ForwardDiff.Dual}) =
-            _apply_plan(p, x)
-
-        Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}) =
-            _apply_plan(p, x)
-
-    end
-end
-
-function _apply_plan(p::AbstractFFTs.Plan, x::AbstractArray)
-    xtil = p * ForwardDiff.value.(x)
-    dxtils = ntuple(ForwardDiff.npartials(eltype(x))) do n
-        p * ForwardDiff.partials.(x, n)
-    end
-    map(xtil, dxtils...) do val, parts...
-        Complex(
-            ForwardDiff.Dual(real(val), map(real, parts)),
-            ForwardDiff.Dual(imag(val), map(imag, parts)),
-        )
-    end
-end
-
-# used with the ForwardDiff+FFTW code above, this Zygote.extract method
-# enables Zygote.hessian to work on real->real functions that internally use
-# FFTs (and thus complex numbers)
-import Zygote: extract
-function Zygote.extract(xs::AbstractArray{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N}
-  J = similar(xs, complex(V), N, length(xs))
-  for i = 1:length(xs), j = 1:N
-    J[j, i] = xs[i].re.partials.values[j] + im * xs[i].im.partials.values[j]
-  end
-  x0 = ForwardDiff.value.(xs)
-  return x0, J
-end
-
-####
-# Example code for defining custom ForwardDiff rules, copied from YingboMa's gist:
-# https://gist.github.com/YingboMa/c22dcf8239a62e01b27ac679dfe5d4c5
-# using ForwardDiff
-# goo((x, y, z),) = [x^2*z, x*y*z, abs(z)-y]
-# foo((x, y, z),) = [x^2*z, x*y*z, abs(z)-y]
-# function foo(u::Vector{ForwardDiff.Dual{T,V,P}}) where {T,V,P}
-#     # unpack: AoS -> SoA
-#     vs = ForwardDiff.value.(u)
-#     # you can play with the dimension here, sometimes it makes sense to transpose
-#     ps = mapreduce(ForwardDiff.partials, hcat, u)
-#     # get f(vs)
-#     val = foo(vs)
-#     # get J(f, vs) * ps (cheating). Write your custom rule here
-#     jvp = ForwardDiff.jacobian(goo, vs) * ps
-#     # pack: SoA -> AoS
-#     return map(val, eachrow(jvp)) do v, p
-#         ForwardDiff.Dual{T}(v, p...) # T is the tag
-#     end
-# end
-# ForwardDiff.gradient(u->sum(cumsum(foo(u))), [1, 2, 3]) == ForwardDiff.gradient(u->sum(cumsum(goo(u))), [1, 2, 3])
-####
-
-# AD rules for StaticArrays Constructors
-rrule(T::Type{<:SArray}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
-rrule(T::Type{<:SArray}, x::AbstractArray) = ( T(x), dv -> (NoTangent(), dv) )
-rrule(T::Type{<:SMatrix}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
-rrule(T::Type{<:SMatrix}, x::AbstractMatrix) = ( T(x), dv -> (NoTangent(), dv) )
-rrule(T::Type{<:SVector}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
-rrule(T::Type{<:SVector}, x::AbstractVector) = ( T(x), dv -> (NoTangent(), dv) )
-rrule(T::Type{<:HybridArray}, x::AbstractArray) = ( T(x), dv -> (NoTangent(), dv) )
-
-# AD rules for reinterpreting back and forth between N-D arrays of SVectors and (N+1)-D arrays
-function rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SVector{N1,T2},N2}) where {T1,N1,T2,N2}
-	# return ( reinterpret(reshape,T1,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SVector{N1,T1}, Δ ) ) )
-	function reinterpret_reshape_SV_pullback(Δ)
-		return (NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret(reshape,SVector{N1,eltype(Δ)},Δ))
-	end
-	( reinterpret(reshape,T1,A), reinterpret_reshape_SV_pullback )
-end
-function rrule(::typeof(reinterpret),reshape,type::Type{<:SVector{N1,T1}},A::AbstractArray{T1}) where {T1,N1}
-	return ( reinterpret(reshape,type,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
-end
-
-# need adjoint for constructor:
-# Base.ReinterpretArray{Float64, 2, SVector{3, Float64}, Matrix{SVector{3, Float64}}, false}. Gradient is of type FillArrays.Fill{Float64, 2, Tuple{Base.OneTo{Int64}, Base.OneTo{Int64}}}
-import Base: ReinterpretArray
-function rrule(T::Type{ReinterpretArray{T1, N1, SVector{N2, T2}, Array{SVector{N3, T3},N4}, IsReshaped}}, x::AbstractArray)  where {T1, N1, N2, T2, N3, T3, N4, IsReshaped}
-	function ReinterpretArray_SV_pullback(Δ)
-		if IsReshaped
-			Δr = reinterpret(reshape,SVector{N2,eltype(Δ)},Δ)
-		else
-			Δr = reinterpret(SVector{N2,eltype(Δ)},Δ)
-		end
-		return (NoTangent(), Δr)
-	end
-	( T(x), ReinterpretArray_SV_pullback )
-end
-
-# AD rules for reinterpreting back and forth between N-D arrays of SMatrices and (N+2)-D arrays
-function rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SMatrix{N1,N2,T2,N3},N4}) where {T1<:Real,T2,N1,N2,N3,N4}
-	# @show A
-	# @show eltype(A)
-	# @show type
-	# @show size(reinterpret(reshape,T1,A))
-	# @show N1*N2
-	# function f_pb(Δ)
-	# 	@show eltype(Δ)
-	# 	@show size(Δ)
-	# 	# @show Δ
-	# 	@show typeof(Δ)
-	# 	return ( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) )
-	# end
-	# return ( reinterpret(reshape,T1,A), Δ->f_pb(Δ) )
-	return ( reinterpret(reshape,T1,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, real(Δ) ) ) )
-end
-
-function rrule(::typeof(reinterpret),reshape,type::Type{<:SMatrix{N1,N2,T1,N3}},A::AbstractArray{T1}) where {T1,T2,N1,N2,N3}
-	# @show type
-	# @show eltype(A)
-	return ( reinterpret(reshape,type,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
-end
-
-# adjoint for constructor Base.ReinterpretArray{SMatrix{3, 3, Float64, 9}, 1, Float64, Vector{Float64}, false}.
-# Gradient is of type FillArrays.Fill{FillArrays.Fill{Float64, 2, Tuple{Base.OneTo{Int64}, Base.OneTo{Int64}}}, 1, Tuple{Base.OneTo{Int64}}}
-
-function rrule(::typeof(reinterpret), ::typeof(reshape), ::Type{R}, A::AbstractArray{T}) where {N1, N2, T, R <: SMatrix{N1,N2,T}}
-    function pullback(Ā)
-        ∂A = mapreduce(v -> v isa R ? v : zero(R), vcat, Ā; init = similar(A, 0))
-        return (NoTangent(), DoesNotExist(), DoesNotExist(), reshape(∂A, size(A)))
-    end
-    return (reinterpret(reshape, R, A), pullback)
-end
-
-# function rrule(T::Type{::R3, x::R2) where {T1, N1, N2, T2, R1<:SMatrix{N1,N2,T1}, R2<:AbstractArray{T2}, R3<:ReinterpretArray{R1}}}
-# 	function ReinterpretArray_SM_pullback(Δ)
-# 		Δr = reshape(reinterpret(T1,collect(Δ)),size(x))
-# 		# if IsReshaped
-# 		# 	Δr = reshape(reinterpret(T4,collect(Δ)),size(x))
-# 		# else
-# 		# 	Δr = reshape(reinterpret(T4,collect(Δ)),size(x))
-# 		# end
-# 		return (NoTangent(), Δr)
-# 	end
-# 	( T(x), ReinterpretArray_SM_pullback )
-# end
-
-# AD rules for fast norms of types SVector{2,T} and SVector{2,3}
-
-function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Real
-    ∂x = Vector{T}(undef,2)
-    ∂x .= x .* (real(Δy) * pinv(y))
-    return reinterpret(SVector{2,T},∂x)[1]
-end
-
-function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Real
-    ∂x = Vector{T}(undef,3)
-    ∂x .= x .* (real(Δy) * pinv(y))
-    return reinterpret(SVector{3,T},∂x)[1]
-end
-
-function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Complex
-    ∂x = Vector{T}(undef,2)
-    ∂x .= conj.(x) .* (real(Δy) * pinv(y))
-    return reinterpret(SVector{2,T},∂x)[1]
-end
-
-function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Complex
-    ∂x = Vector{T}(undef,3)
-    ∂x .= conj.(x) .* (real(Δy) * pinv(y))
-    return reinterpret(SVector{3,T},∂x)[1]
-end
-
-function rrule(::typeof(norm), x::SVector{3,T}) where T<:Real
-	y = LinearAlgebra.norm(x)
-	function norm_pb(Δy)
-		∂x = Thunk() do
-			_norm2_back_SV3r(x, y, Δy)
-		end
-		return ( NoTangent(), ∂x )
-	end
-	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
-    return y, norm_pb
-end
-
-function rrule(::typeof(norm), x::SVector{2,T}) where T<:Real
-	y = LinearAlgebra.norm(x)
-	function norm_pb(Δy)
-		∂x = Thunk() do
-			_norm2_back_SV2r(x, y, Δy)
-		end
-		return ( NoTangent(), ∂x )
-	end
-	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
-    return y, norm_pb
-end
-
-function rrule(::typeof(norm), x::SVector{3,T}) where T<:Complex
-	y = LinearAlgebra.norm(x)
-	function norm_pb(Δy)
-		∂x = Thunk() do
-			_norm2_back_SV3c(x, y, Δy)
-		end
-		return ( NoTangent(), ∂x )
-	end
-	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
-    return y, norm_pb
-end
-
-function rrule(::typeof(norm), x::SVector{2,T}) where T<:Complex
-	y = LinearAlgebra.norm(x)
-	function norm_pb(Δy)
-		∂x = Thunk() do
-			_norm2_back_SV2c(x, y, Δy)
-		end
-		return ( NoTangent(), ∂x )
-	end
-	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
-    return y, norm_pb
-end
-
-
 
 @non_differentiable KDTree(::Any)
 @non_differentiable g⃗(::Any)
 @non_differentiable _fftaxes(::Any)
-# Examples of how to assert type stability for broadcasting custom types (see https://github.com/FluxML/Zygote.jl/issues/318 )
-# Base.similar(bc::Base.Broadcast.Broadcasted{Base.Broadcast.ArrayStyle{V}}, ::Type{T}) where {T<:Real, V<:Real3Vector} = Real3Vector(Vector{T}(undef,3))
-# Base.similar(bc::Base.Broadcast.Broadcasted{Base.Broadcast.ArrayStyle{V}}, ::Type{T}) where {T, V<:Real3Vector} = Array{T}(undef, size(bc))
-
-@adjoint enumerate(xs) = enumerate(xs), diys -> (map(last, diys),)
-_ndims(::Base.HasShape{d}) where {d} = d
-_ndims(x) = Base.IteratorSize(x) isa Base.HasShape ? _ndims(Base.IteratorSize(x)) : 1
-@adjoint function Iterators.product(xs...)
-                    d = 1
-                    Iterators.product(xs...), dy -> ntuple(length(xs)) do n
-                        nd = _ndims(xs[n])
-                        dims = ntuple(i -> i<d ? i : i+nd, ndims(dy)-nd)
-                        d += nd
-                        func = sum(y->y[n], dy; dims=dims)
-                        ax = axes(xs[n])
-                        reshape(func, ax)
-                    end
-                end
-
-
-function sum2(op,arr)
-    return sum(op,arr)
-end
-
-function sum2adj( Δ, op, arr )
-    n = length(arr)
-    g = x->Δ*Zygote.gradient(op,x)[1]
-    return ( nothing, map(g,arr))
-end
-
-@adjoint function sum2(op,arr)
-    return sum2(op,arr),Δ->sum2adj(Δ,op,arr)
-end
-
-
-# now-removed Zygote trick to improve stability of `norm` pullback
-# found referenced here: https://github.com/JuliaDiff/ChainRules.jl/issues/338
-function Zygote._pullback(cx::Zygote.AContext, ::typeof(norm), x::AbstractArray, p::Real = 2)
-  fallback = (x, p) -> sum(abs.(x).^p .+ eps(0f0)) ^ (one(eltype(x)) / p) # avoid d(sqrt(x))/dx == Inf at 0
-  Zygote._pullback(cx, fallback, x, p)
-end
-
-# """
-# jacobian(f,x) : stolen from https://github.com/FluxML/Zygote.jl/pull/747/files
-#
-# Construct the Jacobian of `f` where `x` is a real-valued array
-# and `f(x)` is also a real-valued array.
-# """
-# function jacobian(f,x)
-#     y,back  = Zygote.pullback(f,x)
-#     k  = length(y)
-#     n  = length(x)
-#     J  = Matrix{eltype(y)}(undef,k,n)
-#     e_i = fill!(similar(y), 0)
-#     @inbounds for i = 1:k
-#         e_i[i] = oneunit(eltype(x))
-#         J[i,:] = back(e_i)[1]
-#         e_i[i] = zero(eltype(x))
-#     end
-#     (J,)
-# end
-
-### Zygote StructArrays rules from https://github.com/cossio/ZygoteStructArrays.jl
-# @adjoint function (::Type{SA})(t::Tuple) where {SA<:StructArray}
-#     sa = SA(t)
-#     back(Δ::NamedTuple) = (values(Δ),)
-#     function back(Δ::AbstractArray{<:NamedTuple})
-#         nt = (; (p => [getproperty(dx, p) for dx in Δ] for p in propertynames(sa))...)
-#         return back(nt)
-#     end
-#     return sa, back
-# end
-#
-# @adjoint function (::Type{SA})(t::NamedTuple) where {SA<:StructArray}
-#     sa = SA(t)
-#     back(Δ::NamedTuple) = (NamedTuple{propertynames(sa)}(Δ),)
-#     function back(Δ::AbstractArray)
-#         back((; (p => [getproperty(dx, p) for dx in Δ] for p in propertynames(sa))...))
-#     end
-#     return sa, back
-# end
-#
-# @adjoint function (::Type{SA})(a::A) where {T,SA<:StructArray,A<:AbstractArray{T}}
-#     sa = SA(a)
-#     function back(Δsa)
-#         Δa = [(; (p => Δsa[p][i] for p in propertynames(Δsa))...) for i in eachindex(a)]
-#         return (Δa,)
-#     end
-#     return sa, back
-# end
-#
-# # Must special-case for Complex (#1)
-# @adjoint function (::Type{SA})(a::A) where {T<:Complex,SA<:StructArray,A<:AbstractArray{T}}
-#     sa = SA(a)
-#     function back(Δsa) # dsa -> da
-#         Δa = [Complex(Δsa.re[i], Δsa.im[i]) for i in eachindex(a)]
-#         (Δa,)
-#     end
-#     return sa, back
-# end
-#
-# @adjoint function literal_getproperty(sa::StructArray, ::Val{key}) where {key}
-#     key::Symbol
-#     result = getproperty(sa, key)
-#     function back(Δ::AbstractArray)
-#         nt = (; (k => zero(v) for (k,v) in pairs(fieldarrays(sa)))...)
-#         return (Base.setindex(nt, Δ, key), nothing)
-#     end
-#     return result, back
-# end
-#
-# @adjoint Base.getindex(sa::StructArray, i...) = sa[i...], Δ -> ∇getindex(sa,i,Δ)
-# @adjoint Base.view(sa::StructArray, i...) = view(sa, i...), Δ -> ∇getindex(sa,i,Δ)
-# function ∇getindex(sa::StructArray, i, Δ::NamedTuple)
-#     dsa = (; (k => ∇getindex(v,i,Δ[k]) for (k,v) in pairs(fieldarrays(sa)))...)
-#     di = map(_ -> nothing, i)
-#     return (dsa, map(_ -> nothing, i)...)
-# end
-# # based on
-# # https://github.com/FluxML/Zygote.jl/blob/64c02dccc698292c548c334a15ce2100a11403e2/src/lib/array.jl#L41
-# ∇getindex(a::AbstractArray, i, Δ::Nothing) = nothing
-# function ∇getindex(a::AbstractArray, i, Δ)
-#     if i isa NTuple{<:Any, Integer}
-#         da = Zygote._zero(a, typeof(Δ))
-#         da[i...] = Δ
-#     else
-#         da = Zygote._zero(a, eltype(Δ))
-#         dav = view(da, i...)
-#         dav .= Zygote.accum.(dav, Zygote._droplike(Δ, dav))
-#     end
-#     return da
-# end
-#
-# @adjoint function (::Type{NT})(t::Tuple) where {K,NT<:NamedTuple{K}}
-#     nt = NT(t)
-#     back(Δ::NamedTuple) = (values(NT(Δ)),)
-#     return nt, back
-# end
-
-# # https://github.com/FluxML/Zygote.jl/issues/680
-# @adjoint function (T::Type{<:Complex})(re, im)
-# 	back(Δ::Complex) = (nothing, real(Δ), imag(Δ))
-# 	back(Δ::NamedTuple) = (nothing, Δ.re, Δ.im)
-# 	T(re, im), back
-# end
-
-
 
 #### AD Rules for Iterative eigensolves of Helmholtz Operator
 
@@ -2055,3 +1627,444 @@ end
 #     end
 #     return ((k, Hv), solve_k_pullback)
 # end
+
+
+
+
+
+##### Begin newly commented section
+
+# ### ForwardDiff Comoplex number support
+# # ref: https://github.com/JuliaLang/julia/pull/36030
+# # https://github.com/JuliaDiff/ForwardDiff.jl/pull/455
+# # Base.float(d::ForwardDiff.Dual{T}) where T = ForwardDiff.Dual{T}(float(d.value), d.partials)
+# # Base.prevfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(prevfloat(float(d.value)), d.partials)
+# # Base.nextfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = ForwardDiff.Dual{T}(nextfloat(float(d.value)), d.partials)
+# # function Base.ldexp(x::T, e::Integer) where T<:ForwardDiff.Dual
+# #     if e >=0
+# #         x * (1<<e)
+# #     else
+# #         x / (1<<-e)
+# #     end
+# # end
+
+# ### ForwardDiff FFT support
+# # ref: https://github.com/JuliaDiff/ForwardDiff.jl/pull/495/files
+# # https://discourse.julialang.org/t/forwarddiff-and-zygote-cannot-automatically-differentiate-ad-function-from-c-n-to-r-that-uses-fft/52440/18
+# ForwardDiff.value(x::Complex{<:ForwardDiff.Dual}) =
+#     Complex(x.re.value, x.im.value)
+
+# ForwardDiff.partials(x::Complex{<:ForwardDiff.Dual}, n::Int) =
+#     Complex(ForwardDiff.partials(x.re, n), ForwardDiff.partials(x.im, n))
+
+# ForwardDiff.npartials(x::Complex{<:ForwardDiff.Dual{T,V,N}}) where {T,V,N} = N
+# ForwardDiff.npartials(::Type{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N} = N
+
+# # AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = float.(x .+ 0im)
+# AbstractFFTs.complexfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.complexfloat.(x)
+# AbstractFFTs.complexfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d) + 0im
+
+# AbstractFFTs.realfloat(x::AbstractArray{<:ForwardDiff.Dual}) = AbstractFFTs.realfloat.(x)
+# AbstractFFTs.realfloat(d::ForwardDiff.Dual{T,V,N}) where {T,V,N} = convert(ForwardDiff.Dual{T,float(V),N}, d)
+
+# for plan in [:plan_fft, :plan_ifft, :plan_bfft]
+#     @eval begin
+
+#         AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+#             AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
+
+#         AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, region=1:ndims(x)) =
+#             AbstractFFTs.$plan(ForwardDiff.value.(x), region)
+
+#     end
+# end
+
+# # rfft only accepts real arrays
+# AbstractFFTs.plan_rfft(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+#     AbstractFFTs.plan_rfft(ForwardDiff.value.(x), region)
+
+# for plan in [:plan_irfft, :plan_brfft]  # these take an extra argument, only when complex?
+#     @eval begin
+
+#         AbstractFFTs.$plan(x::AbstractArray{<:ForwardDiff.Dual}, region=1:ndims(x)) =
+#             AbstractFFTs.$plan(ForwardDiff.value.(x) .+ 0im, region)
+
+#         AbstractFFTs.$plan(x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}, d::Integer, region=1:ndims(x)) =
+#             AbstractFFTs.$plan(ForwardDiff.value.(x), d, region)
+
+#     end
+# end
+
+# for P in [:Plan, :ScaledPlan]  # need ScaledPlan to avoid ambiguities
+#     @eval begin
+
+#         Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:ForwardDiff.Dual}) =
+#             _apply_plan(p, x)
+
+#         Base.:*(p::AbstractFFTs.$P, x::AbstractArray{<:Complex{<:ForwardDiff.Dual}}) =
+#             _apply_plan(p, x)
+
+#     end
+# end
+
+# function _apply_plan(p::AbstractFFTs.Plan, x::AbstractArray)
+#     xtil = p * ForwardDiff.value.(x)
+#     dxtils = ntuple(ForwardDiff.npartials(eltype(x))) do n
+#         p * ForwardDiff.partials.(x, n)
+#     end
+#     map(xtil, dxtils...) do val, parts...
+#         Complex(
+#             ForwardDiff.Dual(real(val), map(real, parts)),
+#             ForwardDiff.Dual(imag(val), map(imag, parts)),
+#         )
+#     end
+# end
+
+# # used with the ForwardDiff+FFTW code above, this Zygote.extract method
+# # enables Zygote.hessian to work on real->real functions that internally use
+# # FFTs (and thus complex numbers)
+# import Zygote: extract
+# function Zygote.extract(xs::AbstractArray{<:Complex{<:ForwardDiff.Dual{T,V,N}}}) where {T,V,N}
+#   J = similar(xs, complex(V), N, length(xs))
+#   for i = 1:length(xs), j = 1:N
+#     J[j, i] = xs[i].re.partials.values[j] + im * xs[i].im.partials.values[j]
+#   end
+#   x0 = ForwardDiff.value.(xs)
+#   return x0, J
+# end
+
+# ####
+# # Example code for defining custom ForwardDiff rules, copied from YingboMa's gist:
+# # https://gist.github.com/YingboMa/c22dcf8239a62e01b27ac679dfe5d4c5
+# # using ForwardDiff
+# # goo((x, y, z),) = [x^2*z, x*y*z, abs(z)-y]
+# # foo((x, y, z),) = [x^2*z, x*y*z, abs(z)-y]
+# # function foo(u::Vector{ForwardDiff.Dual{T,V,P}}) where {T,V,P}
+# #     # unpack: AoS -> SoA
+# #     vs = ForwardDiff.value.(u)
+# #     # you can play with the dimension here, sometimes it makes sense to transpose
+# #     ps = mapreduce(ForwardDiff.partials, hcat, u)
+# #     # get f(vs)
+# #     val = foo(vs)
+# #     # get J(f, vs) * ps (cheating). Write your custom rule here
+# #     jvp = ForwardDiff.jacobian(goo, vs) * ps
+# #     # pack: SoA -> AoS
+# #     return map(val, eachrow(jvp)) do v, p
+# #         ForwardDiff.Dual{T}(v, p...) # T is the tag
+# #     end
+# # end
+# # ForwardDiff.gradient(u->sum(cumsum(foo(u))), [1, 2, 3]) == ForwardDiff.gradient(u->sum(cumsum(goo(u))), [1, 2, 3])
+# ####
+
+# # AD rules for StaticArrays Constructors
+rrule(T::Type{<:SArray}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
+rrule(T::Type{<:SArray}, x::AbstractArray) = ( T(x), dv -> (NoTangent(), dv) )
+rrule(T::Type{<:SMatrix}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
+rrule(T::Type{<:SMatrix}, x::AbstractMatrix) = ( T(x), dv -> (NoTangent(), dv) )
+rrule(T::Type{<:SVector}, xs::Number...) = ( T(xs...), dv -> (NoTangent(), dv...) )
+rrule(T::Type{<:SVector}, x::AbstractVector) = ( T(x), dv -> (NoTangent(), dv) )
+rrule(T::Type{<:HybridArray}, x::AbstractArray) = ( T(x), dv -> (NoTangent(), dv) )
+
+# AD rules for reinterpreting back and forth between N-D arrays of SVectors and (N+1)-D arrays
+function rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SVector{N1,T2},N2}) where {T1,N1,T2,N2}
+	# return ( reinterpret(reshape,T1,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SVector{N1,T1}, Δ ) ) )
+	function reinterpret_reshape_SV_pullback(Δ)
+		return (NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret(reshape,SVector{N1,eltype(Δ)},Δ))
+	end
+	( reinterpret(reshape,T1,A), reinterpret_reshape_SV_pullback )
+end
+function rrule(::typeof(reinterpret),reshape,type::Type{<:SVector{N1,T1}},A::AbstractArray{T1}) where {T1,N1}
+	return ( reinterpret(reshape,type,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
+end
+
+# need adjoint for constructor:
+# Base.ReinterpretArray{Float64, 2, SVector{3, Float64}, Matrix{SVector{3, Float64}}, false}. Gradient is of type FillArrays.Fill{Float64, 2, Tuple{Base.OneTo{Int64}, Base.OneTo{Int64}}}
+import Base: ReinterpretArray
+function rrule(T::Type{ReinterpretArray{T1, N1, SVector{N2, T2}, Array{SVector{N3, T3},N4}, IsReshaped}}, x::AbstractArray)  where {T1, N1, N2, T2, N3, T3, N4, IsReshaped}
+	function ReinterpretArray_SV_pullback(Δ)
+		if IsReshaped
+			Δr = reinterpret(reshape,SVector{N2,eltype(Δ)},Δ)
+		else
+			Δr = reinterpret(SVector{N2,eltype(Δ)},Δ)
+		end
+		return (NoTangent(), Δr)
+	end
+	( T(x), ReinterpretArray_SV_pullback )
+end
+
+# AD rules for reinterpreting back and forth between N-D arrays of SMatrices and (N+2)-D arrays
+function rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SMatrix{N1,N2,T2,N3},N4}) where {T1<:Real,T2,N1,N2,N3,N4}
+	# @show A
+	# @show eltype(A)
+	# @show type
+	# @show size(reinterpret(reshape,T1,A))
+	# @show N1*N2
+	# function f_pb(Δ)
+	# 	@show eltype(Δ)
+	# 	@show size(Δ)
+	# 	# @show Δ
+	# 	@show typeof(Δ)
+	# 	return ( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) )
+	# end
+	# return ( reinterpret(reshape,T1,A), Δ->f_pb(Δ) )
+	return ( reinterpret(reshape,T1,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, real(Δ) ) ) )
+end
+
+function rrule(::typeof(reinterpret),reshape,type::Type{<:SMatrix{N1,N2,T1,N3}},A::AbstractArray{T1}) where {T1,T2,N1,N2,N3}
+	# @show type
+	# @show eltype(A)
+	return ( reinterpret(reshape,type,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
+end
+
+# adjoint for constructor Base.ReinterpretArray{SMatrix{3, 3, Float64, 9}, 1, Float64, Vector{Float64}, false}.
+# Gradient is of type FillArrays.Fill{FillArrays.Fill{Float64, 2, Tuple{Base.OneTo{Int64}, Base.OneTo{Int64}}}, 1, Tuple{Base.OneTo{Int64}}}
+
+function rrule(::typeof(reinterpret), ::typeof(reshape), ::Type{R}, A::AbstractArray{T}) where {N1, N2, T, R <: SMatrix{N1,N2,T}}
+    function pullback(Ā)
+        ∂A = mapreduce(v -> v isa R ? v : zero(R), vcat, Ā; init = similar(A, 0))
+        return (NoTangent(), DoesNotExist(), DoesNotExist(), reshape(∂A, size(A)))
+    end
+    return (reinterpret(reshape, R, A), pullback)
+end
+
+# function rrule(T::Type{::R3, x::R2) where {T1, N1, N2, T2, R1<:SMatrix{N1,N2,T1}, R2<:AbstractArray{T2}, R3<:ReinterpretArray{R1}}}
+# 	function ReinterpretArray_SM_pullback(Δ)
+# 		Δr = reshape(reinterpret(T1,collect(Δ)),size(x))
+# 		# if IsReshaped
+# 		# 	Δr = reshape(reinterpret(T4,collect(Δ)),size(x))
+# 		# else
+# 		# 	Δr = reshape(reinterpret(T4,collect(Δ)),size(x))
+# 		# end
+# 		return (NoTangent(), Δr)
+# 	end
+# 	( T(x), ReinterpretArray_SM_pullback )
+# end
+
+# # AD rules for fast norms of types SVector{2,T} and SVector{2,3}
+
+# function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Real
+#     ∂x = Vector{T}(undef,2)
+#     ∂x .= x .* (real(Δy) * pinv(y))
+#     return reinterpret(SVector{2,T},∂x)[1]
+# end
+
+# function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Real
+#     ∂x = Vector{T}(undef,3)
+#     ∂x .= x .* (real(Δy) * pinv(y))
+#     return reinterpret(SVector{3,T},∂x)[1]
+# end
+
+# function _norm2_back_SV2r(x::SVector{2,T}, y, Δy) where T<:Complex
+#     ∂x = Vector{T}(undef,2)
+#     ∂x .= conj.(x) .* (real(Δy) * pinv(y))
+#     return reinterpret(SVector{2,T},∂x)[1]
+# end
+
+# function _norm2_back_SV3r(x::SVector{3,T}, y, Δy) where T<:Complex
+#     ∂x = Vector{T}(undef,3)
+#     ∂x .= conj.(x) .* (real(Δy) * pinv(y))
+#     return reinterpret(SVector{3,T},∂x)[1]
+# end
+
+# function rrule(::typeof(norm), x::SVector{3,T}) where T<:Real
+# 	y = LinearAlgebra.norm(x)
+# 	function norm_pb(Δy)
+# 		∂x = Thunk() do
+# 			_norm2_back_SV3r(x, y, Δy)
+# 		end
+# 		return ( NoTangent(), ∂x )
+# 	end
+# 	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
+#     return y, norm_pb
+# end
+
+# function rrule(::typeof(norm), x::SVector{2,T}) where T<:Real
+# 	y = LinearAlgebra.norm(x)
+# 	function norm_pb(Δy)
+# 		∂x = Thunk() do
+# 			_norm2_back_SV2r(x, y, Δy)
+# 		end
+# 		return ( NoTangent(), ∂x )
+# 	end
+# 	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
+#     return y, norm_pb
+# end
+
+# function rrule(::typeof(norm), x::SVector{3,T}) where T<:Complex
+# 	y = LinearAlgebra.norm(x)
+# 	function norm_pb(Δy)
+# 		∂x = Thunk() do
+# 			_norm2_back_SV3c(x, y, Δy)
+# 		end
+# 		return ( NoTangent(), ∂x )
+# 	end
+# 	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
+#     return y, norm_pb
+# end
+
+# function rrule(::typeof(norm), x::SVector{2,T}) where T<:Complex
+# 	y = LinearAlgebra.norm(x)
+# 	function norm_pb(Δy)
+# 		∂x = Thunk() do
+# 			_norm2_back_SV2c(x, y, Δy)
+# 		end
+# 		return ( NoTangent(), ∂x )
+# 	end
+# 	norm_pb(::ZeroTangent) = (NoTangent(), ZeroTangent())
+#     return y, norm_pb
+# end
+
+# # Examples of how to assert type stability for broadcasting custom types (see https://github.com/FluxML/Zygote.jl/issues/318 )
+# # Base.similar(bc::Base.Broadcast.Broadcasted{Base.Broadcast.ArrayStyle{V}}, ::Type{T}) where {T<:Real, V<:Real3Vector} = Real3Vector(Vector{T}(undef,3))
+# # Base.similar(bc::Base.Broadcast.Broadcasted{Base.Broadcast.ArrayStyle{V}}, ::Type{T}) where {T, V<:Real3Vector} = Array{T}(undef, size(bc))
+
+# @adjoint enumerate(xs) = enumerate(xs), diys -> (map(last, diys),)
+# _ndims(::Base.HasShape{d}) where {d} = d
+# _ndims(x) = Base.IteratorSize(x) isa Base.HasShape ? _ndims(Base.IteratorSize(x)) : 1
+# @adjoint function Iterators.product(xs...)
+#                     d = 1
+#                     Iterators.product(xs...), dy -> ntuple(length(xs)) do n
+#                         nd = _ndims(xs[n])
+#                         dims = ntuple(i -> i<d ? i : i+nd, ndims(dy)-nd)
+#                         d += nd
+#                         func = sum(y->y[n], dy; dims=dims)
+#                         ax = axes(xs[n])
+#                         reshape(func, ax)
+#                     end
+#                 end
+
+
+# function sum2(op,arr)
+#     return sum(op,arr)
+# end
+
+# function sum2adj( Δ, op, arr )
+#     n = length(arr)
+#     g = x->Δ*Zygote.gradient(op,x)[1]
+#     return ( nothing, map(g,arr))
+# end
+
+# @adjoint function sum2(op,arr)
+#     return sum2(op,arr),Δ->sum2adj(Δ,op,arr)
+# end
+
+
+# # now-removed Zygote trick to improve stability of `norm` pullback
+# # found referenced here: https://github.com/JuliaDiff/ChainRules.jl/issues/338
+# function Zygote._pullback(cx::Zygote.AContext, ::typeof(norm), x::AbstractArray, p::Real = 2)
+#   fallback = (x, p) -> sum(abs.(x).^p .+ eps(0f0)) ^ (one(eltype(x)) / p) # avoid d(sqrt(x))/dx == Inf at 0
+#   Zygote._pullback(cx, fallback, x, p)
+# end
+
+# """
+# jacobian(f,x) : stolen from https://github.com/FluxML/Zygote.jl/pull/747/files
+#
+# Construct the Jacobian of `f` where `x` is a real-valued array
+# and `f(x)` is also a real-valued array.
+# """
+# function jacobian(f,x)
+#     y,back  = Zygote.pullback(f,x)
+#     k  = length(y)
+#     n  = length(x)
+#     J  = Matrix{eltype(y)}(undef,k,n)
+#     e_i = fill!(similar(y), 0)
+#     @inbounds for i = 1:k
+#         e_i[i] = oneunit(eltype(x))
+#         J[i,:] = back(e_i)[1]
+#         e_i[i] = zero(eltype(x))
+#     end
+#     (J,)
+# end
+
+##### end newly commented section
+
+
+
+
+
+### Zygote StructArrays rules from https://github.com/cossio/ZygoteStructArrays.jl
+# @adjoint function (::Type{SA})(t::Tuple) where {SA<:StructArray}
+#     sa = SA(t)
+#     back(Δ::NamedTuple) = (values(Δ),)
+#     function back(Δ::AbstractArray{<:NamedTuple})
+#         nt = (; (p => [getproperty(dx, p) for dx in Δ] for p in propertynames(sa))...)
+#         return back(nt)
+#     end
+#     return sa, back
+# end
+#
+# @adjoint function (::Type{SA})(t::NamedTuple) where {SA<:StructArray}
+#     sa = SA(t)
+#     back(Δ::NamedTuple) = (NamedTuple{propertynames(sa)}(Δ),)
+#     function back(Δ::AbstractArray)
+#         back((; (p => [getproperty(dx, p) for dx in Δ] for p in propertynames(sa))...))
+#     end
+#     return sa, back
+# end
+#
+# @adjoint function (::Type{SA})(a::A) where {T,SA<:StructArray,A<:AbstractArray{T}}
+#     sa = SA(a)
+#     function back(Δsa)
+#         Δa = [(; (p => Δsa[p][i] for p in propertynames(Δsa))...) for i in eachindex(a)]
+#         return (Δa,)
+#     end
+#     return sa, back
+# end
+#
+# # Must special-case for Complex (#1)
+# @adjoint function (::Type{SA})(a::A) where {T<:Complex,SA<:StructArray,A<:AbstractArray{T}}
+#     sa = SA(a)
+#     function back(Δsa) # dsa -> da
+#         Δa = [Complex(Δsa.re[i], Δsa.im[i]) for i in eachindex(a)]
+#         (Δa,)
+#     end
+#     return sa, back
+# end
+#
+# @adjoint function literal_getproperty(sa::StructArray, ::Val{key}) where {key}
+#     key::Symbol
+#     result = getproperty(sa, key)
+#     function back(Δ::AbstractArray)
+#         nt = (; (k => zero(v) for (k,v) in pairs(fieldarrays(sa)))...)
+#         return (Base.setindex(nt, Δ, key), nothing)
+#     end
+#     return result, back
+# end
+#
+# @adjoint Base.getindex(sa::StructArray, i...) = sa[i...], Δ -> ∇getindex(sa,i,Δ)
+# @adjoint Base.view(sa::StructArray, i...) = view(sa, i...), Δ -> ∇getindex(sa,i,Δ)
+# function ∇getindex(sa::StructArray, i, Δ::NamedTuple)
+#     dsa = (; (k => ∇getindex(v,i,Δ[k]) for (k,v) in pairs(fieldarrays(sa)))...)
+#     di = map(_ -> nothing, i)
+#     return (dsa, map(_ -> nothing, i)...)
+# end
+# # based on
+# # https://github.com/FluxML/Zygote.jl/blob/64c02dccc698292c548c334a15ce2100a11403e2/src/lib/array.jl#L41
+# ∇getindex(a::AbstractArray, i, Δ::Nothing) = nothing
+# function ∇getindex(a::AbstractArray, i, Δ)
+#     if i isa NTuple{<:Any, Integer}
+#         da = Zygote._zero(a, typeof(Δ))
+#         da[i...] = Δ
+#     else
+#         da = Zygote._zero(a, eltype(Δ))
+#         dav = view(da, i...)
+#         dav .= Zygote.accum.(dav, Zygote._droplike(Δ, dav))
+#     end
+#     return da
+# end
+#
+# @adjoint function (::Type{NT})(t::Tuple) where {K,NT<:NamedTuple{K}}
+#     nt = NT(t)
+#     back(Δ::NamedTuple) = (values(NT(Δ)),)
+#     return nt, back
+# end
+
+# # https://github.com/FluxML/Zygote.jl/issues/680
+# @adjoint function (T::Type{<:Complex})(re, im)
+# 	back(Δ::Complex) = (nothing, real(Δ), imag(Δ))
+# 	back(Δ::NamedTuple) = (nothing, Δ.re, Δ.im)
+# 	T(re, im), back
+# end
+
+
+

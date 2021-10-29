@@ -461,36 +461,7 @@ function smooth(ω::T1,p::AbstractVector{T2},fname::Symbol,invert_fn::Bool,f_geo
 	return hybridize(reshape(arr_flat_r,(3,3,size(grid)...)),grid)
 end
 
-function smooth(ω::AbstractVector{T1},p::AbstractVector{T2},fname::Symbol,invert_fn::Bool,f_geom::F,grid::Grid{ND}) where {ND,T1<:Real,T2<:Real,F}
-	n_p = length(p)
-	om_p = vcat(ω,p)
-	xyz::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
-	xyzc::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗c(grid))
-	vxlmin,vxlmax = vxl_minmax(xyzc)
 
-	arr_omcat = map(ω) do om #mapreduce(hcat,ω) do om
-		om_p = vcat(om,p)
-		arr_flatB = Zygote.Buffer(om_p,9,size(grid)...)
-		arr_flat = Zygote.forwarddiff(om_p) do om_p
-			om_p = vcat(om,p)
-			geom = f_geom(om_p[2:n_p+1])
-			shapes = getfield(geom,:shapes)
-			om_inv = inv(first(om_p))
-			mat_vals = map(f->(mat=SMatrix{3,3}(f(om_inv)); 0.5*(mat+mat')),getfield(geom,fname))
-			mat_vals_inv = inv.(mat_vals)
-			sinds::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(corner_sinds(shapes,xyzc)))
-			smoothed_vals = map(sinds,xyz,vxlmin,vxlmax) do sinds,xx,vn,vp
-				smooth(sinds,shapes,geom.material_inds,mat_vals,mat_vals_inv,invert_fn,xx,vn,vp)
-			end
-			smoothed_vals_rr = copy(reinterpret(eltype(first(smoothed_vals)),smoothed_vals))
-			return smoothed_vals_rr  # new spatially smoothed ε tensor array
-		end
-		copyto!(arr_flatB,copy(arr_flat))
-		arr_flat_r = copy(arr_flatB)
-		return hybridize(reshape(arr_flat_r,(3,3,size(grid)...)),grid)
-	end
-	return arr_omcat
-end
 
 # testing:
 function kottke_smoothing(sinds::NTuple{NI, TI},shapes,minds,mat_vals,mat_vals_inv,calcinv,xx,vxl_min,vxl_max) where {NI,TI<:Int}
@@ -519,6 +490,38 @@ function volfrac_smoothing(sinds::NTuple{NI, TI},shapes,minds,mat_vals,mat_vals_
 	end
 end
 
+function smooth(ω::AbstractVector{T1},p::AbstractVector{T2},fname::Symbol,invert_fn::Bool,f_geom::F,grid::Grid{ND}) where {ND,T1<:Real,T2<:Real,F}
+	n_p = length(p)
+	om_p = vcat(ω,p)
+	xyz::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyzc::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗c(grid))
+	vxlmin,vxlmax = vxl_minmax(xyzc)
+
+	arr_omcat = map(ω) do om #mapreduce(hcat,ω) do om
+		om_p = vcat(om,p)
+		arr_flatB = Zygote.Buffer(om_p,9,size(grid)...)
+		arr_flat = Zygote.forwarddiff(om_p) do om_p
+			om_p = vcat(om,p)
+			geom = f_geom(om_p[2:n_p+1])
+			shapes = getfield(geom,:shapes)
+			om_inv = inv(first(om_p))
+			mat_vals = map(f->(mat=SMatrix{3,3}(f(om_inv)); 0.5*(mat+mat')),getfield(geom,fname))
+			mat_vals_inv = inv.(mat_vals)
+			sinds::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(corner_sinds(shapes,xyzc)))
+			smoothed_vals = map(sinds,xyz,vxlmin,vxlmax) do sinds,xx,vn,vp
+				# kottke_smoothing(sinds::NTuple{NI, TI},shapes,minds,mat_vals,mat_vals_inv,calcinv,xx,vxl_min,vxl_max)
+				kottke_smoothing(sinds,shapes,geom.material_inds,mat_vals,mat_vals_inv,invert_fn,xx,vn,vp)
+				# smooth(sinds,shapes,geom.material_inds,mat_vals,mat_vals_inv,invert_fn,xx,vn,vp)
+			end
+			smoothed_vals_rr = copy(reinterpret(eltype(first(smoothed_vals)),smoothed_vals))
+			return smoothed_vals_rr  # new spatially smoothed ε tensor array
+		end
+		copyto!(arr_flatB,copy(arr_flat))
+		arr_flat_r = copy(arr_flatB)
+		return hybridize(reshape(arr_flat_r,(3,3,size(grid)...)),grid)
+	end
+	return arr_omcat
+end
 
 function smooth(ω::T1,p::AbstractVector{T2},fnames::NTuple{NF,Symbol},invert_fn::Vector{Bool},f_geom::F,grid::Grid{ND},smoothing_fn::TF) where {NF,T1<:Real,T2<:Real,F<:Function,TF<:Function,ND}
 	n_p = length(p)
@@ -630,6 +633,49 @@ function smooth(ω::AbstractVector{NTuple{N1,T1}},p::AbstractVector{T2},fname::S
 	return arr_omcat
 end
 
+# function smooth(ω::AbstractVector{T1},p::AbstractVector{T2},fname::Symbol,invert_fn::Bool,default_val::TA,f_geom::F,grid::Grid{ND},smoothing_fn::TF) where {T1<:Real,T2<:Real,TA<:AbstractArray,F,TF,ND}
+# 	n_p = length(p)
+# 	xyz::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+# 	xyzc::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗c(grid))
+# 	vxlmin,vxlmax = vxl_minmax(xyzc)
+
+# 	arr_omcat = map(ω) do om #mapreduce(hcat,ω) do om
+# 		om_p = vcat([om,],p)
+# 		arr_flatB = Zygote.Buffer(om_p,(length(default_val),size(grid)...))
+# 		arr_flat = Zygote.forwarddiff(om_p) do om_p
+# 			geom = f_geom(om_p[2:1+n_p])
+# 			shapes = getfield(geom,:shapes)
+# 			om_inv = inv(om_p[1])
+# 			mat_vals = map(f->convert(TA,f(om_inv)),getfield(geom,fname))
+# 			sinds::Matrix{NTuple{4, Int64}} = Zygote.@ignore(proc_sinds(corner_sinds(shapes,xyzc)))
+# 			if invert_fn
+# 				mat_vals_inv = inv.(mat_vals)
+# 				smoothed_vals = map(sinds,xyz,vxlmin,vxlmax) do sinds,xx,vn,vp
+# 					smoothing_fn(sinds,shapes,geom.material_inds,mat_vals,mat_vals_inv,invert_fn,xx,vn,vp)[1]
+# 				end
+# 			else
+# 				smoothed_vals = map(sinds,xyz,vxlmin,vxlmax) do sinds,xx,vn,vp
+# 					smoothing_fn(sinds,shapes,geom.material_inds,mat_vals,mat_vals,invert_fn,xx,vn,vp)[1]
+# 				end
+# 			end
+
+# 			# smoothed_vals_rr = copy(reinterpret(eltype(first(smoothed_vals)),smoothed_vals))
+# 			# return smoothed_vals_rr  # new spatially smoothed ε tensor array
+# 			return smoothed_vals
+# 		end
+# 		copyto!(arr_flatB,copy(arr_flat))
+# 		arr_flat_r = copy(arr_flatB)
+# 		# return HybridArray{Tuple{size(default_val)...,Dynamic(),Dynamic()}}(reshape(arr_flat_r,(size(default_val)...,size(grid)...)))
+# 	end
+# 	return arr_omcat
+# end
+
+# smoothed_vals_rr = copy(reinterpret(eltype(first(smoothed_vals)),smoothed_vals))
+# 			return smoothed_vals_rr  # new spatially smoothed ε tensor array
+# 		end
+# 		copyto!(arr_flatB,copy(arr_flat))
+# 		arr_flat_r = copy(arr_flatB)
+# 		return hybridize(reshape(arr_flat_r,(3,3,size(grid)...)),grid)
 
 """
 ################################################################################
