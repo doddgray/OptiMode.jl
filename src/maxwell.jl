@@ -3,6 +3,10 @@ export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, mag_mn, kx_ct, k
 export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
 export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z, eid!
 
+x̂ = SVector(1.,0.,0.)
+ŷ = SVector(0.,1.,0.)
+ẑ = SVector(0.,0.,1.)
+
 """
 ################################################################################
 #																			   #
@@ -17,34 +21,34 @@ export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z, eid!
     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
 """
 function tc(H::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
-    @tullio h[a,i,j,k] := H[b,i,j,k] * mn[a,b,i,j,k]
+    @tullio h[a,ix,iy,iz] := H[b,ix,iy,iz] * mn[a,b,ix,iy,iz]
 end
 
 """
     ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
 """
 function ct(h::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
-    @tullio H[a,i,j,k] := h[b,i,j,k] * mn[b,a,i,j,k]
+    @tullio H[a,ix,iy,iz] := h[b,ix,iy,iz] * mn[b,a,ix,iy,iz]
 end
 
 """
     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
 """
 function kx_tc(H::AbstractArray{T,4},mn,mag) where T
-	kxscales = [-1.; 1.]
+	kxscales = [1.; -1.]
 	kxinds = [2; 1]
-    @tullio d[a,i,j,k] := kxscales[b] * H[kxinds[b],i,j,k] * mn[a,b,i,j,k] * mag[i,j,k] nograd=(kxscales,kxinds) # fastmath=false
-	# @tullio d[a,i,j,k] := H[2,i,j,k] * m[a,i,j,k] * mag[i,j,k] - H[1,i,j,k] * n[a,i,j,k] * mag[i,j,k]  # nograd=(kxscales,kxinds) fastmath=false
+    @tullio d[a,ix,iy,iz] := kxscales[b] * H[kxinds[b],ix,iy,iz] * mn[a,b,ix,iy,iz] * mag[ix,iy,iz] nograd=(kxscales,kxinds) # fastmath=false
+	return -1im * d
 end
 
 """
     kx_c2t: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
 """
 function kx_ct(e⃗::AbstractArray{T,4},mn,mag) where T
-	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	kxscales = [-1.; 1.]
     kxinds = [2; 1]
-    @tullio H[b,i,j,k] := kxscales[b] * e⃗[a,i,j,k] * mn[a,kxinds[b],i,j,k] * mag[i,j,k] nograd=(kxinds,kxscales) # fastmath=false
+    @tullio H[b,ix,iy,iz] := kxscales[b] * e⃗[a,ix,iy,iz] * mn[a,kxinds[b],ix,iy,iz] * mag[ix,iy,iz] nograd=(kxinds,kxscales) # fastmath=false
+	return -1im * H
 end
 
 """
@@ -53,7 +57,8 @@ end
 function zx_tc(H::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxH[a,i,j,k] := zxscales[a] * H[b,i,j,k] * mn[zxinds[a],b,i,j,k] nograd=(zxscales,zxinds) # fastmath=false
+	@tullio zxH[a,ix,iy,iz] := zxscales[a] * H[b,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds) # fastmath=false
+	return -1im * zxH
 end
 
 """
@@ -62,7 +67,8 @@ end
 function zx_ct(e⃗::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxe⃗[b,i,j,k] := zxscales[a] * e⃗[a,i,j,k] * mn[b,zxinds[a],i,j,k] nograd=(zxscales,zxinds) # fastmath=false
+	@tullio zxe⃗[b,ix,iy,iz] := zxscales[a] * e⃗[a,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds)  # fastmath=false
+	return -1im * zxe⃗
 end
 
 """
@@ -70,7 +76,7 @@ end
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,4},ε⁻¹) where T
 	# eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * fft(d⃗,(2:4))[b,i,j,k]  #fastmath=false
+	@tullio e⃗[a,ix,iy,iz] :=  ε⁻¹[a,b,ix,iy,iz] * fft(d⃗,(2:4))[b,ix,iy,iz]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -79,7 +85,7 @@ end
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,4},ε⁻¹) where T
 	# eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j,k] :=  ε⁻¹[a,b,i,j,k] * d⃗[b,i,j,k]  #fastmath=false
+	@tullio e⃗[a,ix,iy,iz] :=  ε⁻¹[a,b,ix,iy,iz] * d⃗[b,ix,iy,iz]  #fastmath=false
 end
 
 function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
@@ -156,90 +162,38 @@ end
 
 # 2D
 
-# """
-#     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
-# """
-# function tc(H::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-#     @tullio h[a,i,j] := H[b,i,j] * mn[a,b,i,j]
-# end
-#
-# """
-#     ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
-# """
-# function ct(h::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-#     @tullio H[a,i,j] := h[b,i,j] * mn[b,a,i,j]
-# end
-#
-# """
-#     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
-# """
-# function kx_tc(H::AbstractArray{T,3},mn,mag) where T
-# 	kxscales = [-1.; 1.]
-# 	kxinds = [2; 1]
-#     @tullio d[a,i,j] := kxscales[b] * H[kxinds[b],i,j] * mn[a,b,i,j] * mag[i,j] nograd=(kxscales,kxinds) # fastmath=false
-# 	# @tullio d[a,i,j] := H[2,i,j] * m[a,i,j] * mag[i,j] - H[1,i,j] * n[a,i,j] * mag[i,j]  # nograd=(kxscales,kxinds) fastmath=false
-# end
-#
-# """
-#     kx_c2t: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
-# """
-# function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
-# 	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-# 	kxscales = [-1.; 1.]
-#     kxinds = [2; 1]
-#     @tullio H[b,i,j] := kxscales[b] * e⃗[a,i,j] * mn[a,kxinds[b],i,j] * mag[i,j] nograd=(kxinds,kxscales) # fastmath=false
-# end
-#
-# """
-#     zx_t2c: a⃗ (cartesian vector) = ẑ × v⃗ (transverse vector)
-# """
-# function zx_tc(H::AbstractArray{T,3},mn) where T
-# 	zxinds = [2; 1; 3]
-# 	zxscales = [-1.; 1.; 0.]
-# 	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[zxinds[a],b,i,j] nograd=(zxscales,zxinds) # fastmath=false
-# end
-#
-# """
-#     zx_c2t: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
-# """
-# function zx_ct(e⃗::AbstractArray{T,3},mn) where T
-# 	zxinds = [2; 1; 3]
-# 	zxscales = [-1.; 1.; 0.]
-# 	@tullio zxe⃗[b,i,j] := zxscales[a] * e⃗[a,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) threads=false # fastmath=false
-# end
-
 """
     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
 """
 function tc(H::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-    @tullio h[a,i,j] := H[b,i,j] * mn[a,b,i,j]
+    @tullio h[a,ix,iy] := H[b,ix,iy] * mn[a,b,ix,iy]
 end
 
 """
     ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
 """
 function ct(h::AbstractArray{T,3},mn) where T<:Union{Real,Complex}
-    @tullio H[a,i,j] := h[b,i,j] * mn[b,a,i,j]
+    @tullio H[a,ix,iy] := h[b,ix,iy] * mn[b,a,ix,iy]
 end
 
 """
     kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
 """
 function kx_tc(H::AbstractArray{T,3},mn,mag) where T
-	kxscales = [1.; -1.] #[-1.; 1.]
+	kxscales = [1.; -1.]
 	kxinds = [2; 1]
-    @tullio d[a,i,j] := kxscales[b] * H[kxinds[b],i,j] * mn[a,b,i,j] * mag[i,j] nograd=(kxscales,kxinds) # fastmath=false
-	# @tullio d[a,i,j] := H[2,i,j] * m[a,i,j] * mag[i,j] - H[1,i,j] * n[a,i,j] * mag[i,j]  # nograd=(kxscales,kxinds) fastmath=false
+    @tullio d[a,ix,iy] := kxscales[b] * H[kxinds[b],ix,iy] * mn[a,b,ix,iy] * mag[ix,iy] nograd=(kxscales,kxinds) # fastmath=false
+	return -1im * d
 end
 
 """
     kx_c2t: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
 """
 function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
-	# mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	kxscales = [1.; -1.] #[-1.; 1.]
+	kxscales = [-1.; 1.]
     kxinds = [2; 1]
-    @tullio H[b,i,j] := kxscales[b] * e⃗[a,i,j] * mn[a,kxinds[b],i,j] * mag[i,j] nograd=(kxinds,kxscales) # fastmath=false
+    @tullio H[b,ix,iy] := kxscales[b] * e⃗[a,ix,iy] * mn[a,kxinds[b],ix,iy] * mag[ix,iy] nograd=(kxinds,kxscales) # fastmath=false
+	return -1im * H
 end
 
 """
@@ -248,7 +202,8 @@ end
 function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxH[a,i,j] := zxscales[a] * H[b,i,j] * mn[zxinds[a],b,i,j] nograd=(zxscales,zxinds) # fastmath=false
+	@tullio zxH[a,ix,iy] := zxscales[a] * H[b,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds) # fastmath=false
+	return -1im * zxH
 end
 
 """
@@ -257,7 +212,8 @@ end
 function zx_ct(e⃗::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
-	@tullio zxe⃗[b,i,j] := zxscales[a] * e⃗[a,i,j] * mn[b,zxinds[a],i,j] nograd=(zxscales,zxinds) threads=false # fastmath=false
+	@tullio zxe⃗[b,ix,iy] := zxscales[a] * e⃗[a,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds)  # fastmath=false
+	return -1im * zxe⃗
 end
 
 """
@@ -265,7 +221,7 @@ end
 """
 function ε⁻¹_dot_t(d⃗::AbstractArray{T,3},ε⁻¹) where T
 	# eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * fft(d⃗,(2:4))[b,i,j]  #fastmath=false
+	@tullio e⃗[a,ix,iy] :=  ε⁻¹[a,b,ix,iy] * fft(d⃗,(2:4))[b,ix,iy]  #fastmath=false
 	return ifft(e⃗,(2:4))
 end
 
@@ -274,7 +230,7 @@ end
 """
 function ε⁻¹_dot(d⃗::AbstractArray{T,3},ε⁻¹) where T
 	# eif = flat(ε⁻¹)
-	@tullio e⃗[a,i,j] :=  ε⁻¹[a,b,i,j] * d⃗[b,i,j]  #fastmath=false
+	@tullio e⃗[a,ix,iy] :=  ε⁻¹[a,b,ix,iy] * d⃗[b,ix,iy]  #fastmath=false
 end
 
 function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
@@ -568,52 +524,49 @@ end
 
 mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,0.,kz),g⃗)
 
+# function mag_m_n2(k⃗::SVector{3,T},g⃗::AbstractArray) where T <: Real
+# 	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
+# 	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
+# 	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+# 	local ŷ = [0.; 1. ;0.]
+# 	local zxinds = [2; 1; 3]
+# 	local zxscales = [-1; 1. ;0.]
+# 	local xinds1 = [2; 3; 1]
+# 	local xinds2 = [3; 1; 2]
+# 	@tullio kpg[ix,iy,iz] := k⃗[a] - g⃗[a,ix,iy,iz] fastmath=false
+# 	@tullio mag[ix,iy,iz] := sqrt <| kpg[a,ix,iy,iz]^2 fastmath=false
+# 	@tullio nt[ix,iy,iz,a] := zxscales[a] * kpg[zxinds[a],ix,iy,iz] * g⃗ₜ_zero_mask[ix,iy,iz] + ŷ[a] * g⃗ₜ_zero_mask![ix,iy,iz]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
+# 	@tullio nmag[ix,iy,iz] := sqrt <| nt[a,ix,iy,iz]^2 fastmath=false
+# 	@tullio n[a,ix,iy,iz] := nt[a,ix,iy,iz] / nmag[ix,iy,iz] fastmath=false
+# 	@tullio mt[a,ix,iy,iz] := n[xinds1[a],ix,iy,iz] * kpg[xinds2[a],ix,iy,iz] - kpg[xinds1[a],ix,iy,iz] * n[xinds2[a],ix,iy,iz] nograd=(xinds1,xinds2) fastmath=false
+# 	@tullio mmag[ix,iy,iz] := sqrt <| mt[a,ix,iy,iz]^2 fastmath=false
+# 	@tullio m[a,ix,iy,iz] := mt[a,ix,iy,iz] / mmag[ix,iy,iz] fastmath=false
+# 	return mag, m, n
+# end
 
-function mag_m_n2(k⃗::SVector{3,T},g⃗::AbstractArray) where T <: Real
-	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
-	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
-	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
-	local ŷ = [0.; 1. ;0.]
-	local zxinds = [2; 1; 3]
-	local zxscales = [-1; 1. ;0.]
-	local xinds1 = [2; 3; 1]
-	local xinds2 = [3; 1; 2]
-	@tullio kpg[ix,iy,iz] := k⃗[a] - g⃗[a,ix,iy,iz] fastmath=false
-	@tullio mag[ix,iy,iz] := sqrt <| kpg[a,ix,iy,iz]^2 fastmath=false
-	@tullio nt[ix,iy,iz,a] := zxscales[a] * kpg[zxinds[a],ix,iy,iz] * g⃗ₜ_zero_mask[ix,iy,iz] + ŷ[a] * g⃗ₜ_zero_mask![ix,iy,iz]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
-	@tullio nmag[ix,iy,iz] := sqrt <| nt[a,ix,iy,iz]^2 fastmath=false
-	@tullio n[a,ix,iy,iz] := nt[a,ix,iy,iz] / nmag[ix,iy,iz] fastmath=false
-	@tullio mt[a,ix,iy,iz] := n[xinds1[a],ix,iy,iz] * kpg[xinds2[a],ix,iy,iz] - kpg[xinds1[a],ix,iy,iz] * n[xinds2[a],ix,iy,iz] nograd=(xinds1,xinds2) fastmath=false
-	@tullio mmag[ix,iy,iz] := sqrt <| mt[a,ix,iy,iz]^2 fastmath=false
-	@tullio m[a,ix,iy,iz] := mt[a,ix,iy,iz] / mmag[ix,iy,iz] fastmath=false
-	return mag, m, n
-end
-
-function mag_m_n2(kz::T,g⃗::AbstractArray) where T <: Real
-	mag_m_n2(SVector{3,T}(0.,0.,kz),g⃗)
-end
+# function mag_m_n2(kz::T,g⃗::AbstractArray) where T <: Real
+# 	mag_m_n2(SVector{3,T}(0.,0.,kz),g⃗)
+# end
 
 function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
 	# for iz ∈ axes(g⃗,3), iy ∈ axes(g⃗,2), ix ∈ axes(g⃗,1) #, l in 0:0
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
+	local ẑ = SVector{3,T}(0.,0.,1.)
+	local ŷ = SVector{3,T}(0.,1.,0.)
 	n = Buffer(g⃗,size(g⃗))
 	m = Buffer(g⃗,size(g⃗))
 	mag = Buffer(zeros(T,size(g⃗)),size(g⃗))
-	# n = bufferfrom(zeros(SVector{3,T},size(g⃗)))
-	# m = bufferfrom(zeros(SVector{3,T},size(g⃗)))
-	# mag = bufferfrom(zeros(T,size(g⃗)))
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : SVector(-1.,0.,0.) #ŷ
+		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
 	end
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
 end
 
-function mag_m_n(kz::T,g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
-	mag_m_n(SVector{3,T}(0.,0.,kz),g⃗)
+function mag_m_n(kmag::T,g⃗::AbstractArray{SVector{3,T2}};k̂=SVector(0.,0.,1.)) where {T<:Real,T2<:Real}
+	k⃗ = kmag * k̂
+	mag_m_n(k⃗,g⃗)
 end
 
 mag_m_n(k::Real,grid::Grid) = mag_m_n(k, g⃗(grid))
@@ -666,46 +619,34 @@ function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{
     return (mag_m⃗_n⃗ , mag_m_n_pullback)
 end
 
-# function mag_mn(k::T1,g::AbstractArray{SVector{3,T2},3}) where {T1<:Real,T2<:Real}
-# 	mag, m⃗, n⃗ = mag_m_n(k,g)
-# 	HybridArray{Tuple{3,2,Dynamic(),Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(Val(T1),hcat.(m⃗,n⃗)),(3,2,size(g)...))))
-# end
-#
-# function mag_mn(k::T1,g::Grid{3,T2}) where {T1<:Real,T2<:Real}
-# 	mag, m⃗, n⃗ = mag_m_n(k,g)
-# 	HybridArray{Tuple{3,2,Dynamic(),Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(Val(T1),hcat.(m⃗,n⃗)),(3,2,size(g)...))))
-# end
-
-function mag_mn(k::SVector{3,T1},g::Grid{3,T2}) where {T1<:Real,T2<:Real}
+function mag_mn(k::SVector{3,T1},g::Grid{ND,T2}) where {T1<:Real,ND,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g⃗(g))
-	mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
+	# mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
 	# return mag, HybridArray{Tuple{3,2,Dynamic(),Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...))))
-	return mag, mn
-end
-
-function mag_mn(k::SVector{3,T1},g::Grid{2,T2}) where {T1<:Real,T2<:Real}
-	mag, m⃗, n⃗ = mag_m_n(k,g⃗(g))
-	mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
-	# return mag, HybridArray{Tuple{3,2,Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...))))
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,size(g)...))
+    n = reshape(reinterpret(reshape,T1,n⃗), (3,1,size(g)...))
+	mn = hcat(m,n)
 	return mag, mn
 end
 
 function mag_mn(k::SVector{3,T1},g::AbstractArray{SVector{3,T2},3}) where {T1<:Real,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g)
-	mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
-	# return mag, HybridArray{Tuple{3,2,Dynamic(),Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...))))
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,size(g)...))
+    n = reshape(reinterpret(reshape,T1,n⃗), (3,1,size(g)...))
+	mn = hcat(m,n)
 	return mag, mn
 end
 
 function mag_mn(k::SVector{3,T1},g::AbstractArray{SVector{3,T2},2}) where {T1<:Real,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g)
-	mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
-	# return mag, HybridArray{Tuple{3,2,Dynamic(),Dynamic()},T1}(copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...))))
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,size(g)...))
+    n = reshape(reinterpret(reshape,T1,n⃗), (3,1,size(g)...))
+	mn = hcat(m,n)
 	return mag, mn
 end
 
-function mag_mn(k::T,g::TG) where {T<:Real,TG}
-	return mag_mn(SVector{3,T}(0.,0.,k),g)
+function mag_mn(kmag::T,g::TG;k̂=SVector(0.,0.,1.)) where {T<:Real,TG}
+	return mag_mn(kmag*k̂,g)
 end
 
 function mag_mn!(mag,mn::AbstractArray{T1,NDp2},k⃗::SVector{3,T2},g⃗) where {T1<:Real,T2<:Real,NDp2}
@@ -719,66 +660,147 @@ function mag_mn!(mag,mn::AbstractArray{T1,NDp2},k⃗::SVector{3,T2},g⃗) where 
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		@inbounds mn[1:3,2,i] .=  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : SVector(-1.,0.,0.) #[-1.,0.,0.] #ŷ
+		@inbounds mn[1:3,2,i] .=  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds mn[1:3,1,i] .=  normalize( cross( mn[1:3,2,i], kpg )  )
 	end
 	# return mag,m,n
 	return mag, mn
 end
 
-mag_mn!(mag,mn,kz::T,g⃗) where T <: Real = mag_mn!(mag,mn,SVector{3,T}(0.,0.,kz),g⃗)
+mag_mn!(mag,mn,kmag::T,g⃗;k̂=SVector(0.,0.,1.)) where T <: Real = mag_mn!(mag,mn,k̂*kmag,g⃗)
 
 """
 (māg,m̄n̄) → k̄ map
+
+assumes mn and mn̄ have axes/sizes:
+dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny
 """
-function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn) where {T1<:Real,T2<:Number}
+function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn;dk̂=ẑ) where {T1<:Real,T2<:Number}
 	m = view(mn,:,1,:,:)
 	n = view(mn,:,2,:,:)
 	@tullio kp̂g_over_mag[i,ix,iy] := m[mod(i-2),ix,iy] * n[mod(i-1),ix,iy] / mag[ix,iy] - m[mod(i-1),ix,iy] * n[mod(i-2),ix,iy] / mag[ix,iy] (i in 1:3)
 	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
 	@tullio k̄_mag := māg[ix,iy] * mag[ix,iy] * kp̂g_over_mag[j,ix,iy] * dk̂[j]
-	@tullio k̄_mn := -conj(mn̄)[imn,i,ix,iy] * mn[imn,mod(i-2),ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy] + conj(mn̄)[imn,i,ix,iy] * mn[imn,mod(i-1),ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy] (i in 1:3)
+	@tullio k̄_mn := -conj(mn̄)[i,imn,ix,iy] * mn[mod(i-2),imn,ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy] + conj(mn̄)[i,imn,ix,iy] * mn[mod(i-1),imn,ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy] (i in 1:3)
 	k̄_magmn = k̄_mag + k̄_mn
 	return k̄_magmn
 end
 
-function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn) where {T1<:Real,T2<:Number}
+"""
+(māg,m̄n̄) → k̄ map
+
+assumes mn and mn̄ have axes/sizes:
+dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny, z_idx=1:Nz
+"""
+function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn;dk̂=ẑ) where {T1<:Real,T2<:Number}
 	m = view(mn,:,1,:,:,:)
 	n = view(mn,:,2,:,:,:)
 	@tullio kp̂g_over_mag[i,ix,iy,iz] := m[mod(i-2),ix,iy,iz] * n[mod(i-1),ix,iy,iz] / mag[ix,iy,iz] - m[mod(i-1),ix,iy,iz] * n[mod(i-2),ix,iy,iz] / mag[ix,iy,iz] (i in 1:3)
 	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
 	@tullio k̄_mag := māg[ix,iy,iz] * mag[ix,iy,iz] * kp̂g_over_mag[j,ix,iy,iz] * dk̂[j]
-	@tullio k̄_mn := -conj(mn̄)[imn,i,ix,iy,iz] * mn[imn,mod(i-2),ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy,iz] + conj(mn̄)[imn,i,ix,iy,iz] * mn[imn,mod(i-1),ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy,iz] (i in 1:3)
+	@tullio k̄_mn := -conj(mn̄)[i,imn,ix,iy,iz] * mn[mod(i-2),imn,ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy,iz] + conj(mn̄)[i,imn,ix,iy,iz] * mn[mod(i-1),imn,ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy,iz] (i in 1:3)
 	k̄_magmn = k̄_mag + k̄_mn
 	return k̄_magmn
 end
 
-# function rrule(::typeof(mag_mn),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
-# 	local ẑ = SVector(0.,0.,1.)
-# 	local ŷ = SVector(0.,1.,0.)
-# 	n_buf = Buffer(g⃗,size(g⃗))
-# 	m_buf = Buffer(g⃗,size(g⃗))
-# 	kpg_buf = Buffer(g⃗,size(g⃗))
-# 	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
-# 	@fastmath @inbounds for i ∈ eachindex(g⃗)
-# 		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
-# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
-# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
-# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-# 	end
-# 	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
-# 	kp⃗g = copy(kpg_buf)
-# 	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
-# 		māg,m̄,n̄ = ΔΩ
-# 		mag,m⃗,n⃗ = Ω
-# 		ê_over_mag = cross.( kp⃗g, (dk̂,) ) ./ mag.^2
-# 		k̄ = sum( māg .* dot.( kp⃗g, (dk̂,) ) ./ mag )
-# 		k̄ -= sum( dot.( m̄ , cross.(m⃗, ê_over_mag ) ) )
-# 		k̄ -= sum( dot.( n̄ , cross.(n⃗, ê_over_mag ) ) )
-# 		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
-# 	end
-#     return (mag_m⃗_n⃗ , mag_m_n_pullback)
-# end
+"""
+(māg,m̄n̄) → k̄ map
+
+assumes mn and mn̄ have axes/sizes:
+dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny
+
+Method with `kpg` (= k⃗ .+ g⃗(grid)) input for pullback performance
+"""
+function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn,kpg;dk̂=ẑ) where {T1<:Real,T2<:Number}
+	@tullio kp̂g_over_mag[i,ix,iy] := kpg[i,ix,iy] / mag[ix,iy] 
+	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
+	@tullio k̄_mag := māg[ix,iy] * mag[ix,iy] * kp̂g_over_mag[j,ix,iy] * dk̂[j]
+	@tullio k̄_mn := -conj(mn̄)[i,imn,ix,iy] * mn[mod(i-2),imn,ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy] + conj(mn̄)[i,imn,ix,iy] * mn[mod(i-1),imn,ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy] (i in 1:3)
+	k̄_magmn = k̄_mag + k̄_mn
+	return k̄_magmn
+end
+
+"""
+(māg,m̄n̄) → k̄ map
+
+assumes mn and mn̄ have axes/sizes:
+dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny, z_idx=1:Nz
+
+Method with `kpg` (= k⃗ .+ g⃗(grid)) input for pullback performance
+"""
+function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn,kpg;dk̂=ẑ) where {T1<:Real,T2<:Number}
+	@tullio kp̂g_over_mag[i,ix,iy,iz] := kpg[i,ix,iy,iz]  / mag[ix,iy,iz] 
+	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
+	@tullio k̄_mag := māg[ix,iy,iz] * mag[ix,iy,iz] * kp̂g_over_mag[j,ix,iy,iz] * dk̂[j]
+	@tullio k̄_mn := -conj(mn̄)[i,imn,ix,iy,iz] * mn[mod(i-2),imn,ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy,iz] + conj(mn̄)[i,imn,ix,iy,iz] * mn[mod(i-1),imn,ix,iy,iz] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy,iz] (i in 1:3)
+	k̄_magmn = k̄_mag + k̄_mn
+	return k̄_magmn
+end
+
+function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector(0.,0.,1.)
+	local ŷ = SVector(0.,1.,0.)
+	grid_size = size(g)
+	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	@fastmath @inbounds for i ∈ eachindex(g)
+		@inbounds kpg_buf[i] = k⃗ - g[i]
+		@inbounds mag_buf[i] = norm(kpg_buf[i])
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+	end
+	mag = copy(mag_buf)
+	m⃗	=	copy(m_buf)
+	n⃗	= copy(n_buf)
+	# kp⃗g = copy(kpg_buf)
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+	mn = hcat(m,n)
+	
+	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+		māg,mn̄ = ΔΩ
+		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
+	end
+    return ((mag, mn) , mag_mn_pullback)
+end
+
+function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector(0.,0.,1.)
+	local ŷ = SVector(0.,1.,0.)
+	k⃗ = kmag * dk̂
+	grid_size = size(g)
+	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	@fastmath @inbounds for i ∈ eachindex(g)
+		@inbounds kpg_buf[i] = k⃗ - g[i]
+		@inbounds mag_buf[i] = norm(kpg_buf[i])
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+	end
+	mag = copy(mag_buf)
+	m⃗	=	copy(m_buf)
+	n⃗	= copy(n_buf)
+	# kp⃗g = copy(kpg_buf)
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+	mn = hcat(m,n)
+	
+	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+		māg,mn̄ = ΔΩ
+		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+		return ( NoTangent(), k̄, ZeroTangent() )
+	end
+    return ((mag, mn) , mag_mn_pullback)
+end
 
 """
 ################################################################################

@@ -1,4 +1,33 @@
-using Revise, LinearAlgebra, StaticArrays, PyCall, FiniteDifferences, OptiMode, Plots, ChainRules, Zygote, Plots, HDF5, Dates  #, GLMakie, AbstractPlotting,
+using Revise
+using LinearAlgebra
+using StaticArrays
+using PyCall
+using FiniteDifferences
+using FiniteDiff
+using ForwardDiff
+using OptiMode
+using ChainRules
+using Zygote
+using HDF5
+using Dates
+using Rotations: RotY, MRP
+using RuntimeGeneratedFunctions
+using Tullio
+RuntimeGeneratedFunctions.init(@__MODULE__)
+LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))),name=:LiNbO₃_X);
+LNxN = NumMat(LNx;expr_module=@__MODULE__());
+SiO₂N = NumMat(SiO₂;expr_module=@__MODULE__());
+
+gradRM(fn,in) 			= 	Zygote.gradient(fn,in)[1]
+gradFM(fn,in) 			= 	ForwardDiff.gradient(fn,in)
+gradFD(fn,in;n=3)		=	FiniteDifferences.grad(central_fdm(n,1),fn,in)[1]
+gradFD2(fn,in;rs=1e-2)	=	FiniteDiff.finite_difference_gradient(fn,in;relstep=rs)
+
+derivRM(fn,in) 			= 	Zygote.gradient(fn,in)[1]
+derivFM(fn,in) 			= 	ForwardDiff.gradient(fn,in)
+derivFD(fn,in;n=3)		=	FiniteDifferences.grad(central_fdm(n,1),fn,in)[1]
+derivFD2(fn,in;rs=1e-2)	=	FiniteDiff.finite_difference_derivative(fn,in;relstep=rs)
+#, GLMakie, AbstractPlotting,
  #FFTW, BenchmarkTools, LinearMaps, IterativeSolvers, Roots, GeometryPrimitives
 # pyplot()
 # pygui()
@@ -56,19 +85,22 @@ end
 # ds_test = read_sweep("wt")
 
 function get_Δs_mpb(ms)
-    Δx, Δy, Δz = [(Δ == 0.0 ? 1.0 : Δ) for Δ in ms.geometry_lattice.size.__array__()]
+    Δx, Δy, Δz = ms.geometry_lattice.size.__array__()
 end
 
 function get_Ns_mpb(ms)
-    Nx, Ny, Nz = [max(NN, 1) for NN in Int.(ms.resolution .* ms.geometry_lattice.size)]
+    Nx, Ny, Nz = ms._get_grid_size().__array__()
 end
 
 function get_xyz_mpb(ms)
     Δx, Δy, Δz = get_Δs_mpb(ms) # [ (Δ==0. ? 1. : Δ) for Δ in ms_size.__array__() ]
     Nx, Ny, Nz = get_Ns_mpb(ms)
-    x = ((Δx / Nx) .* (0:(Nx-1))) .- Δx / 2.0
-    y = ((Δy / Ny) .* (0:(Ny-1))) .- Δy / 2.0
-    z = ((Δz / Nz) .* (0:(Nz-1))) .- Δz / 2.0
+    # x = ((Δx / Nx) .* (0:(Nx-1))) .- Δx / 2.0
+    # y = ((Δy / Ny) .* (0:(Ny-1))) .- Δy / 2.0
+    # z = ((Δz / Nz) .* (0:(Nz-1))) .- Δz / 2.0
+    x = LinRange(-Δx/2, Δx/2 - Δx/Nx, Nx)
+    y = LinRange(-Δy/2, Δy/2 - Δy/Ny, Ny)
+    z = LinRange(-Δz/2, Δz/2 - Δz/Nz, Nz)
     return x, y, z
 end
 
@@ -104,46 +136,53 @@ function get_ε_mpb(ms)
     return ε
 end
 
-function ε_slices(
-    ms;
-    yind = 64,
-    zind = 1,
-    size = (800, 800),
-    xlims = nothing,
-    ylims = nothing,
-    marker = :dot)
-    x, y, z = get_xyz_mpb(ms)
-    ε = get_ε_mpb(ms)
-    p_diag = plot(
-        x,
-        ε[1, 1, :, yind, zind],
-        label = "11",
-        xlabel = "x [μm]",
-        ylabel = "εᵢᵢ (diagonal elements)";
-        xlims,
-        ylims,
-        marker,
-    )
-    plot!(p_diag, x, ε[2, 2, :, yind, zind], label = "22"; xlims, ylims, marker)
-    plot!(p_diag, x, ε[3, 3, :, yind, zind], label = "33"; xlims, ylims, marker)
-    p_offdiag = plot(
-        x,
-        ε[1, 2, :, yind, zind],
-        label = "12",
-        xlabel = "x [μm]",
-        ylabel = "εᵢⱼ (off-diag. elements)";
-        xlims,
-        ylims,
-        marker,
-    )
-    plot!(p_offdiag, x, ε[1, 3, :, yind, zind], label = "13"; xlims, ylims, marker)
-    plot!(p_offdiag, x, ε[2, 3, :, yind, zind], label = "23"; xlims, ylims, marker)
-    l = @layout [
-        a
-        b
-    ]
-    plot(p_diag, p_offdiag, layout = l, size = size)
+mpMatrix(M::AbstractMatrix) = mp.Matrix([mp.Vector3(M[:,j]...) for j=1:size(M)[2]]...)
+
+function mpMedium(mat,λ)
+    eps = mat.fε(λ)
+    return mp.Medium(epsilon_diag=mp.Vector3(eps[1,1],eps[2,2],eps[3,3]),epsilon_offdiag=mp.Vector3(eps[1,2],eps[1,3],eps[2,3]))
 end
+
+# function ε_slices(
+#     ms;
+#     yind = 64,
+#     zind = 1,
+#     size = (800, 800),
+#     xlims = nothing,
+#     ylims = nothing,
+#     marker = :dot)
+#     x, y, z = get_xyz_mpb(ms)
+#     ε = get_ε_mpb(ms)
+#     p_diag = plot(
+#         x,
+#         ε[1, 1, :, yind, zind],
+#         label = "11",
+#         xlabel = "x [μm]",
+#         ylabel = "εᵢᵢ (diagonal elements)";
+#         xlims,
+#         ylims,
+#         marker,
+#     )
+#     plot!(p_diag, x, ε[2, 2, :, yind, zind], label = "22"; xlims, ylims, marker)
+#     plot!(p_diag, x, ε[3, 3, :, yind, zind], label = "33"; xlims, ylims, marker)
+#     p_offdiag = plot(
+#         x,
+#         ε[1, 2, :, yind, zind],
+#         label = "12",
+#         xlabel = "x [μm]",
+#         ylabel = "εᵢⱼ (off-diag. elements)";
+#         xlims,
+#         ylims,
+#         marker,
+#     )
+#     plot!(p_offdiag, x, ε[1, 3, :, yind, zind], label = "13"; xlims, ylims, marker)
+#     plot!(p_offdiag, x, ε[2, 3, :, yind, zind], label = "23"; xlims, ylims, marker)
+#     l = @layout [
+#         a
+#         b
+#     ]
+#     plot(p_diag, p_offdiag, layout = l, size = size)
+# end
 
 """
 ################################################################################
@@ -159,12 +198,13 @@ Default design parameters for ridge waveguide. Both MPB and OptiMode functions
 should intake data in this format for convenient apples-to-apples comparison.
 """
 p_def = [
-    1.55,               #   wavelength              `λ`             [μm]
+    # 1.55,               #   wavelength              `λ`             [μm]
     1.7,                #   top ridge width         `w_top`         [μm]
     0.7,                #   ridge thickness         `t_core`        [μm]
+    0.8,                 #   partial etch depth      `etch_frac`     [1]
     π / 14.0,           #   ridge sidewall angle    `θ`             [radian]
-    2.4,                #   core index              `n_core`        [1]
-    1.4,                #   substrate index         `n_subs`        [1]
+    # 2.4,                #   core index              `n_core`        [1]
+    # 1.4,                #   substrate index         `n_subs`        [1]
 ]
 
 pω_def = [
@@ -182,7 +222,10 @@ MPB functions for ridge waveguide data
 """
 
 function ms_rwg_mpb(
-    p = p_def;
+    λ,
+    p,
+    mat_core,
+    mat_subs;
     Δx = 6.0,
     Δy = 4.0,
     Δz = 1.0,
@@ -190,43 +233,55 @@ function ms_rwg_mpb(
     Ny = 128,
     Nz = 1,
     edge_gap = 0.5)
-    λ, w, t_core, θ, n_core, n_subs = p
+    w, t_core, etch_frac, θ = p
     ω = 1 / λ
     nk = 10
     n_bands = 1
     res = mp.Vector3((Nx / Δx), (Ny / Δy), 1) #mp.Vector3(Int(Nx/Δx),Int(Ny/Δy),1) #16
+    n_core = sqrt(sum(diag(mat_core.fε(λ)))/3.)
+    n_subs = sqrt(sum(diag(mat_subs.fε(λ)))/3.)
     n_guess = 0.9 * n_core
     n_min = n_subs
     n_max = n_core
-    t_subs = (Δy - t_core - edge_gap) / 2.0
-    c_subs_y = -Δy / 2.0 + edge_gap / 2.0 + t_subs / 2.0
-    # Set up MPB modesolver, use find-k to solve for one eigenmode `H` with prop. const. `k` at specified temporal freq. ω
+    # # Set up MPB modesolver, use find-k to solve for one eigenmode `H` with prop. const. `k` at specified temporal freq. ω
     k_pts = mp.interpolate(nk, [mp.Vector3(0.05, 0, 0), mp.Vector3(0.05 * nk, 0, 0)])
     lat = mp.Lattice(size = mp.Vector3(Δx, Δy, 0))
-    tanθ = tan(θ)
-    tcore_tanθ = t_core * tanθ
-    w_bottom = w + 2 * tcore_tanθ
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+    wt_half = w / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+    t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_unetch/2.
     verts = [
-        mp.Vector3(w / 2.0, t_core / 2.0, -5.0),
-        mp.Vector3(-w / 2.0, t_core / 2.0, -5.0),
-        mp.Vector3(-w_bottom / 2.0, -t_core / 2.0, -5.0),
-        mp.Vector3(w_bottom / 2.0, -t_core / 2.0, -5.0),
+        mp.Vector3(wt_half, tc_half, -5.0),
+        mp.Vector3(-wt_half, tc_half, -5.0),
+        mp.Vector3(-wb_half, -tc_half, -5.0),
+        mp.Vector3(wb_half, -tc_half, -5.0),
     ]
-    # verts = [ mp.Vector3(-w/2., -t_core/2., -5.),mp.Vector3(w, 2*t_core, -5.), mp.Vector3(w, -t_core/2., -5.)  ]
+
+    med_core = mpMedium(mat_core,λ)
+    med_subs = mpMedium(mat_subs,λ)
+
     core = mp.Prism(
         verts,
         10.0,
         axis = mp.Vector3(0.0, 0.0, 1.0),
-        material = mp.Medium(index = n_core),
+        material = med_core,
     )
-    subs = mp.Block(
+    b_unetch = mp.Block(
+        size = mp.Vector3(Δx - edge_gap, t_unetch, 10.0),
+        center = mp.Vector3(0, c_unetch_y, 0),
+        material = med_core,
+    )
+    b_subs = mp.Block(
         size = mp.Vector3(Δx - edge_gap, t_subs, 10.0),
         center = mp.Vector3(0, c_subs_y, 0),
-        material = mp.Medium(index = n_subs),
+        material = med_subs,
     )
     ms = mpb.ModeSolver(
         geometry_lattice = lat,
-        geometry = [core, subs],
+        geometry = [core, b_unetch, b_subs],
         k_points = k_pts,
         resolution = res,
         num_bands = n_bands,
@@ -238,7 +293,10 @@ function ms_rwg_mpb(
 end
 
 function nng_rwg_mpb(
-    p = p_def;
+    λ,
+    p,
+    mat_core,
+    mat_subs;
     Δx = 6.0,
     Δy = 4.0,
     Δz = 1.0,
@@ -248,15 +306,18 @@ function nng_rwg_mpb(
     edge_gap = 0.5,
     band_idx = 1,
     tol = 1e-8)
-    λ, w, t_core, θ, n_core, n_subs = p
+    # λ, w, t_core, θ, n_core, n_subs = p
+    w, t_core, etch_frac, θ = p
     ω = 1 / λ
     nk = 10
     n_bands = 1
     res = mp.Vector3((Nx / Δx), (Ny / Δy), 1) #mp.Vector3(Int(Nx/Δx),Int(Ny/Δy),1) #16
+    n_core = sqrt(sum(diag(mat_core.fε(λ)))/3.)
+    n_subs = sqrt(sum(diag(mat_subs.fε(λ)))/3.)
     n_guess = 0.9 * n_core
     n_min = n_subs
     n_max = n_core
-    ms = ms_rwg_mpb(p; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
+    ms = ms_rwg_mpb(λ,p,mat_core,mat_subs; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
     kz = ms.find_k(
         mp.NO_PARITY,             # parity (meep parity object)
         ω,                    # ω at which to solve for k
@@ -274,7 +335,10 @@ function nng_rwg_mpb(
 end
 
 function ε_rwg_mpb(
-    p = p_def;
+    λ,
+    p,
+    mat_core,
+    mat_subs;
     Δx = 6.0,
     Δy = 4.0,
     Δz = 1.0,
@@ -284,15 +348,19 @@ function ε_rwg_mpb(
     edge_gap = 0.5,
     band_idx = 1,
     tol = 1e-8)
-    λ, w, t_core, θ, n_core, n_subs = p
+    # λ, w, t_core, θ, n_core, n_subs = p
+    w, t_core, etch_frac, θ = p
     n_guess = 0.9 * n_core
-    ms = ms_rwg_mpb(p; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
+    ms = ms_rwg_mpb(λ,p,mat_core,mat_subs; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
     ms.solve_kpoint(mp.Vector3(0, 0, 1) * n_guess / λ)
     return get_ε_mpb(ms)
 end
 
 function ε⁻¹_rwg_mpb(
-    p = p_def;
+    λ,
+    p = p_def,
+    mat_core = LNxN,
+    mat_subs = SiO₂N;
     Δx = 6.0,
     Δy = 4.0,
     Δz = 1.0,
@@ -302,9 +370,10 @@ function ε⁻¹_rwg_mpb(
     edge_gap = 0.5,
     band_idx = 1,
     tol = 1e-8)
-    λ, w, t_core, θ, n_core, n_subs = p
+    # λ, w, t_core, θ, n_core, n_subs = p
+    w, t_core, etch_frac, θ = p
     n_guess = 0.9 * n_core
-    ms = ms_rwg_mpb(p; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
+    ms = ms_rwg_mpb(λ,p,mat_core,mat_subs; Δx, Δy, Δz, Nx, Ny, Nz, edge_gap)
     ms.solve_kpoint(mp.Vector3(0, 0, 1) * n_guess / λ)
     return get_ε⁻¹_mpb(ms)
 end

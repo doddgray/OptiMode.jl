@@ -35,7 +35,7 @@ using SymbolicUtils
 using UnicodePlots
 using Makie
 # using KrylovKit
-using DFTK: LOBPCG
+# using DFTK: LOBPCG
 using KrylovKit: eigsolve
 using StaticArrays: Dynamic, SVector
 using ChainRulesCore

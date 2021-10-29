@@ -411,12 +411,17 @@ Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(P
 # end
 
 
-function plot_shapes(geom::Geometry,ax;bg_color=:black,strokecolor=:white, strokewidth=2,mat_legend=true)
+function plot_shapes(geom::Geometry,ax;bg_color=:black,strokecolor=:white,strokewidth=2,frame_only=false,mat_legend=true)
     ax.backgroundcolor=bg_color
 	n_shapes 	= 	size(geom.shapes,1)
 	n_mats		=	size(geom.materials,1)
 	mat_colors 	=	getfield.(geom.materials,(:color,))
-	shape_colors = [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
+	if frame_only
+		shape_colors = [:transparent for i=1:n_shapes]
+		mat_leg = false
+	else
+		shape_colors = [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
+	end
 	plys = [ poly!(
 				geom.shapes[i],
 				color=shape_colors[i],

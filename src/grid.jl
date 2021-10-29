@@ -91,6 +91,10 @@ end
 import Base: eachindex
 @inline eachindex(g::Grid) = CartesianIndices(size(g)) #(1:NN for NN in size(g))
 
+import Base: ndims
+@inline function ndims(g::Grid{ND}) where ND
+	return ND
+end
 
 # reciprocal lattice vectors (from fftfreqs)
 function g⃗(gr::Grid{3,T})::Array{SVector{3, T}, 3} where T<:Real
