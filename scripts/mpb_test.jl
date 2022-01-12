@@ -16,6 +16,7 @@ pids = addprocs(6)
     LNx = rotate(MgO_LiNbO₃,Matrix(MRP(RotY(π/2))),name=:LiNbO₃_X);
     LNxN = NumMat(LNx;expr_module=@__MODULE__());
     SiO₂N = NumMat(SiO₂;expr_module=@__MODULE__());
+    Si₃N₄N = NumMat(Si₃N₄;expr_module=@__MODULE__());
     ## geometry fn. (`rwg`) parameters (`ps`) and cost function (`fs`) values at each optimization step/epoch
     ωs_opt5 = collect(range(0.6,0.7,length=20))
     λs_opt5 = inv.(ωs_opt5)
@@ -265,6 +266,167 @@ x[3]*x[2] is etch depth, remaining top layer thickness = x[2]*(1-x[3]).
 rwg(x) = ridge_wg_partial_etch(x[1],x[2],x[3],x[4],0.5,LNxN,SiO₂N,Δx,Δy)
 
 include("mpb.jl")
+
+##
+nω                  =   15
+λ_min               =   1.4
+λ_max               =   1.6
+w                   =   1.225   # etched SN ridge width: 1.225um ± 25nm
+t_core              =   0.17    # SiN ridge thickness: 170nm ± 10nm with 30-40nm of exposed SiO2 (HSQ) on top of unetched ridge
+t_slab              =   0.20    # LN slab thickness:   200nm ± 10nm
+
+mat_core            =   Si₃N₄N
+mat_slab            =   LNxN
+mat_subs            =   SiO₂N
+
+Δx,Δy,Δz,Nx,Ny,Nz   =   8.0, 4.0, 1.0, 128, 128, 1;
+edge_gap            =   0.5
+num_bands           =   4
+
+ds_dir              =   "SNwg_LNslab"
+filename_prefix     =   "test2"
+
+
+ωs_fund             =   range(inv(λ_max),inv(λ_min),nω)
+ωs_shg              =   2. .* ωs_fund
+ωs_in               =   vcat(ωs_fund,ωs_shg)
+ps                  =   [w, t_core, t_slab]
+ds_path             =   joinpath(homedir(),"data","OptiMode",ds_dir)
+λs_fund             =   inv.(ωs_fund)
+λs_shg              =   inv.(ωs_shg)
+
+band_min            =   1
+band_max            =   num_bands
+geom_fn(x)          =   ridge_wg_slab_loaded(x[1],x[2],0.,x[3],edge_gap,mat_core,mat_slab,mat_subs,Δx,Δy)
+grid                =   Grid(Δx,Δy,Nx,Ny)
+k_dir               =   [0.,0.,1.]
+
+##
+ks, evecs = find_k(ωs_in,ps,geom_fn,grid;num_bands=num_bands,data_path=ds_path,filename_prefix=filename_prefix)  # mode solve for a vector of input frequencies
+
+##
+
+eps =  [copy(smooth(oo,ps,:fεs,false,geom_fn,grid).data) for oo in ωs_in]
+epsi =  [copy(smooth(oo,ps,:fεs,true,geom_fn,grid).data) for oo in ωs_in]
+deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ωs_in ]
+mags_mns = [mag_mn(kk,grid) for kk in ks]
+Es = [-1im * ε⁻¹_dot(fft(kx_tc(evecs[omidx,bndidx],mags_mns[omidx,bndidx][2],mags_mns[omidx,bndidx][1]),(2:3)),epsi[omidx]) for omidx=1:length(ωs_in), bndidx=1:num_bands]
+Enorms =  [ EE[argmax(abs2.(EE))] for EE in Es ]
+Es = Es ./ Enorms
+ngs = [ group_index(ks[fidx,bidx],evecs[fidx,bidx],ωs_in[fidx],epsi[fidx],deps_dom[fidx],grid) for fidx=1:length(ωs_in),bidx=1:num_bands ]
+neffs = ks ./ repeat(ωs_in,1,num_bands) 
+
+neffs_fund  =   @view neffs[1:nω,:]
+ngs_fund    =   @view ngs[1:nω,:]
+Es_fund     =   @view Es[1:nω,:]
+eps_fund    =   @view eps[1:nω]
+
+neffs_shg   =   @view neffs[(nω+1):(2*nω),:]
+ngs_shg     =   @view ngs[(nω+1):(2*nω),:]
+Es_shg      =   @view Es[(nω+1):(2*nω),:]
+eps_shg     =   @view eps[(nω+1):(2*nω)]
+
+bidx_TE00_fund  =   [ 1 for oo in ωs_fund ]
+bidx_TE00_shg   =   [ 1 for oo in ωs_fund ]
+Δn_TE00         =   [ (neffs_shg[fidx,bidx_TE00_shg[fidx]] - neffs_fund[fidx,bidx_TE00_fund[fidx]]) for fidx=1:length(ωs_fund) ]
+Λs_TE00         =   λs_shg ./ Δn_TE00
+
+
+##
+omidx   =   1
+bndidx  =   1
+axidx   =   1
+cmap_Ex =   :diverging_bkr_55_10_c35_n256
+cmap_nx =   :viridis
+clr_fund    =   logocolors[:red]
+clr_shg     =   logocolors[:blue]
+clr_Λ       =   logocolors[:green]
+labels          =   ["nx @ ω","Ex @ ω","Ex @ 2ω"] #label.*label_base
+
+xs = x(grid)
+ys = y(grid)
+xlim =  -2.0,   2.0     # Tuple(extrema(xs)) 
+ylim =  -0.8,   0.8     # Tuple(extrema(ys)) 
+
+fig             =   Figure()
+ax_neffs        =   fig[1,1] = Axis(fig)
+ax_ngs          =   fig[2,1] = Axis(fig)
+ax_Λs           =   fig[3,1] = Axis(fig)
+
+ax_nxFund       =   fig[1,2] = Axis(fig)
+ax_ExFund       =   fig[2,2] = Axis(fig)
+ax_ExSHG        =   fig[3,2] = Axis(fig)
+# cbax11  =   fig[1,1] = Axis(fig)
+
+sls_neffs_fund  =   [scatterlines!(ax_neffs,λs_fund,neffs_fund[:,bndidx],color=clr_fund) for bndidx=1:num_bands ]
+sls_neffs_shg   =   [scatterlines!(ax_neffs,λs_fund,neffs_shg[:,bndidx],color=clr_shg) for bndidx=1:num_bands ]
+sls_ngs_fund    =   [scatterlines!(ax_ngs,λs_fund,ngs_fund[:,bndidx],color=clr_fund) for bndidx=1:num_bands ]
+sls_ngs_shg     =   [scatterlines!(ax_ngs,λs_fund,ngs_shg[:,bndidx],color=clr_shg) for bndidx=1:num_bands ]
+sl_Λs           =   scatterlines!(ax_Λs,λs_fund,Λs_TE00,color=clr_Λ) 
+
+magmax_nxFund   =   @views maximum(abs,sqrt.(real(eps_fund[omidx][axidx,axind,:,:])))
+magmax_ExFund   =   @views maximum(abs,Es_fund[omidx,bndidx])
+magmax_ExSHG    =   @views maximum(abs,Es_shg[omidx,bndidx])
+
+hm_nxFund   =   heatmap!(
+    ax_nxFund,
+    xs,
+    ys,
+    sqrt.(real(eps_fund[omidx][axidx,axind,:,:])),
+    colormap=cmap_nx,label=labels[1],
+    colorrange=(1.0,magmax_nxFund),
+)
+hm_ExFund   =   heatmap!(
+    ax_ExFund,
+    xs,
+    ys,
+    real(Es_fund[omidx,bndidx][axidx,:,:]),
+    colormap=cmap_Ex,label=labels[2],
+    colorrange=(-magmax_ExFund,magmax_ExFund),
+)
+hm_ExSHG    =   heatmap!(
+    ax_ExSHG,
+    xs,
+    ys,
+    -real(Es_shg[omidx,bndidx][axidx,:,:]),
+    colormap=cmap_Ex,label=labels[3],
+    colorrange=(-magmax_ExSHG,magmax_ExSHG),
+)
+
+ax_spatial = (ax_nxFund,ax_ExFund,ax_ExSHG)
+for axx in ax_spatial
+    axx.xlabel= "x (μm)"
+    axx.ylabel= "y (μm)"
+    xlims!(axx,xlim)
+    ylims!(axx,ylim)
+    # hidedecorations!(axx)
+    axx.aspect=DataAspect()
+end
+linkaxes!(ax_spatial...)
+
+fig 
+
+##
+Λ0_jank = 5.1794 #01 #5.1201
+L_jank = 3e3 # 1cm in μm
+##
+nx = sqrt.(getindex.(inv.(ms_jank.M̂.ε⁻¹),1,1))
+function Eperp_max(E)
+    Eperp = view(E,1:2,:,:,:)
+    maximum(abs,Eperp,dims=1:3)[1,1,1,:]
+end
+𝓐(n,ng,E) = inv.( n .* ng .* Eperp_max(E).^2)
+AF_jank = 𝓐(nF_jank, ngF_jank, EF_jank) # inv.(nF_jank .* ngF_jank)
+AS_jank = 𝓐(nS_jank, ngS_jank, ES_jank) # inv.(nS_jank .* ngS_jank)
+ÊF_jank = [EF_jank[:,:,:,i] * sqrt(AF_jank[i] * nF_jank[i] * ngF_jank[i]) for i=1:nω_jank]
+ÊS_jank = [ES_jank[:,:,:,i] * sqrt(AS_jank[i] * nS_jank[i] * ngS_jank[i]) for i=1:nω_jank]
+𝓐₁₂₃_jank = ( AS_jank .* AF_jank.^2  ).^(1.0/3.0)
+𝓞_jank = [real(sum( conj.(ÊS_jank[ind]) .* ÊF_jank[ind].^2 )) / 𝓐₁₂₃_jank[ind] * δ(grid) for ind=1:length(ωs_jank)] #
+𝓞_jank_rel = 𝓞_jank/maximum(𝓞_jank)
+
+χ⁽²⁾_LNx = χ⁽²⁾_fn(LNx)
+χ⁽²⁾xxx_jank = [χ⁽²⁾_LNx(ll,ll,ll/2)[1,1,1] for ll in λs_jank]
+χ⁽²⁾xxx_rel_jank = abs.(χ⁽²⁾xxx_jank) / maximum(abs.(χ⁽²⁾xxx_jank))
 
 ##
 
@@ -582,16 +744,22 @@ ks_test,Hvs_test = find_k_dom(ωs_in,pp,rwg,grid;data_path=test_path,num_bands=2
 dom = 1e-4
 
 
-function proc_find_k_dom(nω,dom;data_path=pwd())
-    ω, kdir, neffs, ngs, band_idx, x_frac, y_frac, z_frac = parse_findk_logs(1:nω;data_path)
+function proc_find_k_dom(nω,dom;data_path=pwd(),pfx="")
+    ω, kdir, neffs, ngs, band_idx, x_frac, y_frac, z_frac = parse_findk_logs(1:nω;data_path,pfx)
     ks = ω .* neffs
     ks = transpose(hcat(ks...))
     ngs = transpose(hcat(ngs...))
     neffs = transpose(hcat(neffs...))
-    evecs   =   [load_evec_arr( joinpath(data_path, (@sprintf "evecs.f%02i.b%02i.h5" fidx bidx)), bidx, grid) for bidx=band_min:band_max, fidx=1:nω]
-    epsis   =   [load_epsilon( joinpath(data_path, (@sprintf "eps.f%02i.h5" fidx )))[2] for fidx=1:nω]
+    
+    # evecs   =   [load_evec_arr( joinpath(data_path, (@sprintf "evecs.f%02i.b%02i.h5" fidx bidx)), bidx, grid) for bidx=band_min:band_max, fidx=1:nω]
+    # epsis   =   [load_epsilon( joinpath(data_path, (@sprintf "eps.f%02i.h5" fidx )))[2] for fidx=1:nω]
+    # # epss,epsis   =   (eps_epsi = [load_epsilon( joinpath(data_path, (@sprintf "eps.f%02i.h5" fidx )))[1:2] for fidx=1:nω]; (getindex.(eps_epsi,(1,)),getindex.(eps_epsi,(2,))))
+    # Es      =   [load_field(joinpath(data_path, (@sprintf "e.f%02i.b%02i.h5" fidx bidx))) for bidx=band_min:band_max, fidx=1:nω]
+
+    evecs   =   [load_evec_arr( joinpath(data_path, (rstrip(join(["evecs",pfx],'.'),'.')*(@sprintf ".f%02i.b%02i.h5" fidx bidx))), bidx, grid) for bidx=band_min:band_max, fidx=1:nω]
+    epsis   =   [load_epsilon( joinpath(data_path, (rstrip(join(["eps",pfx],'.'),'.')*(@sprintf ".f%02i.h5" fidx ))))[2] for fidx=1:nω]
     # epss,epsis   =   (eps_epsi = [load_epsilon( joinpath(data_path, (@sprintf "eps.f%02i.h5" fidx )))[1:2] for fidx=1:nω]; (getindex.(eps_epsi,(1,)),getindex.(eps_epsi,(2,))))
-    Es      =   [load_field(joinpath(data_path, (@sprintf "e.f%02i.b%02i.h5" fidx bidx))) for bidx=band_min:band_max, fidx=1:nω]
+    Es      =   [load_field(joinpath(data_path, (rstrip(join(["e",pfx],'.'),'.')*(@sprintf ".f%02i.b%02i.h5" fidx bidx)))) for bidx=band_min:band_max, fidx=1:nω]
 
     dfp_path = joinpath(data_path,"dfp")
     ω_dfp, kdir_dfp, neffs_dfp, ngs_dfp, band_idx_dfp, x_frac_dfp, y_frac_dfp, z_frac_dfp = parse_findk_logs(1:nω;data_path=dfp_path)
@@ -607,7 +775,8 @@ function proc_find_k_dom(nω,dom;data_path=pwd())
     ngs_dfn = transpose(hcat(ngs_dfn...))
     neffs_dfn = transpose(hcat(neffs_dfn...))
     
-    deps_dom_FD = [(load_epsilon( joinpath(dfp_path, (@sprintf "eps.f%02i.h5" fidx )))[1] .- load_epsilon( joinpath(dfn_path, (@sprintf "eps.f%02i.h5" fidx )))[1]) * inv(2*dom) for fidx=1:nω]
+    # deps_dom_FD = [(load_epsilon( joinpath(dfp_path, (@sprintf "eps.f%02i.h5" fidx )))[1] .- load_epsilon( joinpath(dfn_path, (@sprintf "eps.f%02i.h5" fidx )))[1]) * inv(2*dom) for fidx=1:nω]
+    deps_dom_FD = [(load_epsilon( joinpath(dfp_path, (rstrip(join(["eps",pfx],'.'),'.')*(@sprintf ".f%02i.h5" fidx ))))[1] .- load_epsilon( joinpath(dfn_path, (rstrip(join(["eps",pfx],'.'),'.')*(@sprintf ".f%02i.h5" fidx ))))[1]) * inv(2*dom) for fidx=1:nω]
     ngs_disp = [( -ω[fidx] * ( 1.0 + 0.5 * ω[fidx] * real(_expect(deps_dom_FD[fidx],Es[bidx,fidx]))*dx3 ) / HMₖH(vec(evecs[bidx,fidx]),epsis[fidx],mag_mn(ks[fidx,bidx],grid)...)) for fidx=1:nω, bidx=1:num_bands ]
     dk_dom_FD = (ks_dfp .- ks_dfn) / (2*dom)
     @show ngs_err = dk_dom_FD - ngs_disp
@@ -656,9 +825,9 @@ function find_k_dom_dp2(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::G
 end
 
 
-function proc_find_k_dom_dp(nω,dom,dp;data_path=pwd())
+function proc_find_k_dom_dp(nω,dom,dp;data_path=pwd(),pfx="")
     num_p = length(dp)
-    neff, ng, ngFD, gvdFD = proc_find_k_dom(nω,dom;data_path=data_path)
+    neff, ng, ngFD, gvdFD = proc_find_k_dom(nω,dom;data_path=data_path,pfx)
     dneff_dp = zeros((size(neff)...,num_p))
     dng_dp = zeros((size(ng)...,num_p))
     dngFD_dp = zeros((size(ngFD)...,num_p))
@@ -666,8 +835,8 @@ function proc_find_k_dom_dp(nω,dom,dp;data_path=pwd())
     for pidx=1:num_p
         dpp_path = joinpath(data_path,(@sprintf "dpp%02i" pidx))
         dpn_path = joinpath(data_path,(@sprintf "dpn%02i" pidx))
-        neff_dpp, ng_dpp, ngFD_dpp, gvdFD_dpp = proc_find_k_dom(nω,dom;data_path=dpp_path)
-        neff_dpn, ng_dpn, ngFD_dpn, gvdFD_dpn = proc_find_k_dom(nω,dom;data_path=dpn_path)
+        neff_dpp, ng_dpp, ngFD_dpp, gvdFD_dpp = proc_find_k_dom(nω,dom;data_path=dpp_path,pfx)
+        neff_dpn, ng_dpn, ngFD_dpn, gvdFD_dpn = proc_find_k_dom(nω,dom;data_path=dpn_path,pfx)
         dneff_dp[:,:,pidx] = (neff_dpp .- neff_dpn) ./ (2*dp[pidx])
         dng_dp[:,:,pidx] = (ng_dpp .- ng_dpn) ./ (2*dp[pidx])
         dngFD_dp[:,:,pidx] = (ngFD_dpp .- ngFD_dpn) ./ (2*dp[pidx])
@@ -683,6 +852,22 @@ dp = 1e-4 * ones(length(pp))
 
 neffs, ngs, dk_dom_FD, d2k_dom2_FD = proc_find_k_dom(nω,dom;data_path=test_path);
 neff, ng, ngFD, gvdFD, dneff_dp, dng_dp, dngFD_dp, dgvdFD_dp = proc_find_k_dom_dp(nω,dom,dp;data_path=test_path)
+##
+
+lnsweep_path = joinpath(homedir(),"data","OptiMode","LNsweep")
+dom = 1e-4
+dp = [1e-4 for pp in 1:4]
+ps = [[ww, tt, 0.9, 1e-3] for ww=1.3:0.1:2.2, tt=0.5:0.08:0.9 ]
+nw,nt = size(ps)
+prfx = [ (@sprintf "w%02it%02i"  windx tindx) for windx=1:nw, tindx=1:nt]
+cd(lnsweep_path)
+# ks,evecs = [ find_k_dom_dp(vcat(ω,2*ω),ps[windx,tindx],geom_fn,grid;dom,dp,lnsweep_path,filename_prefix=prfx[windx,tindx],num_bands) for windx=1:nw, tindx=1:nt]
+
+prfx[1,1]
+neff, ng, ngFD, gvdFD, dneff_dp, dng_dp, dngFD_dp, dgvdFD_dp = proc_find_k_dom_dp(nω,dom,dp;data_path=lnsweep_path,pfx=prfx[1,1])
+
+logpath11 = "/home/dodd/data/OptiMode/LNsweep/w01t01.f01.log"
+k_lines, gv_lines, d_energy_lines = findlines(logpath11,["kvals","velocity","D-energy"])
 
 ##
 fig = Figure()

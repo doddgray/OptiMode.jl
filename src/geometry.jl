@@ -1,6 +1,5 @@
 export Geometry, ridge_wg, ridge_wg_partial_etch, circ_wg, demo_shapes, εs, fεs, fεs!, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds
-export εₘₐₓ, nₘₐₓ, materials, plot_shapes, k_guess, ridge_wg_partial_etch3D #TODO: generalize these methods for materials and ε data
-
+export εₘₐₓ, nₘₐₓ, materials, plot_shapes, k_guess, ridge_wg_partial_etch3D, ridge_wg_partial_etch_slab_loaded, ridge_wg_slab_loaded
 
 # Geometry(s::Vector{S}) where S<:Shape{N} where N = Geometry{N}(s)
 # materials(geom::Geometry) = materials(geom.shapes)#geom.materials
@@ -265,6 +264,82 @@ function ridge_wg_partial_etch(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ:
 
 end
 
+
+function ridge_wg_partial_etch_slab_loaded(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,t_slab::Real,edge_gap::Real,mat_core,mat_slab,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
+    t_subs = (Δy -t_core - edge_gap )/2. - t_slab
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+	c_slab_y = -Δy/2. + edge_gap/2. + t_subs + t_slab/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_slab + t_unetch/2.
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
+                    # SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
+					verts,
+					mat_core,					                                    # data: any type, data associated with box shape
+                )
+    ax = [      1.     0.
+                0.     1.      ]
+	b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_unetch_y],           	# c: center
+                    [Δx - edge_gap, t_unetch ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_core,					 # data: any type, data associated with box shape
+                )
+	b_slab = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+				[0. , c_slab_y],           	# c: center
+				[Δx - edge_gap, t_slab ],	# r: "radii" (half span of each axis)
+				ax,	    		        	# axes: box axes
+				mat_slab,					 # data: any type, data associated with box shape
+			)
+	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_subs_y],           	# c: center
+                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_subs,					 # data: any type, data associated with box shape
+                )
+	return Geometry([core,b_unetch,b_slab,b_subs])
+end
+
+function ridge_wg_slab_loaded(wₜₒₚ::Real,t_core::Real,θ::Real,t_slab::Real,edge_gap::Real,mat_core,mat_slab,mat_subs,Δx::Real,Δy::Real) #::Geometry{2}
+    t_subs = (Δy -t_core - edge_gap )/2. - t_slab
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+	c_slab_y = -Δy/2. + edge_gap/2. + t_subs + t_slab/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	# t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	# c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_slab + t_unetch/2.
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(					                        # Instantiate 2D polygon, here a trapazoid
+                    # SMatrix{4,2}(verts),			                            # v: polygon vertices in counter-clockwise order
+					verts,
+					mat_core,					                                    # data: any type, data associated with box shape
+                )
+    ax = [      1.     0.
+                0.     1.      ]
+	# b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+    #                 [0. , c_unetch_y],           	# c: center
+    #                 [Δx - edge_gap, t_unetch ],	# r: "radii" (half span of each axis)
+    #                 ax,	    		        	# axes: box axes
+    #                 mat_core,					 # data: any type, data associated with box shape
+    #             )
+	b_slab = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+				[0. , c_slab_y],           	# c: center
+				[Δx - edge_gap, t_slab ],	# r: "radii" (half span of each axis)
+				ax,	    		        	# axes: box axes
+				mat_slab,					 # data: any type, data associated with box shape
+			)
+	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_subs_y],           	# c: center
+                    [Δx - edge_gap, t_subs ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_subs,					 # data: any type, data associated with box shape
+                )
+	return Geometry([core,b_slab,b_subs])
+end
 
 
 

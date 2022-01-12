@@ -330,7 +330,9 @@ function parse_ω_k(filename_prefix;data_path=pwd(),kdir=[0.0,0.0,1.0])
 end
 
 function parse_findk_log(filename_prefix="f01";data_path=pwd())
-    k_lines, gv_lines, d_energy_lines = findlines(log_fname(filename_prefix),["kvals","velocity","D-energy"])
+    # k_lines, gv_lines, d_energy_lines = findlines(log_fname(filename_prefix),["kvals","velocity","D-energy"])
+    println(joinpath(data_path,log_fname(filename_prefix)))
+    k_lines, gv_lines, d_energy_lines = findlines(joinpath(data_path,log_fname(filename_prefix)),["kvals","velocity","D-energy"])
     omega, band_min, band_max, korig1, korig2, korig3, kdir1, kdir2, kdir3, kmags = parse_kvals(k_lines[1])
     kdir = SVector{3,Float64}(kdir1, kdir2, kdir3)
     neffs = kmags./omega
@@ -339,8 +341,9 @@ function parse_findk_log(filename_prefix="f01";data_path=pwd())
     return omega, kdir, neffs, ngs, band_idx, x_frac, y_frac, z_frac
 end
 
-function parse_findk_logs(ωinds;data_path=pwd())
-    parsed_logs = (parse_findk_log(;logpath= joinpath(data_path,(@sprintf "log.f%02i.txt" ωind))) for ωind in ωinds)
+function parse_findk_logs(ωinds;data_path=pwd(),pfx="")
+    # parsed_logs = (parse_findk_log(;logpath= joinpath(data_path,(@sprintf "log.f%02i.txt" ωind))) for ωind in ωinds)
+    parsed_logs = (parse_findk_log((lstrip(join([pfx,(@sprintf "f%02i" ωind)],'.'),'.')) ;data_path) for ωind in ωinds)
     omega, kdir, neffs, ngs, band_idx, x_frac, y_frac, z_frac = ( getindex.(parsed_logs,(ii,)) for ii in 1:8 )
     return omega, kdir, neffs, ngs, band_idx, x_frac, y_frac, z_frac
 end
@@ -595,8 +598,9 @@ read_k(filename_prefix;data_path=pwd()) = ( k_om=readdlm(joinpath(data_path,k_fn
 function already_calculated(filename_prefix,bands;data_path=pwd())::Bool
     fnames = readdir(data_path)
     evecs_fnames = ( "evecs." * filename_prefix * (@sprintf ".b%02i.h5" bidx) for bidx in bands)
-    log_fname = lstrip(join((filename_prefix,"log"),"."),'.')
-    all(x->in(x,fnames),evecs_fnames) && in(log_fname,fnames)
+    # log_fname = lstrip(join((filename_prefix,"log"),"."),'.')         # TODO: fix logging (stopped working when I started multiprocessing) 
+    # all(x->in(x,fnames),evecs_fnames) && in(log_fname,fnames)         # Currently C stdout piping gets randomly mixed from different worker procs, so no log files saved. 
+    all(x->in(x,fnames),evecs_fnames) 
 end
 
 function already_calculated(ω,filename_prefix,bands;data_path=pwd())::Bool
@@ -677,6 +681,7 @@ end
 
 function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),kwargs...) where ND  
     if already_calculated(ω,filename_prefix,band_min:band_max;data_path)
+        println("loading pre-calculated data for "*filename_prefix)
         kmags = read_k(filename_prefix;data_path)[1]
         evecs = [load_evec_arr( joinpath(data_path,("evecs." * filename_prefix * (@sprintf ".b%02i.h5" bidx))), bidx, grid) for bidx=band_min:band_max]
     else

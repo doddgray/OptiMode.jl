@@ -599,8 +599,10 @@ end
 
 function smooth(ω::AbstractVector{NTuple{N1,T1}},p::AbstractVector{T2},fname::Symbol,invert_fn::Bool,default_val::TA,f_geom::F,grid::Grid,smoothing_fn::TF) where {N1,T1<:Real,T2<:Real,TA<:AbstractArray,F,TF}
 	n_p = length(p)
-	xyz::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
-	xyzc::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗c(grid))
+	# xyz::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	xyz = Zygote.@ignore(x⃗(grid))			# (Nx × Ny × Nz) 3-Array of (x,y,z) vectors at pixel/voxel centers
+	# xyzc::Array{SVector{3, Float64},ND} = Zygote.@ignore(x⃗c(grid))
+	xyzc = Zygote.@ignore(x⃗c(grid))
 	vxlmin,vxlmax = vxl_minmax(xyzc)
 
 	arr_omcat = map(ω) do om #mapreduce(hcat,ω) do om

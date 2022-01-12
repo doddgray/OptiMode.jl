@@ -35,30 +35,37 @@ end
 #   y, create_array_pullback
 # end
 
-function generate_array_fn(args::Vector{Num},A::AbstractMatrix; expr_module=@__MODULE__(), parallel=SerialForm())
-	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,Matrix))))
-end
 
 function generate_array_fn(arg::Num,A::AbstractMatrix; expr_module=@__MODULE__(), parallel=SerialForm())
 	return fn = generate_array_fn([arg,], A; expr_module, parallel)
 end
 
-function generate_array_fn(args::Vector{Num},A::SArray; expr_module=@__MODULE__(), parallel=SerialForm())
-	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,SArray))))
-end
 
 function generate_array_fn(arg::Num,A::SArray; expr_module=@__MODULE__(), parallel=SerialForm())
 	return fn = generate_array_fn([arg,], A; expr_module, parallel)
 end
 
-
-function generate_array_fn(args::Vector{Num},A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
-	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,TA))))
-end
-
 function generate_array_fn(arg::Num,A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
 	return fn = generate_array_fn([arg,], A; expr_module, parallel)
 end
+
+# function generate_array_fn(args::Vector{Num},A::AbstractMatrix; expr_module=@__MODULE__(), parallel=SerialForm())
+# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,Matrix))))
+# end
+
+# function generate_array_fn(args::Vector{Num},A::SArray; expr_module=@__MODULE__(), parallel=SerialForm())
+# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,SArray))))
+# end
+
+# function generate_array_fn(args::Vector{Num},A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
+# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,TA))))
+# end
+
+function generate_array_fn(args::Symbolics.Arr,A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
+	fn, fn! = build_function(A,args;expression=Val{false})	
+	return fn
+end
+
 
 @non_differentiable generate_array_fn(arg,A)
 
@@ -382,11 +389,14 @@ nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],ng
 
 
 
-function χ⁽²⁾_fn(mat::AbstractMaterial,expr_module=@__MODULE__())
+function χ⁽²⁾_fn(mat::AbstractMaterial;expr_module=@__MODULE__())
 	if has_model(mat,:χ⁽²⁾)
-		return generate_array_fn([Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃))],get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃); expr_module)
+		@variables λs[1:3]
+		fn = generate_array_fn(λs,get_model(mat,:χ⁽²⁾,:λs); expr_module)
+		# return generate_array_fn([Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃))],get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃); expr_module)
 		# return generate_fn(mat,get_model(mat,:χ⁽²⁾,:λs₁,:λs₂,:λs₃),Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃)); expr_module, parallel=SerialForm())
 		# return generate_fn(mat,:χ⁽²⁾,Num(Sym{Real}(:λs₁)), Num(Sym{Real}(:λs₂)), Num(Sym{Real}(:λs₃)); expr_module, parallel=SerialForm())
+		return (lm1,lm2,lm3) -> fn([lm1,lm2,lm3])
 	else
 		return (lm1,lm2,lm3) -> zero(SArray{Tuple{3,3,3}})
 	end

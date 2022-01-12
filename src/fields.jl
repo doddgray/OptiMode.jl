@@ -326,23 +326,24 @@ end
 using Makie: heatmap
 export plot_field, plot_field!
 
-function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing)
+function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
 	xs = x(grid)
 	ys = y(grid)
 	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
 	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
 
-		# ax = [Axis(pos[1,j]) for j=1:2]
+	# ax = [Axis(pos[1,j]) for j=1:2]
 	# ax = [Axis(pos[j]) for j=1:2]
 	labels = label.*label_base
 	Fs = [view(F,j,:,:) for j=1:2]
 	magmax = maximum(abs,F)
-	ax1 = pos[1]
+	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax1 = pos[1]
 	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
-	hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-	ax2 = pos[2]
-	hm1 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
-	hms = [hm1,hm2]
+	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax2 = pos[2]
+	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
+	# hms = [hm1,hm2]
 	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
 	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
 	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
@@ -355,11 +356,12 @@ function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["
 	# 	axx.aspect=DataAspect()
 	# end
 	# linkaxes!(ax...)
-	return hms
+	return hm
 end
 
 function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing)
 	fig=Figure()
-	hms = plot_field!(fig[1,1],F,grid;cmap,label_base,label,xlim,ylim)
+	ax = fig[1,1] = Axis(fig)
+	hms = plot_field!(ax,F,grid;cmap,label_base,label,xlim,ylim)
 	fig
 end
