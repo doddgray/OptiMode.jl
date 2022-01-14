@@ -61,9 +61,10 @@ function push_local_src(;package=@__MODULE__)
 		repo,
 		# refspecs=["refs/remotes/origin/main"], # 
 		refspecs=["refs/heads/main"],
-		remote="origin",
+		remote="origin/main",
 		force=true,
 	)	
+	# test modification
 end
 
 # function sync_repo(remote_url)
