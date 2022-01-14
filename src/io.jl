@@ -56,7 +56,10 @@ function push_local_src(;package=@__MODULE__)
 	println("changed files: ")
 	[println("\t"*ff) for ff in changed_files]
 	LibGit2.commit(repo,msg)	# Add all new or modified files in "src" directory to upcoming git commit
-	LibGit2.push(repo,refspecs=["refs/heads/master"])	# push auto-generated commmit containing local changes to files in src to remote
+	LibGit2.push( # push auto-generated commmit containing local changes to files in src to remote
+		repo,
+		refspecs=["refs/heads/main"],
+	)	
 end
 
 # function sync_repo(remote_url)
