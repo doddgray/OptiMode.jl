@@ -1,7 +1,7 @@
 using Pkg
 using LibGit2
 using Dates: now
-export modified_files, push_local_src, timestamp_string
+export modified_untracked_deleted_files, push_local_src, timestamp_string
 
 timestamp_string() = string(now())
 
@@ -9,24 +9,29 @@ timestamp_string() = string(now())
 Return the paths of all modified or untracked files git finds in the subdirectory `subdir` of 
 git repository `repo`
 """
-function modified_files(repo::LibGit2.GitRepo,subdir="src")
+function modified_untracked_deleted_files(repo::LibGit2.GitRepo,subdir="src";verbose=false)
 	repo_path = LibGit2.path(repo) # LibGit2.workdir(repo)
 	tree = LibGit2.GitTree(repo,"HEAD^{tree}")
  	diff = LibGit2.diff_tree(repo,tree,"")
-	
-	println("#### checking modified & deleted files using diff #####")
+	if verbose
+		println("#### checking modified & deleted files in $subdir using diff #####")
+	end
 	changed_files_diff = []
 	for i in 1:LibGit2.count(diff)
 		d = diff[i]   # print(d)
 		old_file_path = unsafe_string(d.old_file.path) # if unsafe_string causes problems consider something like:
 		new_file_path = unsafe_string(d.new_file.path) # GC.@preserve text s = unsafe_string(pointer(text))
-		println("diff[$i]: \n", "old file path: ", old_file_path, "\n new file path: ",new_file_path,"\n---\n")
+		if verbose
+			println("diff[$i]: \n", "old file path: ", old_file_path, "\n new file path: ",new_file_path,"\n---\n")
+		end
 		if isnothing(subdir) || isequal(first(splitpath(new_file_path)),subdir)
 			push!(changed_files_diff,new_file_path)
 		end
 	end
 	
-	println("#### checking modified & untracked files using walkdir and GitLib2.status #####")
+	if verbose
+		println("#### checking modified & untracked files in $subdir using walkdir and GitLib2.status #####")
+	end
 	changed_files = []
 	for (root, dirs, files) in walkdir(joinpath(repo_path,subdir))
 		for file in files
@@ -38,36 +43,48 @@ function modified_files(repo::LibGit2.GitRepo,subdir="src")
 			end 
 		end
 	end
-	return changed_files_diff, changed_files
+	modified_files = intersect(changed_files_diff,changed_files)
+	untracked_files = setdiff(changed_files,changed_files_diff)
+	deleted_files = setdiff(changed_files_diff,changed_files)
+	return modified_files, untracked_files, deleted_files
 end
-modified_files(repo_path::AbstractString,subdir="src") = modified_files(LibGit2.GitRepo(repo_path),subdir)
-modified_files(imported_module::Module,subdir="src") = modified_files(dirname(dirname(pathof(imported_module))),subdir)
+modified_untracked_deleted_files(repo_path::AbstractString,subdir="src") = modified_untracked_deleted_files(LibGit2.GitRepo(repo_path),subdir)
+modified_untracked_deleted_files(imported_module::Module,subdir="src") = modified_untracked_deleted_files(dirname(dirname(pathof(imported_module))),subdir)
 
-function push_local_src(;package=@__MODULE__)
+function push_local_src(;package=@__MODULE__,verbose=false)
 	# package_path = Base.find_package(string(package)) # Doesn't require package to be imported
 	package_path = pathof(package)	# requires package to be imported if not called from within
 	src_path = dirname(package_path)
 	repo_path = dirname(src_path)
 	repo = LibGit2.GitRepo(repo_path)	# create GitRepo object for package 
-	changed_files_diff, changed_files = modified_files(repo,"src")
-	if length(changed_files)>0
-		LibGit2.add!(repo,changed_files...)	# Add all new or modified files in "src" directory to upcoming git commit
-		println("\n#########  auto-pushing local source code changes  ##########\n")
+	modified_files, untracked_files, deleted_files = modified_untracked_deleted_files(repo,"src";verbose)
+	add_files = vcat(modified_files,untracked_files,deleted_files) # stage all additions, modifications and deletions of files in "src" directory
+	if length(add_files)>0
+		LibGit2.add!(repo,add_files...)	
 		msg = "auto-pushing local source code changes. " * timestamp_string()
-		println("\tcommit message: ",msg)
-		println("\tchanged files to commit and push: ")
-		[println("\t\t"*ff) for ff in changed_files]
-		LibGit2.commit(repo,msg)	# Add all new or modified files in "src" directory to upcoming git commit
-		remote = LibGit2.get(LibGit2.GitRemote, repo, "origin")
+		if verbose
+			println("\n#########  auto-pushing local source code changes  ##########\n")
+			println("\tcommit message: ",msg)
+			println("\tchanged files to commit and push: ")
+			println("\t\tmodified files: ")
+			[println("\t\t\t"*ff) for ff in modified_files]
+			println("\t\tuntracked files: ")
+			[println("\t\t\t"*ff) for ff in untracked_files]
+			println("\t\tdeleted files: ")
+			[println("\t\t\t"*ff) for ff in deleted_files]
+		end
+		LibGit2.commit(repo,msg)	# commit all staged changes
+		# remote = LibGit2.get(LibGit2.GitRemote, repo, "origin")
 		LibGit2.push( # push auto-generated commmit containing local changes to files in src to remote
 			repo,
-			# refspecs=["refs/remotes/origin/main"], # 
 			refspecs=["refs/heads/main"],
 			remote="origin",
 			force=true,
 		)	
 	else
-		println("\n#########  no local source code changes to commit/push detected  ##########\n")
+		if verbose 
+			println("\n#########  no local source code changes to commit/push detected  ##########\n")
+		end
 	end
 end
 
