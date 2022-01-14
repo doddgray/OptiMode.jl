@@ -1,3 +1,11 @@
+"""
+##############################################################################################
+#																			   				 #
+#		Define a spatial Grid type and utility/convenience functions acting on Grids		 #
+#																			   				 #
+##############################################################################################
+"""
+
 export Grid, δx, δy, δz, δ, x, y, z, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, Nranges, ∫
 
 struct Grid{ND,T}

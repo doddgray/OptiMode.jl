@@ -1,3 +1,73 @@
+using Pkg
+using LibGit2
+using Dates: now
+export modified_files, push_local_src, timestamp_string
+
+timestamp_string() = string(now())
+
+"""
+Return the paths of all modified or untracked files git finds in the subdirectory `subdir` of 
+git repository `repo`
+"""
+function modified_files(repo::LibGit2.GitRepo,subdir="src")
+	repo_path = LibGit2.path(repo) # LibGit2.workdir(repo)
+	tree = LibGit2.GitTree(repo,"HEAD^{tree}")
+ 	diff = LibGit2.diff_tree(repo,tree,"")
+	
+	println("#### checking modified & deleted files using diff #####")
+	changed_files_diff = []
+	for i in 1:LibGit2.count(diff)
+		d = diff[i]   # print(d)
+		old_file_path = unsafe_string(d.old_file.path) # if unsafe_string causes problems consider something like:
+		new_file_path = unsafe_string(d.new_file.path) # GC.@preserve text s = unsafe_string(pointer(text))
+		println("diff[$i]: \n", "old file path: ", old_file_path, "\n new file path: ",new_file_path,"\n---\n")
+		if isnothing(subdir) || isequal(first(splitpath(new_file_path)),subdir)
+			push!(changed_files_diff,new_file_path)
+		end
+	end
+	
+	println("#### checking modified & untracked files using walkdir and GitLib2.status #####")
+	changed_files = []
+	for (root, dirs, files) in walkdir(joinpath(repo_path,subdir))
+		for file in files
+			file_path = joinpath(root, file) 
+			rel_path = relpath(file_path, repo_path)
+			file_status = LibGit2.status(repo,rel_path) # Nonzero if file is modified or untracked
+			if !iszero(file_status)
+				push!(changed_files, rel_path)
+			end 
+		end
+	end
+	return changed_files_diff, changed_files
+end
+modified_files(repo_path::AbstractString,subdir="src") = modified_files(LibGit2.GitRepo(repo_path),subdir)
+modified_files(imported_module::Module,subdir="src") = modified_files(dirname(dirname(pathof(imported_module))),subdir)
+
+function push_local_src(;package=@__MODULE__)
+	# package_path = Base.find_package(string(package)) # Doesn't require package to be imported
+	package_path = pathof(package)	# requires package to be imported if not called from within
+	src_path = dirname(package_path)
+	repo_path = dirname(src_path)
+	repo = LibGit2.GitRepo(repo_path)	# create GitRepo object for package 
+	changed_files_diff, changed_files = modified_files(repo,"src")
+	LibGit2.add!(repo,changed_files...)	# Add all new or modified files in "src" directory to upcoming git commit
+	msg = "auto-pushed local source code changes. " * timestamp_string()
+	println(msg)
+	println("changed files: ")
+	[println("\t"*ff) for ff in changed_files]
+	LibGit2.commit(repo,msg)	# Add all new or modified files in "src" directory to upcoming git commit
+	LibGit2.push(repo)	# push auto-generated commmit containing local changes to files in src to remote
+end
+
+# function sync_repo(remote_url)
+
+# end
+
+
+
+
+
+
 """
 	create_data_file(fname; data_dir, groups, datasets)
 
