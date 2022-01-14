@@ -50,21 +50,25 @@ function push_local_src(;package=@__MODULE__)
 	repo_path = dirname(src_path)
 	repo = LibGit2.GitRepo(repo_path)	# create GitRepo object for package 
 	changed_files_diff, changed_files = modified_files(repo,"src")
-	LibGit2.add!(repo,changed_files...)	# Add all new or modified files in "src" directory to upcoming git commit
-	msg = "auto-pushed local source code changes. " * timestamp_string()
-	println(msg)
-	println("changed files: ")
-	[println("\t"*ff) for ff in changed_files]
-	LibGit2.commit(repo,msg)	# Add all new or modified files in "src" directory to upcoming git commit
-	remote = LibGit2.get(LibGit2.GitRemote, repo, "origin")
-	LibGit2.push( # push auto-generated commmit containing local changes to files in src to remote
-		repo,
-		# refspecs=["refs/remotes/origin/main"], # 
-		refspecs=["refs/heads/main"],
-		remote="origin",
-		force=true,
-	)	
-	# test modification
+	if length(changed_files)>0
+		LibGit2.add!(repo,changed_files...)	# Add all new or modified files in "src" directory to upcoming git commit
+		println("\n#########  auto-pushing local source code changes  ##########\n")
+		msg = "auto-pushing local source code changes. " * timestamp_string()
+		println("\tcommit message: ",msg)
+		println("\tchanged files to commit and push: ")
+		[println("\t\t"*ff) for ff in changed_files]
+		LibGit2.commit(repo,msg)	# Add all new or modified files in "src" directory to upcoming git commit
+		remote = LibGit2.get(LibGit2.GitRemote, repo, "origin")
+		LibGit2.push( # push auto-generated commmit containing local changes to files in src to remote
+			repo,
+			# refspecs=["refs/remotes/origin/main"], # 
+			refspecs=["refs/heads/main"],
+			remote="origin",
+			force=true,
+		)	
+	else
+		println("\n#########  no local source code changes to commit/push detected  ##########\n")
+	end
 end
 
 # function sync_repo(remote_url)
