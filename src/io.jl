@@ -59,6 +59,11 @@ function push_local_src(;package=@__MODULE__,verbose=false)
 	repo = LibGit2.GitRepo(repo_path)	# create GitRepo object for package 
 	modified_files, untracked_files, deleted_files = modified_untracked_deleted_files(repo,"src";verbose)
 	add_files = vcat(modified_files,untracked_files,deleted_files) # stage all additions, modifications and deletions of files in "src" directory
+	for file_relpath in ("Project.toml","Manifest.toml")
+		if !iszero(LibGit2.status(repo,file_relpath))
+			push!(add_files,file_relpath)
+		end
+	end
 	if length(add_files)>0
 		LibGit2.add!(repo,add_files...)	
 		msg = "auto-pushing local source code changes. " * timestamp_string()
