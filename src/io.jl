@@ -61,7 +61,7 @@ function push_local_src(;package=@__MODULE__)
 		repo,
 		# refspecs=["refs/remotes/origin/main"], # 
 		refspecs=["refs/heads/main"],
-		remote="origin/main",
+		remote="origin",
 		force=true,
 	)	
 	# test modification
