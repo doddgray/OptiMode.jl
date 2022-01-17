@@ -1,7 +1,8 @@
+using Distributed
 using Pkg
 using LibGit2
 using Dates: now
-export modified_untracked_deleted_files, push_local_src, timestamp_string
+export modified_untracked_deleted_files, push_local_src, remote_add_package, remote_update_package, timestamp_string
 
 timestamp_string() = string(now())
 
@@ -94,12 +95,41 @@ function push_local_src(;package=@__MODULE__,verbose=false)
 	end
 end
 
+function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
+	pids = addprocs([(remote_host,1)];kwargs...)
+	@everywhere procs(pids[1]) @eval using Pkg
+	@everywhere procs(pids[1]) Pkg.update("OptiMode")
+end
 
-# function sync_repo(remote_url)
 
+# function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
+# 	pids = addprocs([(remote_host,1)];kwargs...)
+# 	@everywhere @eval procs(pids[1]) begin
+# 		using Pkg
+# 		Pkg.update("OptiMode") # Pkg.update(pkg_str)
+# 	end
+# end
+
+# function remote_add_package(remote_host;pkg_url="https://github.com/doddgray/OptiMode.jl",rev="main",kwargs...)
+# 	pids = addprocs([(remote_host,1)];kwargs...)
+# 	@everywhere procs(pids[1]) begin
+# 		using Pkg
+# 		Pkg.add(url=pkg_url;rev)
+# 	end
 # end
 
 
+
+# pids = addprocs([("txe1",1)], tunnel=true, exename="/home/gridsan/dodd/github/julia/julia", sshflags="-vv")
+# res = @spawnat 2 Pkg.add(url="https://github.com/doddgray/OptiMode.jl",rev="main")
+# # pids = addprocs([("txe1",1)], tunnel=true, max_parallel=1, exename="/state/partition1/llgrid/pkg/julia/julia-1.6.1/bin/julia", sshflags="-vv")
+
+
+# @everywhere begin
+# 	using Pkg
+# 	# Pkg.add(url="https://github.com/doddgray/OptiMode.jl",rev="main")
+# 	Pkg.update("OptiMode")
+# end
 
 
 
@@ -164,3 +194,5 @@ function sweep_params(p_upper,p_lower,nps,ωs; fname=nothing, data_dir=joinpath(
 		end
 	end
 end
+
+
