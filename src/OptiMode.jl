@@ -37,38 +37,39 @@ using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
 
 ### Materials ###
-# using Rotations
-# using Symbolics
-# using SymbolicUtils
-# using RuntimeGeneratedFunctions
+using Rotations
+using Symbolics
+using SymbolicUtils
+using RuntimeGeneratedFunctions
 
 ### Geometry ###
-# using GeometryPrimitives
+using GeometryPrimitives
 # using GeometryPrimitives: Cylinder
 
 ### Iterative Solvers ###
-# using IterativeSolvers
+using IterativeSolvers
 # using KrylovKit
 # using DFTK: LOBPCG
 # using KrylovKit: eigsolve
 # using Roots
-# using PyCall
+using PyCall
 
 ### Visualization ###
-# using Colors: Color, RGB, RGBA, @colorant_str
-# import Colors: JULIA_LOGO_COLORS
-# logocolors = JULIA_LOGO_COLORS
+using Colors
+using Colors: Color, RGB, RGBA, @colorant_str
+import Colors: JULIA_LOGO_COLORS
+logocolors = JULIA_LOGO_COLORS
 # using UnicodePlots
 # using Makie
 # using Makie.GeometryBasics
 
 ### I/O ###
-# using Dates
-# using HDF5
-# using DelimitedFiles
-# using EllipsisNotation
-# using Printf
-# using ProgressMeter
+using Dates
+using HDF5
+using DelimitedFiles
+using EllipsisNotation
+using Printf
+using ProgressMeter
 
 
 ### Utils ###
@@ -139,10 +140,12 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 # include("plot.jl")
 include("linalg.jl")
 # include("epsilon.jl")
-# include("materials.jl")
+include("materials.jl")
 include("grid.jl")
-# include("geometry.jl")
-# include("maxwell.jl")
+include("geometry.jl")
+include("maxwell.jl")
+include("mpb.jl")
+include("analyze.jl")
 # include("constraints.jl")
 # include("fields.jl")
 # include("smooth.jl")
