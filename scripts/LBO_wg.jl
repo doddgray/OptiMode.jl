@@ -268,11 +268,25 @@ function proc_modes_shg(oms,pp,kk_ev;pol_idx_fund=1,mode_order_fund=(0,0),pol_id
     return neffs_fund, ngs_fund, Es_fund, eps_fund, neffs_sh, ngs_sh, Es_sh, eps_sh, Λs, κ²_pctW⁻¹cm⁻², Δλ_nm_cm
 end
 
+# # for Y-cut LBO, wg prop along LBO X-axis:
+# #   fundamental polarized along lab y-axis/LBO Y-axis (vertical,TM-like)    => pol_idx_fund = 2
+# #   SHG polarized along lab x-axis/LBO Z-axis (horizontal,TE-like)          => pol_idx_sh   = 1
+# function proc_modes_shg_LBOy(oms,pp,kk_ev;mode_order_fund=(0,0),mode_order_sh=(0,0),rel_amp_min=0.4,num_bands=size(first(first(kk_ev)))[2])
+#     return proc_modes_shg(oms,pp,kk_ev;pol_idx_fund=2,mode_order_fund,pol_idx_sh=1,mode_order_sh,rel_amp_min,num_bands)
+# end
+
+# # for Z-cut LBO, wg prop along LBO X-axis:
+# #   fundamental polarized along lab x-axis/LBO Y-axis (horizontal,TE-like)  => pol_idx_fund = 1
+# #   SHG polarized along lab y-axis/LBO Z-axis (vertical,TM-like)            => pol_idx_sh   = 2
+# function proc_modes_shg_LBOz(oms,pp,kk_ev;mode_order_fund=(0,0),mode_order_sh=(0,0),rel_amp_min=0.4,num_bands=size(first(first(kk_ev)))[2])
+#     return proc_modes_shg(oms,pp,kk_ev;pol_idx_fund=1,mode_order_fund,pol_idx_sh=2,mode_order_sh,rel_amp_min,num_bands)
+# end
+
 # for Y-cut LBO, wg prop along LBO X-axis:
-#   fundamental polarized along lab y-axis/LBO Y-axis (vertical,TM-like)    => pol_idx_fund = 2
-#   SHG polarized along lab x-axis/LBO Z-axis (horizontal,TE-like)          => pol_idx_sh   = 1
+#   fundamental polarized along lab y-axis/LBO Y-axis (vertical,TE-like)    => pol_idx_fund = 1
+#   SHG polarized along lab x-axis/LBO Z-axis (horizontal,TM-like)          => pol_idx_sh   = 2
 function proc_modes_shg_LBOy(oms,pp,kk_ev;mode_order_fund=(0,0),mode_order_sh=(0,0),rel_amp_min=0.4,num_bands=size(first(first(kk_ev)))[2])
-    return proc_modes_shg(oms,pp,kk_ev;pol_idx_fund=2,mode_order_fund,pol_idx_sh=1,mode_order_sh,rel_amp_min,num_bands)
+    return proc_modes_shg(oms,pp,kk_ev;pol_idx_fund=1,mode_order_fund,pol_idx_sh=2,mode_order_sh,rel_amp_min,num_bands)
 end
 
 # for Z-cut LBO, wg prop along LBO X-axis:
@@ -437,27 +451,50 @@ end
 
 ##
 
-filename_prefix     =   ("sw1c", "sw1p", "sw1n") # nω = 20; mat_subs = LBOyN
-num_bands = 4
-ks_evecs = [find_k(ωs_in,ps[pidx],geom_fn,grid;num_bands=num_bands,data_path=ds_path,filename_prefix=filename_prefix[pidx]) for pidx=1:3] 
-ds_c, ds_p, ds_n = (proc_modes_shg_LBOy(ωs_in,ps[idx],ks_evecs[idx];num_bands=4) for idx=1:3)
 
-# filename_prefix     =   ("sw2c", "sw2p", "sw2n") # nω = 20; mat_subs = LBOzN
+filename_prefix_y     =   ("sw1c", "sw1p", "sw1n") # nω = 20; mat_subs = LBOyN
+num_bands_y = 4
+ks_evecs_y = [find_k(ωs_in,ps[pidx],geom_fn,grid;num_bands=num_bands_y,data_path=ds_path,filename_prefix=filename_prefix_y[pidx]) for pidx=1:3] 
+ds_c_y, ds_p_y, ds_n_y = (proc_modes_shg_LBOy(ωs_in,ps[idx],ks_evecs_y[idx];num_bands=4) for idx=1:3)
+
+p_c_y, p_p_y, p_n_y = ps
+ks_c_y, evecs_c_y = ks_evecs[1]
+ks_p_y, evecs_p_y = ks_evecs[2]
+ks_n_y, evecs_n_y = ks_evecs[3]
+neffs_fund_c_y, ngs_fund_c_y, Es_fund_c_y, eps_fund_c_y, neffs_sh_c_y, ngs_sh_c_y, Es_sh_c_y, eps_sh_c_y, Λs_c_y, κ²_pctW⁻¹cm⁻²_c_y, Δλ_n_ym_c_ym_c_y = ds_c_y
+neffs_fund_p_y, ngs_fund_p_y, Es_fund_p_y, eps_fund_p_y, neffs_sh_p_y, ngs_sh_p_y, Es_sh_p_y, eps_sh_p_y, Λs_p_y, κ²_pctW⁻¹cm⁻²_p_y, Δλ_n_ym_cm_p_y = ds_p_y
+neffs_fund_n_y, ngs_fund_n_y, Es_fund_n_y, eps_fund_n_y, neffs_sh_n_y, ngs_sh_n_y, Es_sh_n_y, eps_sh_n_y, Λs_n_y, κ²_pctW⁻¹cm⁻²_n_y, Δλ_n_ym_cm_n_y = ds_n_y
+
+
+filename_prefix_z     =   ("sw2c", "sw2p", "sw2n") # nω = 20; mat_subs = LBOzN
+num_bands_z = 4
+ks_evecs_z = [find_k(ωs_in,ps[pidx],geom_fn,grid;num_bands=num_bands_z,data_path=ds_path,filename_prefix=filename_prefix_z[pidx]) for pidx=1:3] 
+ds_c_z, ds_p_z, ds_n_z = (proc_modes_shg_LBOz(ωs_in,ps[idx],ks_evecs_z[idx];num_bands=4) for idx=1:3)
+
+p_c_z, p_p_z, p_n_z = ps
+ks_c_z, evecs_c_z = ks_evecs[1]
+ks_p_z, evecs_p_z = ks_evecs[2]
+ks_n_z, evecs_n_z = ks_evecs[3]
+neffs_fund_c_z, ngs_fund_c_z, Es_fund_c_z, eps_fund_c_z, neffs_sh_c_z, ngs_sh_c_z, Es_sh_c_z, eps_sh_c_z, Λs_c_z, κ²_pctW⁻¹cm⁻²_c_z, Δλ_n_zm_c_zm_c_z = ds_c_z
+neffs_fund_p_z, ngs_fund_p_z, Es_fund_p_z, eps_fund_p_z, neffs_sh_p_z, ngs_sh_p_z, Es_sh_p_z, eps_sh_p_z, Λs_p_z, κ²_pctW⁻¹cm⁻²_p_z, Δλ_n_zm_cm_p_z = ds_p_z
+neffs_fund_n_z, ngs_fund_n_z, Es_fund_n_z, eps_fund_n_z, neffs_sh_n_z, ngs_sh_n_z, Es_sh_n_z, eps_sh_n_z, Λs_n_z, κ²_pctW⁻¹cm⁻²_n_z, Δλ_n_zm_cm_n_z = ds_n_z
+# filename_prefix     =   
 # num_bands = 6
 # ks_evecs = [find_k(ωs_in,ps[pidx],geom_fn,grid;num_bands=num_bands,data_path=ds_path,filename_prefix=filename_prefix[pidx]) for pidx=1:3] 
 # ds_c, ds_p, ds_n = (proc_modes_shg_LBOz(ωs_in,ps[idx],ks_evecs[idx];num_bands=6) for idx=1:3)
 
-p_c, p_p, p_n = ps
-ks_c, evecs_c = ks_evecs[1]
-ks_p, evecs_p = ks_evecs[2]
-ks_n, evecs_n = ks_evecs[3]
-neffs_fund_c, ngs_fund_c, Es_fund_c, eps_fund_c, neffs_sh_c, ngs_sh_c, Es_sh_c, eps_sh_c, Λs_c, κ²_pctW⁻¹cm⁻²_c, Δλ_nm_cm_c = ds_c
-neffs_fund_p, ngs_fund_p, Es_fund_p, eps_fund_p, neffs_sh_p, ngs_sh_p, Es_sh_p, eps_sh_p, Λs_p, κ²_pctW⁻¹cm⁻²_p, Δλ_nm_cm_p = ds_p
-neffs_fund_n, ngs_fund_n, Es_fund_n, eps_fund_n, neffs_sh_n, ngs_sh_n, Es_sh_n, eps_sh_n, Λs_n, κ²_pctW⁻¹cm⁻²_n, Δλ_nm_cm_n = ds_n
-# rename appropriate data for plotting
-neffs_fund, ngs_fund, Es_fund, eps_fund, neffs_sh, ngs_sh, Es_sh, eps_sh, Λs, κ²_pctW⁻¹cm⁻², Δλ_nm_cm = ds_c
-neffs_fund_up, ngs_fund_up, Es_fund_up, eps_fund_up, neffs_sh_up, ngs_sh_up, Es_sh_up, eps_sh_up, Λs_up, κ²_pctW⁻¹cm⁻²_up, Δλ_nm_cm_up = ds_p
-neffs_fund_lw, ngs_fund_lw, Es_fund_lw, eps_fund_lw, neffs_sh_lw, ngs_sh_lw, Es_sh_lw, eps_sh_lw, Λs_lw, κ²_pctW⁻¹cm⁻²_lw, Δλ_nm_cm_lw = ds_n
+# p_c, p_p, p_n = ps
+# ks_c, evecs_c = ks_evecs[1]
+# ks_p, evecs_p = ks_evecs[2]
+# ks_n, evecs_n = ks_evecs[3]
+# neffs_fund_c, ngs_fund_c, Es_fund_c, eps_fund_c, neffs_sh_c, ngs_sh_c, Es_sh_c, eps_sh_c, Λs_c, κ²_pctW⁻¹cm⁻²_c, Δλ_nm_cm_c = ds_c
+# neffs_fund_p, ngs_fund_p, Es_fund_p, eps_fund_p, neffs_sh_p, ngs_sh_p, Es_sh_p, eps_sh_p, Λs_p, κ²_pctW⁻¹cm⁻²_p, Δλ_nm_cm_p = ds_p
+# neffs_fund_n, ngs_fund_n, Es_fund_n, eps_fund_n, neffs_sh_n, ngs_sh_n, Es_sh_n, eps_sh_n, Λs_n, κ²_pctW⁻¹cm⁻²_n, Δλ_nm_cm_n = ds_n
+
+## rename appropriate data for plotting
+neffs_fund, ngs_fund, Es_fund, eps_fund, neffs_sh, ngs_sh, Es_sh, eps_sh, Λs, κ²_pctW⁻¹cm⁻², Δλ_nm_cm = ds_c_y
+neffs_fund_up, ngs_fund_up, Es_fund_up, eps_fund_up, neffs_sh_up, ngs_sh_up, Es_sh_up, eps_sh_up, Λs_up, κ²_pctW⁻¹cm⁻²_up, Δλ_nm_cm_up = ds_p_y
+neffs_fund_lw, ngs_fund_lw, Es_fund_lw, eps_fund_lw, neffs_sh_lw, ngs_sh_lw, Es_sh_lw, eps_sh_lw, Λs_lw, κ²_pctW⁻¹cm⁻²_lw, Δλ_nm_cm_lw = ds_n_y
 
 ##
 
@@ -466,8 +503,8 @@ omidx   =   18
 # for Y-cut LBO, wg prop along LBO X-axis:
 #   fundamental polarized along lab y-axis/LBO Y-axis (vertical,TM-like)    => pol_idx_fund = 2
 #   SHG polarized along lab x-axis/LBO Z-axis (horizontal,TE-like)          => pol_idx_sh   = 1
-axidx_fund   =   2
-axidx_sh     =   1
+axidx_fund   =   1
+axidx_sh     =   2
 
 # for Z-cut LBO, wg prop along LBO X-axis:
 #   fundamental polarized along lab x-axis/LBO Y-axis (horizontal,TE-like)  => pol_idx_fund = 1
@@ -511,6 +548,7 @@ ax_ExSHG        =   fig[3,2] = Axis(fig)
 
 sl_neffs_fund,bnd_neffs_fund    =   scatterlines_err!(ax_neffs,λs_fund,neffs_fund,neffs_fund_lw,neffs_fund_up;color=clr_fund,fill_alpha=0.2,linewidth=2,markersize=4,label=nothing)
 sl_neffs_sh,bnd_neffs_sh        =   scatterlines_err!(ax_neffs,λs_sh,neffs_sh,neffs_sh_lw,neffs_sh_up;color=clr_sh,fill_alpha=0.2,linewidth=2,markersize=4,label=nothing)
+# sl_neffs_sh,bnd_neffs_sh        =   scatterlines_err!(ax_neffs,λs_fund,neffs_sh,neffs_sh_lw,neffs_sh_up;color=clr_sh,fill_alpha=0.2,linewidth=2,markersize=4,label=nothing)
 sl_ngs_fund,bnd_ngs_fund        =   scatterlines_err!(ax_neffs,λs_fund,ngs_fund,ngs_fund_lw,ngs_fund_up;color=clr_fund,fill_alpha=0.2,linewidth=2,markersize=4,linestyle=:dot,label=nothing)
 sl_ngs_sh,bnd_ngs_sh            =   scatterlines_err!(ax_neffs,λs_sh,ngs_sh,ngs_sh_lw,ngs_sh_up;color=clr_sh,fill_alpha=0.2,linewidth=2,markersize=4,linestyle=:dot,label=nothing)
 sl_Λs,bnd_Λs                    =   scatterlines_err!(ax_Λs,λs_fund,Λs,Λs_lw,Λs_up;color=clr_Λ,fill_alpha=0.2,linewidth=2,markersize=4,label=nothing)

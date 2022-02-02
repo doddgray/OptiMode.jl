@@ -15,7 +15,9 @@ https://doi.org/10.1063/1.360499
 This model is then exported to other functions that use it and its
 derivatives to return index, group index and GVD values as a function
 of temperature and wavelength.
-Variable units are lm in [um] and T in [deg C]
+Variables (units):
+	- `λ` (μm)			vacuum wavelength 
+	- `T` (degree C)	material temperature
 """
 
 function n²_LiB₃O₅_sym(λ, T; A, B, C, D, E, G, H, λᵢ, T₀)
