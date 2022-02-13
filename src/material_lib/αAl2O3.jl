@@ -23,6 +23,7 @@ p_n_αAl₂O₃ = (
     C = -0.00036,           #                           [μm⁴]
     dn_dT = 6.1e-6,         # thermo-optic coefficient  [K⁻¹]
     T₀ = 20,                # reference temperature     [°C]
+	# dn²_dT = 2*n_sym_cauchy( 1.55 ; A = 1.602, B = 0.01193, C = -0.00036)*6.1e-6,
 )
 
 # notes & coeffs.from original working python code for reference:
@@ -35,12 +36,12 @@ p_n_αAl₂O₃ = (
 # C_alumina = -0.00036
 
 function make_αAl₂O₃(;p_n=p_n_αAl₂O₃)
-	@variables λ, T
-	n = n_sym_cauchy( λ ; p_n...) + p_n.dn_dT  *  ( T - p_n.T₀  )
+	@variables ω, λ, T
+	n = n_sym_cauchy_ω( ω ; p_n...) + p_n.dn_dT  *  ( T - p_n.T₀  )
 	n² = n^2
-	ε 	= diagm([n², n², n²])
-	ng = ng_model(n,λ)
-	gvd = gvd_model(n,λ)
+	n_λ = n_sym_cauchy( λ ; p_n...) + p_n.dn_dT  *  ( T - p_n.T₀  )
+	ng = ng_model(n_λ,λ)
+	gvd = gvd_model(n_λ,λ)
 	models = Dict([
 		:n		=>	n,
 		:ng		=>	ng,
@@ -48,6 +49,7 @@ function make_αAl₂O₃(;p_n=p_n_αAl₂O₃)
 		:ε 		=> 	diagm([n², n², n²]),
 	])
 	defaults =	Dict([
+		:ω		=>		inv(0.8),	# μm⁻¹
 		:λ		=>		0.8,		# μm
 		:T		=>		p_n.T₀,		# °C
 

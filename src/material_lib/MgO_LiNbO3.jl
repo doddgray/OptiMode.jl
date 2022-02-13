@@ -23,6 +23,11 @@ function n²_MgO_LiNbO₃_sym(λ, T; a₁, a₂, a₃, a₄, a₅, a₆, b₁, b
     a₁ + b₁*f + (a₂ + b₂*f) / (λ² - (a₃ + b₃*f)^2) + (a₄ + b₄*f) / (λ² - a₅^2) - a₆*λ²
 end
 
+function n²_MgO_LiNbO₃_sym_ω(ω, T; a₁, a₂, a₃, a₄, a₅, a₆, b₁, b₂, b₃, b₄, T₀)
+    f = (T - T₀) * (T + T₀ + 2*273.16)  # so-called 'temperature dependent parameter'
+    a₁ + b₁*f + (a₂ + b₂*f)*ω^2 / (1 - (a₃ + b₃*f)^2*ω^2) + (a₄ + b₄*f)*ω^2 / (1 - a₅^2*ω^2) - a₆ / ω^2
+end
+
 pₑ = (
     a₁ = 5.756,
     a₂ = 0.0983,
@@ -58,9 +63,11 @@ pᵪ₂ = (
 )
 
 function make_MgO_LiNbO₃(;pₒ=pₒ,pₑ=pₑ,pᵪ₂=pᵪ₂)
-	@variables λ, T, λs[1:3]
-	nₒ² = n²_MgO_LiNbO₃_sym(λ, T; pₒ...)
-	nₑ² = n²_MgO_LiNbO₃_sym(λ, T; pₑ...)
+	@variables λ, ω, T, λs[1:3]
+	# nₒ² = n²_MgO_LiNbO₃_sym(λ, T; pₒ...)
+	# nₑ² = n²_MgO_LiNbO₃_sym(λ, T; pₑ...)
+	nₒ² = n²_MgO_LiNbO₃_sym_ω(ω, T; pₒ...)
+	nₑ² = n²_MgO_LiNbO₃_sym_ω(ω, T; pₑ...)
 	ε 	= diagm([nₒ², nₒ², nₑ²])
 	d₃₃, d₃₁, d₂₂, λᵣs = pᵪ₂
 	χ⁽²⁾ᵣ = cat(
@@ -75,30 +82,35 @@ function make_MgO_LiNbO₃(;pₒ=pₒ,pₑ=pₑ,pᵪ₂=pᵪ₂)
 			0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
 		 dims = 3
 	)
-	nₒ = sqrt(nₒ²)
-	ngₒ = ng_model(nₒ,λ)
-	gvdₒ = gvd_model(nₒ,λ)
-	nₑ = sqrt(nₑ²)
-	ngₑ = ng_model(nₑ,λ)
-	gvdₑ = gvd_model(nₑ,λ)
+	
+	# ngₒ = ng_model(nₒ,ω)
+	# gvdₒ = gvd_model(nₒ,ω)
+	
+	ε_λ = substitute.(ε,(Dict([(ω=>1/λ),]),))
+	nₒ_λ,nₑ_λ = sqrt.(substitute.((nₒ²,nₑ²),(Dict([(ω=>1/λ),]),)))
+	# nₑ = sqrt(nₑ²)
+	# nₒ = sqrt(nₒ²)
+	# ngₑ = ng_model(nₑ,ω)
+	# gvdₑ = gvd_model(nₑ,ω)
 	models = Dict([
-		:nₒ		=>	nₒ,
-		:ngₒ	=>	ngₒ,
-		:gvdₒ	=>	gvdₒ,
-		:nₑ		=>	nₑ,
-		:ngₑ	=>	ngₑ,
-		:gvdₑ	=>	gvdₑ,
-		:ng		=>	diagm([ngₒ, ngₒ, ngₑ]),
-		:gvd	=>	diagm([gvdₒ, gvdₒ, gvdₑ]),
+		:nₒ		=>	nₒ_λ,
+		# :ngₒ	=>	ngₒ,
+		# :gvdₒ	=>	gvdₒ,
+		:nₑ		=>	nₑ_λ,
+		# :ngₑ	=>	ngₑ,
+		# :gvdₑ	=>	gvdₑ,
+		# :ng		=>	diagm([ngₒ, ngₒ, ngₑ]),
+		# :gvd	=>	diagm([gvdₒ, gvdₒ, gvdₑ]),
 		:ε 		=> 	ε,
-		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε, λᵣs, χ⁽²⁾ᵣ)),
+		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε_λ, λᵣs, χ⁽²⁾ᵣ)),
 	])
 	defaults =	Dict([
-		:λ		=>		0.8,	# μm
-		:T		=>		24.5,	# °C
-		:λs₁	=>		1.064,	# μm
-		:λs₂	=>		1.064,	# μm
-		:λs₃	=>		0.532,	# μm
+		:ω		=>		inv(0.8),	# μm⁻¹
+		:λ		=>		0.8,		# μm
+		:T		=>		24.5,		# °C
+		:λs₁	=>		1.064,		# μm
+		:λs₂	=>		1.064,		# μm
+		:λs₃	=>		0.532,		# μm
 
 	])
 	Material(

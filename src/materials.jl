@@ -1,7 +1,9 @@
-using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, _build_and_inject_function, @__MODULE__, MultithreadedForm, tosymbol, Sym
-using SymbolicUtils.Code: MakeArray
+using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, _build_and_inject_function, @__MODULE__, MultithreadedForm, tosymbol, Sym, wrap, unwrap, MakeTuple, substitute, value
+using SymbolicUtils: @rule, @acrule, @slots, RuleSet, numerators, denominators, flatten_pows, PolyForm, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
+using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
+using SymbolicUtils.Code: toexpr, cse, MakeArray #, cse!, _cse
 # using Rotations
-
+# using ReversePropagation: gradient_expr
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
 export rotate, unique_axes, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
 export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, n_model, ng_model, gvd_model
@@ -10,20 +12,11 @@ export NumMat #, nĝvd_model, nn̂g_model
 
 # RuntimeGeneratedFunctions.init(@__MODULE__)
 
-import Symbolics: substitute, simplify
-Symbolics.substitute(A::AbstractArray{Num},d::Dict) = Symbolics.substitute.(A,(d,))
-Symbolics.simplify(A::AbstractArray{Num}) = Symbolics.simplify.(A)
-
 # add Symbolics.get_variables for arrays of `Num`s
-import Symbolics.get_variables
-function Symbolics.get_variables(A::AbstractArray{Num})
-	unique(vcat(get_variables.(A)...))
-end
-
-# # add minimal Unitful+Symbolics interoperability
-# import Base:*
-# *(x::Unitful.AbstractQuantity,y::Num) =  Quantity(x.val*y, unit(x))
-# *(y::Num,x::Unitful.AbstractQuantity) = x*y
+# import Symbolics.get_variables
+# function Symbolics.get_variables(A::AbstractArray{Num})
+# 	unique(vcat(get_variables.(A)...))
+# end
 
 # adjoint/rrule for SymbolicUtils.Code.create_array
 # https://github.com/JuliaSymbolics/SymbolicUtils.jl/pull/278/files
@@ -37,38 +30,17 @@ end
 # end
 
 
-function generate_array_fn(arg::Num,A::AbstractMatrix; expr_module=@__MODULE__(), parallel=SerialForm())
-	return fn = generate_array_fn([arg,], A; expr_module, parallel)
+get_array_vars(A) = mapreduce(x->wrap.(get_variables(x)),union,A)
+
+function _ε_fn(mats)
+	@variables ω, T, r₁, λ
+	Dom = Differential(ω)
+	ε_mats = mapreduce(mm->vec(get_model(mm,:ε,:ω,vars...)),hcat,mats)
+	∂ωε_mats = expand_derivatives.(Dom.(ε_mats));
+	∂²ωε_mats = expand_derivatives.(Dom.(∂ωε_mats));
+	εₑ_∂ωεₑ_∂²ωεₑ = hcat(ε_mats,∂ωε_mats,∂²ωε_mats)
+	fεₑ_∂ωεₑ_∂²ωεₑ, fεₑ_∂ωεₑ_∂²ωεₑ! = build_function(εₑ_∂ωεₑ_∂²ωεₑ, ω ;expr=false)
 end
-
-
-function generate_array_fn(arg::Num,A::SArray; expr_module=@__MODULE__(), parallel=SerialForm())
-	return fn = generate_array_fn([arg,], A; expr_module, parallel)
-end
-
-function generate_array_fn(arg::Num,A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
-	return fn = generate_array_fn([arg,], A; expr_module, parallel)
-end
-
-# function generate_array_fn(args::Vector{Num},A::AbstractMatrix; expr_module=@__MODULE__(), parallel=SerialForm())
-# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,Matrix))))
-# end
-
-# function generate_array_fn(args::Vector{Num},A::SArray; expr_module=@__MODULE__(), parallel=SerialForm())
-# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,SArray))))
-# end
-
-# function generate_array_fn(args::Vector{Num},A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
-# 	return fn = _build_and_inject_function(expr_module,toexpr(Func(args,[],make_array(parallel,args,A,TA))))
-# end
-
-function generate_array_fn(args::Symbolics.Arr,A::TA; expr_module=@__MODULE__(), parallel=SerialForm()) where TA<:AbstractArray
-	fn, fn! = build_function(A,args;expression=Val{false})	
-	return fn
-end
-
-
-@non_differentiable generate_array_fn(arg,A)
 
 """
 ################################################################################
@@ -272,8 +244,16 @@ function n²_sym_fmt1( λ ; A₀=1, B₁=0, C₁=0, B₂=0, C₂=0, B₃=0, C₃
     A₀  + ( B₁ * λ² ) / ( λ² - C₁ ) + ( B₂ * λ² ) / ( λ² - C₂ ) + ( B₃ * λ² ) / ( λ² - C₃ )
 end
 
+function n²_sym_fmt1_ω( ω ; A₀=1, B₁=0, C₁=0, B₂=0, C₂=0, B₃=0, C₃=0, kwargs...)
+    A₀  + B₁ / ( 1 - C₁*ω^2 ) + B₂ / ( 1 - C₂*ω^2 ) + B₃ / ( 1 - C₃*ω^2 )
+end
+
 function n_sym_cauchy( λ ; A=1, B=0, C=0, B₂=0, kwargs...)
     A   +   B / λ^2    +   C / λ^4
+end
+
+function n_sym_cauchy_ω( ω ; A=1, B=0, C=0, B₂=0, kwargs...)
+    A   +   B * ω^2    +   C * ω^4
 end
 
 # Miller's Delta scaling
