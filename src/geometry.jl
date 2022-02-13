@@ -15,7 +15,9 @@ matinds(geom::Vector{<:Shape}) = vcat((matinds0 = map(s->findfirst(m->isequal(ge
 matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(get_model(Material(s.data),:ε,:λ),get_model(m,:ε,:λ)),mats),shapes),length(mats)+1)
 
 
-materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Material.(getfield.(shapes,:data)))) # # unique!(getfield.(shapes,:data))
+# materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Material.(getfield.(shapes,:data)))) # # unique!(getfield.(shapes,:data))
+materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = unique(Material.(getfield.(shapes,:data))) # # unique!(getfield.(shapes,:data))
+
 # εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(ε_fn.(materials(shapes)) )
 # fεs(mats::AbstractVector{<:AbstractMaterial}) = [(ff=(ε_fn(mat)); lm->ff(lm)) for mat in mats]
@@ -115,26 +117,32 @@ end
 
 
 
-function εₘₐₓ(ω::T,shapes::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
-    maximum(vcat(diag.(εs(shapes,inv(ω)))...))
+@inline function εₘₐₓ(ω::T,shapes::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
+    maximum(real(vcat(diag.(εs(shapes,inv(ω)))...)))
 end
-function εₘₐₓ(ω::T,geom::Geometry) where T<:Real
-    maximum(vcat(diag.(εs(geom.shapes,inv(ω)))...))
+@inline function εₘₐₓ(ω::T,geom::Geometry) where T<:Real
+    maximum(real(vcat(diag.(εs(geom.shapes,inv(ω)))...)))
 end
 
-function nₘₐₓ(ω::T,shapes::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
-    sqrt( εₘₐₓ(ω,shapes) )
+@inline function nₘₐₓ(ω::T,shapes::AbstractVector{<:GeometryPrimitives.Shape}) where T<:Real
+    real(sqrt( εₘₐₓ(ω,shapes) ))
 end
-function nₘₐₓ(ω::T,geom::Geometry) where T<:Real
-    sqrt( εₘₐₓ(ω,geom.shapes) )
+@inline function nₘₐₓ(ω::T,geom::Geometry) where T<:Real
+    real(sqrt( εₘₐₓ(ω,geom.shapes) ))
 end
 
 k_guess(ω,geom) = nₘₐₓ(ω,geom) * ω
 
-k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3])) ); kg  )
-k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
-k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
-k_guess(ω,geom::Geometry) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(geom.shapes) ); kg  )
+# k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3])) ); kg  )
+# k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = ( kg = Zygote.@ignore ( first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3])) ); kg  )
+# k_guess(ω,shapes::Vector{<:Shape}) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(shapes) ); kg  )
+# k_guess(ω,geom::Geometry) = ( kg = Zygote.@ignore ( first(ω) * √εₘₐₓ(geom.shapes) ); kg  )
+
+k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3]))
+k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3]))
+# k_guess(ω,shapes::Vector{<:Shape}) = first(ω) * nₘₐₓ(shapes) #√εₘₐₓ(shapes)
+# k_guess(ω,geom::Geometry) = first(ω) * nₘₐₓ(geom.shapes) #√εₘₐₓ(geom.shapes)
+
 
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[1]
 # fεs!(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = build_function(εs(shapes),λ;expression=Val{false})[2]
@@ -452,90 +460,90 @@ function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::
 	return Geometry([b_core,b_subs])
 end
 
-"""
-################################################################################
-#																			   #
-#							   Plotting methods					   			   #
-#																			   #
-################################################################################
-"""
+# """
+# ################################################################################
+# #																			   #
+# #							   Plotting methods					   			   #
+# #																			   #
+# ################################################################################
+# """
 
-################################################################################
-#                Plotting conversions for geometry components                  #
-################################################################################
-import Base: convert
-using Makie: lines, lines!, scatterlines, scatterlines!, GeometryBasics, Point, PointBased
-import Makie: convert_arguments
-# polygon
-convert(::Type{GeometryBasics.Polygon},x::GeometryPrimitives.Polygon) = GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),]))
-Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
-Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
-# box
-convert(::Type{GeometryBasics.Rect2D},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
-convert(::Type{<:GeometryBasics.HyperRectangle},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
-convert(::Type{<:GeometryBasics.Polygon},x::GeometryPrimitives.Box) = (pts=decompose(Point,convert(GeometryBasics.Rect2D,x));GeometryBasics.Polygon(vcat(pts,[pts[1],])))
-Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
-Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
+# ################################################################################
+# #                Plotting conversions for geometry components                  #
+# ################################################################################
+# import Base: convert
+# using Makie: lines, lines!, scatterlines, scatterlines!, GeometryBasics, Point, PointBased
+# import Makie: convert_arguments
+# # polygon
+# convert(::Type{GeometryBasics.Polygon},x::GeometryPrimitives.Polygon) = GeometryBasics.Polygon(vcat([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]], [Point2f0(x.v[1,:]),]))
+# Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Polygon) = (convert(GeometryBasics.Polygon,x),)
+# Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Polygon) = (decompose(Point, convert(GeometryBasics.Polygon,x)),)
+# # box
+# convert(::Type{GeometryBasics.Rect2D},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
+# convert(::Type{<:GeometryBasics.HyperRectangle},x::GeometryPrimitives.Box) = GeometryBasics.Rect((x.c-x.r)..., 2*x.r...)
+# convert(::Type{<:GeometryBasics.Polygon},x::GeometryPrimitives.Box) = (pts=decompose(Point,convert(GeometryBasics.Rect2D,x));GeometryBasics.Polygon(vcat(pts,[pts[1],])))
+# Makie.convert_arguments(P::Type{<:Poly}, x::GeometryPrimitives.Box) = (convert(GeometryBasics.Rect2D,x),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# Makie.convert_arguments(P::PointBased, x::GeometryPrimitives.Box) = (decompose(Point,convert(GeometryBasics.Rect2D,x)),)
 
-# function plot_data(geom::Geometry)
+# # function plot_data(geom::Geometry)
+# # 	n_shapes 	= 	size(geom.shapes,1)
+# # 	n_mats		=	size(geom.materials,1)
+# # 	mat_colors 	=	getfield.(geom.materials,(:color,))
+# # 	shape_colors 	= [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
+# # 	return Dict()
+# # end
+
+
+# function plot_shapes(geom::Geometry,ax;bg_color=:black,strokecolor=:white,strokewidth=2,frame_only=false,mat_legend=true)
+#     ax.backgroundcolor=bg_color
 # 	n_shapes 	= 	size(geom.shapes,1)
 # 	n_mats		=	size(geom.materials,1)
 # 	mat_colors 	=	getfield.(geom.materials,(:color,))
-# 	shape_colors 	= [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
-# 	return Dict()
+# 	if frame_only
+# 		shape_colors = [:transparent for i=1:n_shapes]
+# 		mat_leg = false
+# 	else
+# 		shape_colors = [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
+# 	end
+# 	plys = [ poly!(
+# 				geom.shapes[i],
+# 				color=shape_colors[i],
+# 				axis=ax;
+# 				strokecolor,
+# 				strokewidth,
+# 			) for i=1:n_shapes ]
+# 	if mat_legend
+# 		mat_leg = axislegend(
+# 			ax,
+# 			[PolyElement(color = c, strokecolor = :black) for c in mat_colors],
+# 			String.(nameof.(geom.materials)),
+# 			valign=:top,
+# 			halign=:right,
+# 		)
+# 	end
 # end
 
+# # function plot_model(geom::Geometry)
+# # 	[lines!(ax_disp[1], 1.2..1.7, fn; label=lbl) for (fn,lbl) in zip(plot_data(geom.materials)...)]
+# # end
 
-function plot_shapes(geom::Geometry,ax;bg_color=:black,strokecolor=:white,strokewidth=2,frame_only=false,mat_legend=true)
-    ax.backgroundcolor=bg_color
-	n_shapes 	= 	size(geom.shapes,1)
-	n_mats		=	size(geom.materials,1)
-	mat_colors 	=	getfield.(geom.materials,(:color,))
-	if frame_only
-		shape_colors = [:transparent for i=1:n_shapes]
-		mat_leg = false
-	else
-		shape_colors = [mat_colors[geom.material_inds[i]] for i=1:n_shapes]
-	end
-	plys = [ poly!(
-				geom.shapes[i],
-				color=shape_colors[i],
-				axis=ax;
-				strokecolor,
-				strokewidth,
-			) for i=1:n_shapes ]
-	if mat_legend
-		mat_leg = axislegend(
-			ax,
-			[PolyElement(color = c, strokecolor = :black) for c in mat_colors],
-			String.(nameof.(geom.materials)),
-			valign=:top,
-			halign=:right,
-		)
-	end
-end
+# # Makie.convert_arguments(x::Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
+# # plottype(::Polygon) = Poly
+# # Makie.convert_arguments(x::Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
+# # plottype(::Box) = Poly
 
-# function plot_model(geom::Geometry)
-# 	[lines!(ax_disp[1], 1.2..1.7, fn; label=lbl) for (fn,lbl) in zip(plot_data(geom.materials)...)]
-# end
-
-# Makie.convert_arguments(x::Polygon) = (GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),) #(GeometryBasics.Polygon([Point2f0(x.v[i,:]) for i=1:size(x.v)[1]]),)
-# plottype(::Polygon) = Poly
-# Makie.convert_arguments(x::Box) = (GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...),) #(GeometryBasics.Polygon(Point2f0.(coordinates(GeometryBasics.Rect2D((x.c-x.r)..., 2*x.r...)))),)
-# plottype(::Box) = Poly
-
-# function shape(b::Box)
-#     xc,yc = b.c
-#     r1,r2 = b.r
-#     A = inv(b.p) .* b.r'
-#     e1 = A[:,1] / √sum([a^2 for a in A[:,1]])
-#     e2 = A[:,2] / √sum([a^2 for a in A[:,2]])
-#     pts = [  r1*e1 + r2*e2,
-#              r1*e1 - r2*e2,
-#             -r1*e1 - r2*e2,
-#             -r1*e1 + r2*e2,
-#         ]
-#     b_shape = Plots.Shape([Tuple(pt) for pt in pts])
-# end
-# shape(p::GeometryPrimitives.Polygon) = Plots.Shape([Tuple(p.v[i,:]) for i in range(1,length(p.v[:,1]),step=1)])
-# shape(s::GeometryPrimitives.Sphere) = Plots.partialcircle(0, 2π, 100, s.r)
+# # function shape(b::Box)
+# #     xc,yc = b.c
+# #     r1,r2 = b.r
+# #     A = inv(b.p) .* b.r'
+# #     e1 = A[:,1] / √sum([a^2 for a in A[:,1]])
+# #     e2 = A[:,2] / √sum([a^2 for a in A[:,2]])
+# #     pts = [  r1*e1 + r2*e2,
+# #              r1*e1 - r2*e2,
+# #             -r1*e1 - r2*e2,
+# #             -r1*e1 + r2*e2,
+# #         ]
+# #     b_shape = Plots.Shape([Tuple(pt) for pt in pts])
+# # end
+# # shape(p::GeometryPrimitives.Polygon) = Plots.Shape([Tuple(p.v[i,:]) for i in range(1,length(p.v[:,1]),step=1)])
+# # shape(s::GeometryPrimitives.Sphere) = Plots.partialcircle(0, 2π, 100, s.r)

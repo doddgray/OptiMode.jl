@@ -27,12 +27,19 @@ function n²_LiB₃O₅_sym(λ, T; A, B, C, D, E, G, H, λᵢ, T₀)
 	n² = A + B * λ² / ( λ² - C ) + D * λ² / ( λ² - E ) + dn²dT * ( T - T₀ )
 end
 
+function n²_LiB₃O₅_sym_ω(ω, T; A, B, C, D, E, G, H, λᵢ, T₀)
+	R = 1 / ( 1 - λᵢ^2*ω^2 ) #'normalized dispersive wavelength' for thermo-optic model
+    dn²dT = G * R + H * R^2
+	n² = A + B / ( 1 - C*ω^2 ) + D / ( 1 - E*ω^2 ) + dn²dT * ( T - T₀ )
+	return n²
+end
+
 p_n₁²_LiB₃O₅ = (
     A	=	1.4426279,
 	B	=	1.0109932,
 	C 	=	0.011210197,
 	D 	=	1.2363218,
-	E 	=	91,
+	E 	=	91.0,
 	G 	=	-127.70167e-6,
 	H 	=	122.13435e-6,
 	λᵢ	=	53.0e-3,
@@ -40,11 +47,11 @@ p_n₁²_LiB₃O₅ = (
 )
 
 p_n₂²_LiB₃O₅ = (
-    A	=	1.5014015,
+    A	=	1.5014015, 
 	B	=	1.0388217,
 	C 	=	0.0121571,
 	D 	=	1.7567133,
-	E 	=	91,
+	E 	=	91.0,
 	G 	=	373.3387e-6,
 	H 	=	-415.10435e-6,
 	λᵢ	=	32.7e-3,
@@ -56,7 +63,7 @@ p_n₃²_LiB₃O₅ = (
 	B	=	1.1365228,
 	C 	=	0.011676746,
 	D 	=	1.5830069,
-	E 	=	91,
+	E 	=	91.0,
 	G 	=	-446.95031e-6,
 	H 	=	419.33410e-6,
 	λᵢ	=	43.5e-3,
@@ -76,11 +83,15 @@ pᵪ₂_LiB₃O₅ = (
 )
 
 function make_LiB₃O₅(;p_n₁²=p_n₁²_LiB₃O₅, p_n₂²=p_n₂²_LiB₃O₅, p_n₃²=p_n₃²_LiB₃O₅,pᵪ₂=pᵪ₂_LiB₃O₅)
-	@variables λ, T, λs[1:3]
-	n₁² = n²_LiB₃O₅_sym(λ, T; p_n₁²...)
-	n₂² = n²_LiB₃O₅_sym(λ, T; p_n₂²...)
-	n₃² = n²_LiB₃O₅_sym(λ, T; p_n₃²...)
+	@variables ω, λ, T, λs[1:3]
+	n₁² = n²_LiB₃O₅_sym_ω(ω, T; p_n₁²...)
+	n₂² = n²_LiB₃O₅_sym_ω(ω, T; p_n₂²...)
+	n₃² = n²_LiB₃O₅_sym_ω(ω, T; p_n₃²...)
 	ε 	= diagm([n₁², n₂², n₃²])
+	n₁²_λ = n²_LiB₃O₅_sym(λ, T; p_n₁²...)
+	n₂²_λ = n²_LiB₃O₅_sym(λ, T; p_n₂²...)
+	n₃²_λ = n²_LiB₃O₅_sym(λ, T; p_n₃²...)
+	ε_λ	= diagm([n₁²_λ, n₂²_λ, n₃²_λ])
 	d₃₁, d₃₂, d₃₃, λᵣs = pᵪ₂
 	χ⁽²⁾ᵣ = 2*cat(
 		[ 	0.0	 	0.0 	d₃₁			#	xxx, xxy and xxz
@@ -94,13 +105,13 @@ function make_LiB₃O₅(;p_n₁²=p_n₁²_LiB₃O₅, p_n₂²=p_n₂²_LiB₃
 			0.0	 	0.0 	d₃₃		],	#	zzx, zzy and zzz
 		 dims = 3
 	)
-	n₁ = sqrt(n₁²)
+	n₁ = sqrt(n₁²_λ)
 	ng₁ = ng_model(n₁,λ)
 	gvd₁ = gvd_model(n₁,λ)
-	n₂ = sqrt(n₂²)
+	n₂ = sqrt(n₂²_λ)
 	ng₂ = ng_model(n₂,λ)
 	gvd₂ = gvd_model(n₂,λ)
-	n₃ = sqrt(n₃²)
+	n₃ = sqrt(n₃²_λ)
 	ng₃ = ng_model(n₃,λ)
 	gvd₃ = gvd_model(n₃,λ)
 	models = Dict([
@@ -116,7 +127,7 @@ function make_LiB₃O₅(;p_n₁²=p_n₁²_LiB₃O₅, p_n₂²=p_n₂²_LiB₃
 		:ng		=>	diagm([	ng₁,  ng₂,  ng₃,	]),
 		:gvd	=>	diagm([	gvd₁, gvd₂, gvd₃,	]),
 		:ε 		=> 	ε,
-		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε, λᵣs, χ⁽²⁾ᵣ)),
+		:χ⁽²⁾	=>	SArray{Tuple{3,3,3}}(Δₘ(λs,ε_λ, λᵣs, χ⁽²⁾ᵣ)),
 	])
 	defaults =	Dict([
 		:λ		=>		0.8,		# μm

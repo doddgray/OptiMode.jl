@@ -102,6 +102,7 @@ function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
 end
 
 
+
 # function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
 # 	pids = addprocs([(remote_host,1)];kwargs...)
 # 	@everywhere @eval procs(pids[1]) begin
