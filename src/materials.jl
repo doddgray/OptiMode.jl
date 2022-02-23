@@ -490,6 +490,7 @@ end
 ################################################################################
 #                                Load Materials                                #
 ################################################################################
+include("material_lib/vacuum.jl")
 include("material_lib/MgO_LiNbO3.jl")
 include("material_lib/SiO2.jl")
 include("material_lib/Si3N4.jl")

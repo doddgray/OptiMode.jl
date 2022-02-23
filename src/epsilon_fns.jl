@@ -1,4 +1,4 @@
-export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot
+export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats
 
 rules_2D = Prewalk(PassThrough(@acrule sin(~x)^2 + cos(~x)^2 => 1 ))
 
