@@ -181,6 +181,10 @@ end
 
 # @non_differentiable proc_sinds(geom,grid)
 
+function vec3D(v::AbstractVector{T}) where T
+	vout = (length(v)==3 ? v : SVector{3,T}(v[1],v[2],0.))
+	return vout
+end
 vec3D(v::SVector{3}) = v
 vec3D(v::SVector{2}) = @inbounds SVector(v[1],v[2],zero(v[1]))
 vec3D(v::SVector{1}) = @inbounds SVector(v[1],zero(v[1]),zero(v[1]))
