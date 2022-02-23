@@ -40,7 +40,13 @@ using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, 
 using Rotations
 using Symbolics
 using SymbolicUtils
+using Symbolics
+using Symbolics: Sym, Num, scalarize
+using SymbolicUtils: @rule, @acrule, @slots, RuleSet, numerators, denominators, flatten_pows
+using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
+using IterTools: subsets
 using RuntimeGeneratedFunctions
+RuntimeGeneratedFunctions.init(@__MODULE__)
 
 ### Geometry ###
 using GeometryPrimitives
@@ -78,7 +84,7 @@ using ProgressMeter
 # using IterTools
 
 
-# RuntimeGeneratedFunctions.init(@__MODULE__)
+RuntimeGeneratedFunctions.init(@__MODULE__)
 
 
 ## Exports ##
@@ -143,12 +149,16 @@ include("linalg.jl")
 include("materials.jl")
 include("grid.jl")
 include("geometry.jl")
+include("cse.jl")
+include("epsilon_fns.jl")
+include("smooth.jl")
+
 include("maxwell.jl")
 include("mpb.jl")
 include("analyze.jl")
 # include("constraints.jl")
 # include("fields.jl")
-# include("smooth.jl")
+
 # include("solve.jl")
 # include("grads.jl")
 # include("explicit.jl")

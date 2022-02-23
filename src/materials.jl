@@ -1,7 +1,7 @@
 using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, _build_and_inject_function, @__MODULE__, MultithreadedForm, tosymbol, Sym, wrap, unwrap, MakeTuple, substitute, value
 using SymbolicUtils: @rule, @acrule, @slots, RuleSet, numerators, denominators, flatten_pows, PolyForm, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
-using SymbolicUtils.Code: toexpr, cse, MakeArray #, cse!, _cse
+using SymbolicUtils.Code: toexpr, MakeArray #, cse, cse!, _cse
 # using Rotations
 # using ReversePropagation: gradient_expr
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
