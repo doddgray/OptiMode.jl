@@ -152,6 +152,7 @@ include("geometry.jl")
 include("cse.jl")
 include("epsilon_fns.jl")
 include("smooth.jl")
+include("grads.jl")
 
 include("maxwell.jl")
 include("mpb.jl")

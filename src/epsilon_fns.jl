@@ -1,4 +1,4 @@
-export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats
+export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ, εₑ_∂ωεₑ_∂²ωεₑ_herm, εₑ_∂ωεₑ_herm
 
 rules_2D = Prewalk(PassThrough(@acrule sin(~x)^2 + cos(~x)^2 => 1 ))
 
@@ -94,6 +94,7 @@ function _fjh_ε_mats(mats,p_syms=(:ω,);expression=Val{false})
 end
 
 ε_views(εv,n_mats;nε=3) = ([ reshape(view(view(εv,(1+(i-1)*9*n_mats):(i*9*n_mats)), (1+9*(mat_idx-1)):(9+9*(mat_idx-1))), (3,3)) for mat_idx=1:n_mats] for i=1:nε) 
+
 #### end ε_mats Generation and Utility Functions ####
 
 """
@@ -195,13 +196,13 @@ f_εₑᵣ_sym, prot = _f_εₑᵣ_sym();
 fj_εₑᵣ_sym, fjh_εₑᵣ_sym = _fj_fjh_sym(f_εₑᵣ_sym, prot);
 f_εₑᵣ   = eval_fn_oop(f_εₑᵣ_sym,prot);
 fj_εₑᵣ  = eval_fn_oop(fj_εₑᵣ_sym,prot);
-# fjh_εₑᵣ  = eval_fn_oop(fjh_εₑᵣ_sym,prot);
+fjh_εₑᵣ  = eval_fn_oop(fjh_εₑᵣ_sym,prot);
 f_εₑᵣ!   = eval_fn_ip(f_εₑᵣ_sym,prot);
 fj_εₑᵣ!  = eval_fn_ip(fj_εₑᵣ_sym,prot);
 fjh_εₑᵣ! = eval_fn_ip(fjh_εₑᵣ_sym,prot);
 fout_rot = f_εₑᵣ(rand(19));
 fjout_rot = fj_εₑᵣ(rand(19));
-# fjhout_rot = fjh_εₑᵣ(rand(19));
+fjhout_rot = fjh_εₑᵣ(rand(19));
 f_εₑᵣ!(similar(fout_rot),rand(19));
 fj_εₑᵣ!(similar(fjout_rot),rand(19));
 fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));

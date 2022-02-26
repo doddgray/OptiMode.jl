@@ -1,4 +1,4 @@
-export corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, smooth, smooth!, _f_smooth, _f_smooth!
+export corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, smooth, smooth!, _f_smooth, _f_smooth!, vec3D
 export vxl_minmax, hybridize, εₘₐₓ, ñₘₐₓ, nₘₐₓ, kguess # utility functions for automatic good guesses, move to geometry or solve?
 
 # export εₛ, εₛ⁻¹,  corner_sinds, corner_sinds!, proc_sinds, proc_sinds!, avg_param, S_rvol, _εₛ⁻¹_init, _εₛ_init, nngₛ, nngₛ⁻¹
