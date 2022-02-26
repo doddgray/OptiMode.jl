@@ -202,7 +202,7 @@ fj_εₑᵣ!  = eval_fn_ip(fj_εₑᵣ_sym,prot);
 fjh_εₑᵣ! = eval_fn_ip(fjh_εₑᵣ_sym,prot);
 fout_rot = f_εₑᵣ(rand(19));
 fjout_rot = fj_εₑᵣ(rand(19));
-fjhout_rot = fjh_εₑᵣ(rand(19));
+fjhout_rot = fjh_εₑᵣ(MVector{19}(rand(19)));
 f_εₑᵣ!(similar(fout_rot),rand(19));
 fj_εₑᵣ!(similar(fjout_rot),rand(19));
 fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));
@@ -221,8 +221,9 @@ function εₑᵣ_∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
 end
 
 function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂)
-    fjh_εₑᵣ_12 = similar(ε₁,9,381) # fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
-    fjh_εₑᵣ!(fjh_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
+    fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(r₁,ε₁...,ε₂...));
+    # fjh_εₑᵣ_12 = similar(ε₁,9,381) # fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
+    # fjh_εₑᵣ!(fjh_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
     f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:20], reshape(fjh_εₑᵣ_12[:,21:381],(9,19,19));
     εₑᵣ_12 = @views reshape(f_εₑᵣ_12,(3,3))
     v_∂ω, v_∂²ω = vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), vcat(0.0,vec(∂²ω_ε₁),vec(∂²ω_ε₂));
@@ -262,7 +263,7 @@ fj_εₑᵣ_herm!  = eval_fn_ip(fj_εₑᵣ_herm_sym,protH);
 fjh_εₑᵣ_herm! = eval_fn_ip(fjh_εₑᵣ_herm_sym,protH);
 fout_rot = f_εₑᵣ_herm(rand(13));
 fjout_rot = fj_εₑᵣ_herm(rand(13));
-fjhout_rot = fjh_εₑᵣ_herm(rand(13));
+fjhout_rot = fjh_εₑᵣ_herm(MVector{13}(rand(13)));
 f_εₑᵣ_herm!(similar(fout_rot),rand(13));
 fj_εₑᵣ_herm!(similar(fjout_rot),rand(13));
 fjh_εₑᵣ_herm!(similar(fjhout_rot),rand(13));
