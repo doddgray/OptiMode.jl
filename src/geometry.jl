@@ -16,8 +16,8 @@ matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(get_model(Material(s.dat
 
 
 # materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(unique(Material.(getfield.(shapes,:data)))) # # unique!(getfield.(shapes,:data))
-materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = unique(Material.(getfield.(shapes,:data))) # # unique!(getfield.(shapes,:data))
-
+# materials(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = unique(Material.(getfield.(shapes,:data))) # # unique!(getfield.(shapes,:data))
+materials(shapes) = unique(Material.(getfield.(shapes,:data)))
 # εs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = getfield.(materials(shapes),:ε)
 # fεs(shapes::AbstractVector{<:GeometryPrimitives.Shape}) = Zygote.@ignore(ε_fn.(materials(shapes)) )
 # fεs(mats::AbstractVector{<:AbstractMaterial}) = [(ff=(ε_fn(mat)); lm->ff(lm)) for mat in mats]

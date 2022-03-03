@@ -20,6 +20,19 @@ function corner_sinds(shapes::Vector{S},xyzc::AbstractArray{T}) where {S<:Geomet
 	end
 end
 
+function corner_sinds(shapes::Tuple,xyzc::AbstractArray{T}) where {T<:SVector{N}} where N #where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
+	ps = pairs(shapes)
+	lsp1 = length(shapes) + 1
+	map(xyzc) do p
+		let ps=ps, lsp1=lsp1
+			for (i, a) in ps #pairs(s)
+				in(p::T,a)::Bool && return i
+			end
+			return lsp1
+		end
+	end
+end
+
 function corner_sinds!(corner_sinds,shapes::Vector{S},xyzc::AbstractArray{T}) where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
 	ps = pairs(shapes)
 	lsp1 = length(shapes) + 1
