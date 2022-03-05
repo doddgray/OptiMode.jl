@@ -305,15 +305,17 @@ function ñₘₐₓ(ε⁻¹::AbstractArray{T,4})::T where T<:Real
 end
 
 function vxl_minmax(xyzc::AbstractArray{TV,2}) where {TV<:AbstractVector}
-	vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1)]
-	vxl_max = @view xyzc[min(2,end):end,min(2,end):end]
-	return vxl_min,vxl_max
+	# vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1)]
+	# vxl_max = @view xyzc[min(2,end):end,min(2,end):end]
+	# return vxl_min,vxl_max
+	return ( xyzc[1:max((end-1),1),1:max((end-1),1)], xyzc[min(2,end):end,min(2,end):end] )
 end
 
 function vxl_minmax(xyzc::AbstractArray{TV,3}) where {TV<:AbstractVector}
-	vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
-	vxl_max = @view xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
-	return vxl_min,vxl_max
+	# vxl_min = @view xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)]
+	# vxl_max = @view xyzc[min(2,end):end,min(2,end):end,min(2,end):end]
+	# return vxl_min,vxl_max
+	return ( xyzc[1:max((end-1),1),1:max((end-1),1),1:max((end-1),1)], xyzc[min(2,end):end,min(2,end):end,min(2,end):end] )
 end
 
 """
