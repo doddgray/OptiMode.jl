@@ -67,30 +67,32 @@ function z(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
 	LinRange(-g.Δz/2, g.Δz/2 - g.Δz/g.Nz, g.Nz)
 end
 function x⃗(g::Grid{2,T})::Array{SVector{3,T},2} where T<:Real
-	( (xx,yy) = (x(g),y(g)); [SVector{3,T}(xx[ix],yy[iy],0.) for ix=1:g.Nx,iy=1:g.Ny] ) # (Nx × Ny ) 2D-Array of (x,y,z) vectors at pixel/voxel centers
+	[ SVector{3,T}(xx,yy,zero(T)) for xx in x(g), yy in y(g) ] # (Nx × Ny ) 2D-Array of (x,y,z) vectors at pixel/voxel centers
 end
 function x⃗(g::Grid{3,T})::Array{SVector{3,T},3} where T<:Real
-	( (xx,yy,zz) = (x(g),y(g),z(g)); [SVector{3,T}(xx[ix],yy[iy],zz[iz]) for ix=1:g.Nx,iy=1:g.Ny,iz=1:g.Nz] ) # (Nx × Ny × Nz) 3D-Array of (x,y,z) vectors at pixel/voxel centers
+	[ SVector{3,T}(xx,yy,zz) for xx in x(g), yy in y(g), zz in z(g) ] # (Nx × Ny × Nz) 3D-Array of (x,y,z) vectors at pixel/voxel centers
 end
 
 # voxel/pixel corner positions
 function xc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-	collect( ( ( g.Δx / g.Nx ) .* (0:g.Nx) ) .- ( g.Δx/2. * ( 1 + 1. / g.Nx ) ) )
+	( ( g.Δx / g.Nx ) .* (0:g.Nx) ) .- ( g.Δx/2. * ( 1 + 1. / g.Nx ) )
 	# collect(range(-g.Δx/2.0, g.Δx/2.0, length=g.Nx+1))
 end
 function yc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-	collect( ( ( g.Δy / g.Ny ) .* (0:g.Ny) ) .- ( g.Δy/2. * ( 1 + 1. / g.Ny ) ) )
+	( ( g.Δy / g.Ny ) .* (0:g.Ny) ) .- ( g.Δy/2. * ( 1 + 1. / g.Ny ) )
 	# collect(range(-g.Δy/2.0, g.Δy/2.0, length=g.Ny+1))
 end
 function zc(g::Grid{3,T})::Vector{T} where T<:Real
-	collect( ( ( g.Δz / g.Nz ) .* (0:g.Nz) ) .- ( g.Δz/2. * ( 1 + 1. / g.Nz ) ) )
+	( ( g.Δz / g.Nz ) .* (0:g.Nz) ) .- ( g.Δz/2. * ( 1 + 1. / g.Nz ) )
 	# collect(range(-g.Δz/2.0, g.Δz/2.0, length=g.Nz+1))
 end
 function x⃗c(g::Grid{2,T})::Array{SVector{3,T},2}  where T<:Real
-	( (xx,yy) = (xc(g),yc(g)); [SVector{3}(xx[ix],yy[iy],0.) for ix=1:(g.Nx+1),iy=1:(g.Ny+1)] )
+	# ( (xx,yy) = (xc(g),yc(g)); [SVector{3}(xx[ix],yy[iy],0.) for ix=1:(g.Nx+1),iy=1:(g.Ny+1)] )
+	[ SVector{3,T}(xx,yy,zero(T)) for xx in xc(g), yy in yc(g) ]
 end
 function x⃗c(g::Grid{3,T})::Array{SVector{3,T},3}  where T<:Real
-	( (xx,yy,zz) = (xc(g),yc(g),zc(g)); [SVector{3}(xx[ix],yy[iy],zz[iz]) for ix=1:(g.Nx+1),iy=1:(g.Ny+1),iz=1:(g.Nz+1)] )
+	# ( (xx,yy,zz) = (xc(g),yc(g),zc(g)); [SVector{3}(xx[ix],yy[iy],zz[iz]) for ix=1:(g.Nx+1),iy=1:(g.Ny+1),iz=1:(g.Nz+1)] )
+	[ SVector{3,T}(xx,yy,zz) for xx in xc(g), yy in yc(g), zz in zc(g) ]
 end
 
 # grid size
