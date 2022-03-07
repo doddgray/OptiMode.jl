@@ -1,4 +1,7 @@
-export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ, εₑ_∂ωεₑ_∂²ωεₑ_herm, εₑ_∂ωεₑ_herm
+export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, 
+    ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ, εₑ_∂ωεₑ_∂²ωεₑ_herm, εₑ_∂ωεₑ_herm,
+    f_εₑᵣ, fj_εₑᵣ, fjh_εₑᵣ, f_εₑᵣ!, fj_εₑᵣ!, fjh_εₑᵣ!,
+    f_εₑᵣ_herm, fj_εₑᵣ_herm, fjh_εₑᵣ_herm, f_εₑᵣ_herm!, fj_εₑᵣ_herm!, fjh_εₑᵣ_herm!, _f_ε_mats_sym
 
 rules_2D = Prewalk(PassThrough(@acrule sin(~x)^2 + cos(~x)^2 => 1 ))
 
@@ -16,14 +19,23 @@ end
 ###### ε_mats Generation and Utility Functions ######
 
 function _f_ε_mats_sym(mats,p_syms=(:ω,))
-	ε_mats = mapreduce(mm->vec(get_model(mm,:ε,p_syms...)),hcat,mats);
+	# ε_mats = mapreduce(mm->vec(get_model(mm,:ε,p_syms...)),hcat,mats);
+    # @variables ω
+	# Dom = Differential(ω)
+    # p = [ω, (Num(Sym{Real}(p_sym)) for p_sym in p_syms[2:end])...]
+    # ∂ωε_mats = expand_derivatives.(Dom.(ε_mats));
+    # ∂²ωε_mats = expand_derivatives.(Dom.(∂ωε_mats));
+    # ε_∂ωε_∂²ωε_mats = 1.0*hcat(ε_mats,∂ωε_mats,∂²ωε_mats);
     @variables ω
-	Dom = Differential(ω)
+    Dom = Differential(ω)
     p = [ω, (Num(Sym{Real}(p_sym)) for p_sym in p_syms[2:end])...]
-    ∂ωε_mats = expand_derivatives.(Dom.(ε_mats));
-    ∂²ωε_mats = expand_derivatives.(Dom.(∂ωε_mats));
-    ε_∂ωε_∂²ωε_mats = 1.0*hcat(ε_mats,∂ωε_mats,∂²ωε_mats);
-    return vec(ε_∂ωε_∂²ωε_mats), p
+    ε_∂ωε_∂²ωε_mats = mapreduce(hcat,mats) do mm
+        eps_vec = vec(get_model(mm,:ε,p_syms...))
+        dom_eps_vec = expand_derivatives.(Dom.(eps_vec))
+        ddom_eps_vec = expand_derivatives.(Dom.(dom_eps_vec))
+        return vcat(eps_vec,dom_eps_vec,ddom_eps_vec)
+    end
+    return 1.0*ε_∂ωε_∂²ωε_mats, p
 end
 
 """
@@ -43,6 +55,8 @@ function _f_ε_mats(mats,p_syms=(:ω,);expression=Val{false})
     # f_ε_∂ωε_∂²ωε_ex, f_ε_∂ωε_∂²ωε!_ex = build_function(f_ε_mats_sym, p; expression)
     f_ε_∂ωε_∂²ωε = eval_fn_oop(f_ε_mats_sym, p)
     f_ε_∂ωε_∂²ωε! = eval_fn_ip(f_ε_mats_sym, p)
+    # f_ε_∂ωε_∂²ωε = eval_fn_oop(reshape(f_ε_mats_sym,(27,length(mats))), p)
+    # f_ε_∂ωε_∂²ωε! = eval_fn_ip(reshape(f_ε_mats_sym,(27,length(mats))), p)
     return f_ε_∂ωε_∂²ωε, f_ε_∂ωε_∂²ωε!
 end
 
@@ -207,18 +221,34 @@ f_εₑᵣ!(similar(fout_rot),rand(19));
 fj_εₑᵣ!(similar(fjout_rot),rand(19));
 fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));
 
-
 ∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
+
+@inline ∂ωεₑᵣ(r₁,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds ∂ωεₑᵣ(
+    r₁,
+    reshape(ε₁_∂ωε₁[1:9],(3,3)),
+    reshape(ε₂_∂ωε₂[1:9],(3,3)),
+    reshape(ε₁_∂ωε₁[10:18],(3,3)),
+    reshape(ε₂_∂ωε₂[10:18],(3,3)),
+)
 
 function εₑᵣ_∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
     fj_εₑᵣ_12 = similar(ε₁,9,20) # fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
     fj_εₑᵣ!(fj_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
     f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
-    εₑᵣ_12 = @views reshape(f_εₑᵣ_12,(3,3))
+    εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
     v_∂ω = vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂));
-    ∂ω_εₑᵣ_12 = @views reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
-    return εₑᵣ_12, ∂ω_εₑᵣ_12
+    ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
+    # return εₑᵣ_12, ∂ω_εₑᵣ_12
+    return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12))
 end
+
+εₑᵣ_∂ωεₑᵣ(r₁,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ(
+    r₁,
+    reshape(ε₁_∂ωε₁[1:9],(3,3)),
+    reshape(ε₂_∂ωε₂[1:9],(3,3)),
+    reshape(ε₁_∂ωε₁[10:18],(3,3)),
+    reshape(ε₂_∂ωε₂[10:18],(3,3)),
+)
 
 function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂)
     fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(vcat(r₁,vec(ε₁),vec(ε₂))));
@@ -226,22 +256,56 @@ function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂
     # fjh_εₑᵣ_12 = similar(ε₁,9,381) # fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
     # fjh_εₑᵣ!(fjh_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
     f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:20], reshape(fjh_εₑᵣ_12[:,21:381],(9,19,19));
-    εₑᵣ_12 = @views reshape(f_εₑᵣ_12,(3,3))
+    εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
     v_∂ω, v_∂²ω = vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), vcat(0.0,vec(∂²ω_ε₁),vec(∂²ω_ε₂));
-    ∂ω_εₑᵣ_12 = @views reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
+    ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
     ∂ω²_εₑᵣ_12 = @views reshape( [dot(v_∂ω,h_εₑᵣ_12[i,:,:],v_∂ω) for i=1:9] + j_εₑᵣ_12*v_∂²ω , (3,3) );
-    return εₑᵣ_12, ∂ω_εₑᵣ_12, ∂ω²_εₑᵣ_12
+    # return εₑᵣ_12, ∂ω_εₑᵣ_12, ∂ω²_εₑᵣ_12
+    return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12), vec(∂ω²_εₑᵣ_12))
 end
 
-@inline _rotate(S,ε) = transpose(S) * (ε * S)
-@inline εₑ_∂ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂)))
-@inline εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂)))
-@inline εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,idx1,idx2,ε,∂ω_ε,∂²ω_ε) = @inbounds εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε[idx1],ε[idx2],∂ω_ε[idx1],∂ω_ε[idx2],∂²ω_ε[idx1],∂²ω_ε[idx2])
+εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁_∂ωε₁_∂²ωε₁,ε₂_∂ωε₂_∂²ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
+    r₁,
+    reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3)),
+    reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3)),
+    reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3)),
+    reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3)),
+    reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3)),
+    reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3)),
+)
+
+_rotate(S,ε) = transpose(S) * (ε * S)
+εₑ_∂ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂)))
+εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂)))
+# εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,idx1,idx2,ε,∂ω_ε,∂²ω_ε) = @inbounds εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε[idx1],ε[idx2],∂ω_ε[idx1],∂ω_ε[idx2],∂²ω_ε[idx1],∂²ω_ε[idx2])
+
+εₑ_∂ωεₑ(r₁,S,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ(
+    r₁,
+    _rotate(S,reshape(ε₁_∂ωε₁[1:9],(3,3))),
+    _rotate(S,reshape(ε₂_∂ωε₂[1:9],(3,3))),
+    _rotate(S,reshape(ε₁_∂ωε₁[10:18],(3,3))),
+    _rotate(S,reshape(ε₂_∂ωε₂[10:18],(3,3))),
+)
+
+εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε₁_∂ωε₁_∂²ωε₁,ε₂_∂ωε₂_∂²ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
+    r₁,
+    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3))),
+    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3))),
+    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3))),
+    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3))),
+    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3))),
+    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3))),
+)
+
 
 @inline herm_vec(A::AbstractMatrix) = @inbounds [A[1,1], A[2,1], A[3,1], A[2,2], A[3,2], A[3,3] ]
 @inline function herm_vec(A::SHermitianCompact{3,T,6}) where T<:Number
     return A.lowertriangle
 end
+
+############################################################################################################################################################
+############################################################################################################################################################
+############################################################################################################################################################
 
 function _f_εₑᵣ_herm_sym()
     p = @variables r₁ ε₁ᵣ_11 ε₁ᵣ_12 ε₁ᵣ_13 ε₁ᵣ_22 ε₁ᵣ_23 ε₁ᵣ_33 ε₂ᵣ_11 ε₂ᵣ_12 ε₂ᵣ_13 ε₂ᵣ_22 ε₂ᵣ_23 ε₂ᵣ_33

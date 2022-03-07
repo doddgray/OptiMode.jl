@@ -28,14 +28,12 @@ using LoopVectorization
 using Tullio
 
 ### AD ###
-# using ChainRules
-# using Zygote
 # using ForwardDiff
 # using ChainRules: ChainRulesCore, @non_differentiable,  NoTangent, @thunk, @not_implemented, AbstractZero
 # using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
-using Zygote
+# using Zygote
 ### Materials ###
 using Rotations
 using Symbolics
@@ -145,7 +143,7 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 
 # include("plot.jl")
 include("linalg.jl")
-# include("epsilon.jl")
+include("epsilon.jl")
 include("materials.jl")
 include("grid.jl")
 include("geometry.jl")
