@@ -231,7 +231,7 @@ fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));
     reshape(ε₂_∂ωε₂[10:18],(3,3)),
 )
 
-function εₑᵣ_∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
+function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     fj_εₑᵣ_12 = similar(ε₁,9,20) # fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
     fj_εₑᵣ!(fj_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
     f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
@@ -242,15 +242,17 @@ function εₑᵣ_∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
     return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12))
 end
 
-εₑᵣ_∂ωεₑᵣ(r₁,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ(
-    r₁,
-    reshape(ε₁_∂ωε₁[1:9],(3,3)),
-    reshape(ε₂_∂ωε₂[1:9],(3,3)),
-    reshape(ε₁_∂ωε₁[10:18],(3,3)),
-    reshape(ε₂_∂ωε₂[10:18],(3,3)),
-)
+function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁_∂ωε₁::AbstractVector{<:Real},ε₂_∂ωε₂::AbstractVector{<:Real})
+    return @inbounds εₑᵣ_∂ωεₑᵣ(
+        r₁,
+        reshape(ε₁_∂ωε₁[1:9],(3,3)),
+        reshape(ε₂_∂ωε₂[1:9],(3,3)),
+        reshape(ε₁_∂ωε₁[10:18],(3,3)),
+        reshape(ε₂_∂ωε₂[10:18],(3,3)),
+    )
+end
 
-function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂)
+function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real})
     fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(vcat(r₁,vec(ε₁),vec(ε₂))));
     # fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(r₁,ε₁...,ε₂...));
     # fjh_εₑᵣ_12 = similar(ε₁,9,381) # fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
@@ -264,39 +266,67 @@ function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂
     return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12), vec(∂ω²_εₑᵣ_12))
 end
 
-εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,ε₁_∂ωε₁_∂²ωε₁,ε₂_∂ωε₂_∂²ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
-    r₁,
-    reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3)),
-    reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3)),
-    reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3)),
-    reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3)),
-    reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3)),
-    reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3)),
-)
+function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::Real,ε₁_∂ωε₁_∂²ωε₁::AbstractVector{<:Real},ε₂_∂ωε₂_∂²ωε₂::AbstractVector{<:Real})
+    return @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
+        r₁,
+        reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3)),
+        reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3)),
+        reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3)),
+        reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3)),
+        reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3)),
+        reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3)),
+    )
+end
 
-_rotate(S,ε) = transpose(S) * (ε * S)
-εₑ_∂ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂)))
-εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂)))
+function _rotate(S::AbstractMatrix{<:Real},ε::AbstractMatrix{<:Real})
+    transpose(S) * (ε * S)
+end
+
+function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
+    res_rot = εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂))
+    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
+    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    return vcat(eps,deps)
+end
+
+function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁_∂ωε₁::AbstractVector{<:Real},ε₂_∂ωε₂::AbstractVector{<:Real}) 
+    res_rot = @inbounds εₑᵣ_∂ωεₑᵣ(
+        r₁,
+        _rotate(S,reshape(ε₁_∂ωε₁[1:9],(3,3))),
+        _rotate(S,reshape(ε₂_∂ωε₂[1:9],(3,3))),
+        _rotate(S,reshape(ε₁_∂ωε₁[10:18],(3,3))),
+        _rotate(S,reshape(ε₂_∂ωε₂[10:18],(3,3))),
+    )
+    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
+    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    return vcat(eps,deps)
+end
+
+function εₑ_∂ωεₑ_∂²ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real})
+    res_rot = εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂))
+    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
+    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    ddeps = @inbounds _rotate(transpose(S),reshape(res_rot[19:27],(3,3)))
+    return vcat(eps,deps,ddeps)
+end
+
+function εₑ_∂ωεₑ_∂²ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁_∂ωε₁_∂²ωε₁::AbstractVector{<:Real},ε₂_∂ωε₂_∂²ωε₂::AbstractVector{<:Real})
+    res_rot = @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
+        r₁,
+        _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3))),
+        _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3))),
+        _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3))),
+        _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3))),
+        _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3))),
+        _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3))),
+    )
+    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
+    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    ddeps = @inbounds _rotate(transpose(S),reshape(res_rot[19:27],(3,3)))
+    return vcat(eps,deps,ddeps)
+end
+
 # εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,idx1,idx2,ε,∂ω_ε,∂²ω_ε) = @inbounds εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε[idx1],ε[idx2],∂ω_ε[idx1],∂ω_ε[idx2],∂²ω_ε[idx1],∂²ω_ε[idx2])
-
-εₑ_∂ωεₑ(r₁,S,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ(
-    r₁,
-    _rotate(S,reshape(ε₁_∂ωε₁[1:9],(3,3))),
-    _rotate(S,reshape(ε₂_∂ωε₂[1:9],(3,3))),
-    _rotate(S,reshape(ε₁_∂ωε₁[10:18],(3,3))),
-    _rotate(S,reshape(ε₂_∂ωε₂[10:18],(3,3))),
-)
-
-εₑ_∂ωεₑ_∂²ωεₑ(r₁,S,ε₁_∂ωε₁_∂²ωε₁,ε₂_∂ωε₂_∂²ωε₂) = @inbounds εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(
-    r₁,
-    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[1:9],(3,3))),
-    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[1:9],(3,3))),
-    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[10:18],(3,3))),
-    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[10:18],(3,3))),
-    _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3))),
-    _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3))),
-)
-
 
 @inline herm_vec(A::AbstractMatrix) = @inbounds [A[1,1], A[2,1], A[3,1], A[2,2], A[3,2], A[3,3] ]
 @inline function herm_vec(A::SHermitianCompact{3,T,6}) where T<:Number
