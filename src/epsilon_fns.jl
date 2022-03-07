@@ -252,8 +252,10 @@ function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁_∂ωε₁::AbstractVector{<:Re
     )
 end
 
-function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real})
-    fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(vcat(r₁,vec(ε₁),vec(ε₂))));
+function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::T1,ε₁::AbstractMatrix{T2},ε₂::AbstractMatrix{T3},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real}) where {T1<:Real,T2<:Real,T3<:Real}
+    fjh_εₑᵣ_12::MMatrix{9, 381, promote_type(T1,T2,T3), 3429} = fjh_εₑᵣ(MVector{19}(vcat(r₁,vec(ε₁),vec(ε₂))));
+    # fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(vcat(r₁,vec(ε₁),vec(ε₂))));
+    
     # fjh_εₑᵣ_12 = fjh_εₑᵣ(MVector{19}(r₁,ε₁...,ε₂...));
     # fjh_εₑᵣ_12 = similar(ε₁,9,381) # fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
     # fjh_εₑᵣ!(fjh_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
@@ -284,8 +286,8 @@ end
 
 function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     res_rot = εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂))
-    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
-    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))
+    deps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[10:18],(3,3))))
     return vcat(eps,deps)
 end
 
@@ -297,16 +299,16 @@ function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁_∂ωε₁:
         _rotate(S,reshape(ε₁_∂ωε₁[10:18],(3,3))),
         _rotate(S,reshape(ε₂_∂ωε₂[10:18],(3,3))),
     )
-    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
-    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
+    eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))
+    deps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[10:18],(3,3))))
     return vcat(eps,deps)
 end
 
 function εₑ_∂ωεₑ_∂²ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real})
     res_rot = εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂))
-    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
-    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
-    ddeps = @inbounds _rotate(transpose(S),reshape(res_rot[19:27],(3,3)))
+    eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))
+    deps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[10:18],(3,3))))
+    ddeps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[19:27],(3,3))))
     return vcat(eps,deps,ddeps)
 end
 
@@ -320,9 +322,9 @@ function εₑ_∂ωεₑ_∂²ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε�
         _rotate(S,reshape(ε₁_∂ωε₁_∂²ωε₁[19:27],(3,3))),
         _rotate(S,reshape(ε₂_∂ωε₂_∂²ωε₂[19:27],(3,3))),
     )
-    eps = @inbounds _rotate(transpose(S),reshape(res_rot[1:9],(3,3)))
-    deps = @inbounds _rotate(transpose(S),reshape(res_rot[10:18],(3,3)))
-    ddeps = @inbounds _rotate(transpose(S),reshape(res_rot[19:27],(3,3)))
+    eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))
+    deps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[10:18],(3,3))))
+    ddeps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[19:27],(3,3))))
     return vcat(eps,deps,ddeps)
 end
 
