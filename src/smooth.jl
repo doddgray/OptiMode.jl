@@ -7,6 +7,19 @@ export vxl_minmax, hybridize, εₘₐₓ, ñₘₐₓ, nₘₐₓ, kguess # ut
 
 # export kottke_smoothing, volfrac_smoothing
 
+function corner_sinds(shapes::Tuple,xyzc::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
+	ps = pairs(shapes)
+	lsp1 = length(shapes) + 1
+	map(xyzc) do p
+		let ps=ps, lsp1=lsp1
+			for (i, a) in ps #pairs(s)
+				in(p,a)::Bool && return i
+			end
+			return lsp1
+		end
+	end
+end
+
 function corner_sinds(shapes::Vector{S},xyzc::AbstractArray{T}) where {S<:GeometryPrimitives.Shape,T<:SVector{N}} where N #where {S<:GeometryPrimitives.Shape{2},T<:SVector{N}} where N
 	ps = pairs(shapes)
 	lsp1 = length(shapes) + 1
@@ -47,6 +60,20 @@ function corner_sinds!(corner_sinds,shapes::Vector{S},xyzc::AbstractArray{T}) wh
 end
 
 @non_differentiable corner_sinds(shapes,xyzc)
+
+### proc_sinds ###
+
+# new methods
+
+function proc_sinds(corner_sinds::NTuple{4,T}) where T<:Int
+	unq = T[corner_sinds...]
+	unique!( unq )
+	sinds_proc = isone(lastindex(unq)) ? (first(unq),0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0) ) : corner_sinds )
+	return sinds_proc
+end
+
+# old methods
 
 function proc_sinds(corner_sinds::AbstractArray{Int,2})
 	unq = [0,0]

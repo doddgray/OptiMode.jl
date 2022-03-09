@@ -438,6 +438,37 @@ function demo_shapes(p::T) where T<:Real
 	return Geometry([ t, s, b ])
 end
 
+function demo_shapes2D(p::T) where T<:Real
+    ε₁, ε₂, ε₃ = test_εs(p[1:3]...) # test_εs(1.42,2.2,3.5)
+    b = Box(					# Instantiate N-D box, here N=2 (rectangle)
+        p[4:5],					# c: center
+        p[6:7],				# r: "radii" (half span of each axis)
+        mapreduce(
+            normalize,
+            hcat,
+            eachcol(reshape(p[8:11],(2,2))),
+        ),			# axes: box axes
+        ε₁,						# data: any type, data associated with box shape
+        )
+
+    s = Sphere(					# Instantiate N-D sphere, here N=2 (circle)
+        p[12:13],					# c: center
+        p[14],						# r: "radii" (half span of each axis)
+        ε₂,						# data: any type, data associated with circle shape
+        )
+
+    t = regpoly(				# triangle::Polygon using regpoly factory method
+        3,						# k: number of vertices
+        p[15],					# r: distance from center to vertices
+        π/2,					# θ: angle of first vertex
+        p[16:17],					# c: center
+        ε₃,						# data: any type, data associated with triangle
+        )
+
+    # return Geometry([ t, s, b ])
+	return Geometry([ t, s, b ])
+end
+
 function circ_wg(w::T,t_core::T,edge_gap::T,n_core::T,n_subs::T,Δx::T,Δy::T)::Vector{<:GeometryPrimitives.Shape} where T<:Real
     t_subs = (Δy -t_core - edge_gap )/2.
     c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
