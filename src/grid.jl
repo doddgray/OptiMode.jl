@@ -192,12 +192,18 @@ end
 end
 
 function corners(g::Grid{2,T}) where T<:Real
+	# (	( 
+	# 		xx + SVector{3,T}( -δx(g), -δy(g),	zero(T) ),
+	# 		xx + SVector{3,T}( -δx(g),	δy(g),	zero(T) ),
+	# 		xx + SVector{3,T}(	δx(g),	δy(g),	zero(T) ),
+	# 		xx + SVector{3,T}(	δx(g), -δy(g),	zero(T) ),
+	# 	) 	for xx in g 	)
 	(	( 
-			xx + SVector{3,T}( -δx(g), -δy(g),	zero(T) ),
-			xx + SVector{3,T}( -δx(g),	δy(g),	zero(T) ),
-			xx + SVector{3,T}(	δx(g),	δy(g),	zero(T) ),
-			xx + SVector{3,T}(	δx(g), -δy(g),	zero(T) ),
-		) 	for xx in g 	)
+		SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g), -δy(g)  ),
+		SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g),	δy(g)  ),
+		SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g),	δy(g)  ),
+		SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g), -δy(g)  ),
+	) 	for xx in g 	)
 end
 
 function corners(g::Grid{3,T}) where T<:Real
@@ -240,6 +246,8 @@ end
 @inline function vxlmax(crnrs::NTuple{8,SVector{ND,T}}) where {ND,T<:Real}
 	@inbounds crnrs[7]
 end
+
+
 
 # ### Grid Voxel/Pixel Corner Positions ###
 # function xc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}

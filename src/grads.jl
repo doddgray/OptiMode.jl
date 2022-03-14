@@ -2,7 +2,7 @@
 # export ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!, neff_ng_gvd, ∂ε⁻¹_∂ω, ∂nng⁻¹_∂ω
 # export ∇ₖmag_mn
 
-@non_differentiable KDTree(::Any)
+# @non_differentiable KDTree(::Any)
 @non_differentiable g⃗(::Any)
 @non_differentiable _fftaxes(::Any)
 

@@ -7,10 +7,29 @@ export vxl_minmax, hybridize, εₘₐₓ, ñₘₐₓ, nₘₐₓ, kguess # ut
 
 # export kottke_smoothing, volfrac_smoothing
 
-function corner_sinds(shapes::Tuple,xyzc::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
+"""
+    corner_sinds(shapes, points)
+
+Return a Tuple of the index of the foreground shape index (in `shapes`) at each point in `points`.
+
+The index `length(shapes)+1` will be returned for points in `points` outside of all shapes in `shapes`.
+
+# Examples
+```julia-repl
+
+julia> shapes = ( Box(...), Polygon{5}(...), Sphere{2}(...), regpoly(3,...) );		  # a collection of four shapes
+
+julia> points = ( SVector{2}(0.1,3.3), SVector{2}(0.5,-2.1) , SVector{2}(-1.1,0.3) ); # a collection of three points
+
+julia> corner_sinds( shapes, points )
+(2,5,1)		# `shapes[2]` and `shapes[1]` are the foreground shapes at `xyz[1]` and `xyz[3]`, 
+			# and `xyz[2]` is outside each shape in `shapes` 
+```
+"""
+function corner_sinds(shapes::Tuple,points::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
 	ps = pairs(shapes)
 	lsp1 = length(shapes) + 1
-	map(xyzc) do p
+	map(points) do p
 		let ps=ps, lsp1=lsp1
 			for (i, a) in ps #pairs(s)
 				in(p,a)::Bool && return i

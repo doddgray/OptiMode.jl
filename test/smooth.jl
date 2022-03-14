@@ -1,16 +1,20 @@
 using LinearAlgebra, StaticArrays, GeometryPrimitives, OptiMode, Test
-using ChainRules, Zygote #, FiniteDifferences, ForwardDiff
-Δx  =   3.0
-Δy  =   4.0
-Δz  =   5.0
-Nx  =   64
-Ny  =   128
-Nz  =   256
+using ChainRules, Zygote, FiniteDifferences, ForwardDiff
+using OptiMode: vec3D
+# using CairoMakie
+function test_AD(f::Function,p;nFD=5)
+    primal  =   f(p)
+    gr_RM   =   first(Zygote.gradient(f,p))
+    gr_FM   =   ForwardDiff.gradient(f,p)
+    gr_FD   =   first(FiniteDifferences.grad(central_fdm(nFD,1),f,p))
+    return isapprox(gr_RM,gr_FD,rtol=1e-4) && isapprox(gr_RM,gr_FD,rtol=1e-4)
+end
 
 function demo_shapes2D(p::Vector{T}=rand(17)) where T<:Real
     ε₁  =   diagm([p[1],p[1],p[1]])
     ε₂  =   diagm([p[2],p[3],p[3]])
     ε₃  =   diagm([1.0,1.0,1.0])
+
     b = Box(					# Instantiate N-D box, here N=2 (rectangle)
         p[4:5],					# c: center
         p[6:7],				# r: "radii" (half span of each axis)
@@ -45,31 +49,31 @@ function smoov1_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) wh
     # ps = proc_sinds(sinds)
     ps = proc_sinds(corner_sinds(shapes,crnrs))
     @inbounds if iszero(ps[2])
-        return mat_vals[minds[first(ps)]]
+        return mat_vals[:,minds[first(ps)]]
 	elseif iszero(ps[3])
         sidx1   =   ps[1]
         sidx2   =   ps[2]
-        xyz     =   sum(crnrs)[1:2]/NC # sum(crnrs)/NC
+        xyz     =   sum(crnrs)/NC # sum(crnrs)/NC
         r₀_n⃗    =   surfpt_nearby(xyz, shapes[sidx1])
-        rvol    =   volfrac((vxlmin(crnrs)[1:2],vxlmax(crnrs)[1:2]),reverse(r₀_n⃗)...)
-        # rvol    =   volfrac((vxlmin(crnrs),vxlmax(crnrs)),reverse(r₀_n⃗)...)
-        # return εₑ_∂ωεₑ_∂²ωεₑ(
-        #     rvol,
-        #     normcart(vec3D(n⃗)),
-        #     mat_vals[:,minds[sinds[1]]],
-        #     mat_vals[:,minds[sinds[2]]],
-        # )
-        return rvol*mat_vals[minds[sidx1]] + (1.0-rvol)*mat_vals[minds[sidx2]]
+        r₀      =   first(r₀_n⃗)
+        n⃗       =   last(r₀_n⃗)
+        rvol    =   volfrac((vxlmin(crnrs),vxlmax(crnrs)),n⃗,r₀)
+        return εₑ_∂ωεₑ_∂²ωεₑ(
+            rvol,
+            normcart(vec3D(n⃗)),
+            mat_vals[:,minds[sidx1]],
+            mat_vals[:,minds[sidx2]],
+        )
     else
-        return @inbounds sum(i->mat_vals[minds[i]],ps) / NC  # naive averaging to be used
+        return @inbounds sum(i->mat_vals[:,minds[i]],ps) / NC  # naive averaging to be used
     end
 end
 
 function smoov11(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-	smoothed_vals = map(corners(grid)) do crnrs
+	smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
 		smoov1_single(shapes,mat_vals,minds,crnrs)
 	end
-	return smoothed_vals
+	return reshape(smoothed_vals,(3,3,3,size(grid)...))
 end
 
 function smoov12(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
@@ -90,18 +94,140 @@ function smoov13(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real}
 	return smoothed_vals
 end
 
+mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum]
+f_ε_mats, f_ε_mats! = _f_ε_mats(mats,(:ω,))
+# f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
+
+function geom1(p)  # slab_loaded_ridge_wg
+    wₜₒₚ        =   p[1]
+    t_core      =   p[2]
+    θ           =   p[3]
+    t_slab      =   p[4]
+    edge_gap    =   0.5
+    mat_core    =   1
+    mat_slab    =   2
+    mat_subs    =   3
+    Δx          =   6.0
+    Δy          =   4.0
+    t_subs = (Δy -t_core - edge_gap )/2. - t_slab
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+	c_slab_y = -Δy/2. + edge_gap/2. + t_subs + t_slab/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	# t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	# c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_slab + t_unetch/2.
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(verts,mat_core)
+    ax = SMatrix{2,2}( [      1.     0.   ;   0.     1.      ] )
+	# b_unetch = GeometryPrimitives.Box( [0. , c_unetch_y], [Δx - edge_gap, t_unetch ],	ax,	mat_core )
+	b_slab = GeometryPrimitives.Box( SVector{2}([0. , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, )
+	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
+	return (core,b_slab,b_subs)
+end
+p               =   rand(5);
+grid            =   Grid(6.,4.,128,128)
+shapes          =   geom1(p[2:5]);
+mat_vals        =   f_ε_mats(p[1:1]);
+minds           =   (1,2,3,4)
+sm1             =   smoov11(shapes,mat_vals,minds,grid)
+
+ftest_geom1(p)  =   sum(smoov11(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,128,128)))
+ftest_geom1(p)
+Zygote.gradient(ftest_geom1,p)
+
+
+function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real,Δz::Real) #::Geometry{2}
+
+	t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+    # ε_core = ε_tensor(n_core)
+    # ε_subs = ε_tensor(n_subs)
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+
+	t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_unetch/2.
+    # verts =     [   wt_half     -wt_half     -wb_half    wb_half
+    #                 tc_half     tc_half    -tc_half      -tc_half    ]'
+	# verts = [   wt_half     tc_half
+	# 			-wt_half    tc_half
+	# 			-wb_half    -tc_half
+	# 			wb_half     -tc_half    ]
+	verts = SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.PolygonalPrism(					                        # Instantiate 2D polygon, here a trapazoid
+					SVector(0.,0.,0.),
+					verts,			                            # v: polygon vertices in counter-clockwise order
+					Δz,
+					[0.,0.,1.],
+					mat_core,					                                    # data: any type, data associated with box shape
+                )
+    ax = [      1.     0.		0.
+                0.     1.      	0.
+				0.		0.		1.		]
+
+	b_unetch = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_unetch_y, 0.],           	# c: center
+                    [Δx - edge_gap, t_unetch, Δz ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_core,					 # data: any type, data associated with box shape
+                )
+
+	b_subs = GeometryPrimitives.Box(			# Instantiate N-D box, here N=2 (rectangle)
+                    [0. , c_subs_y, 0.],           	# c: center
+                    [Δx - edge_gap, t_subs, Δz ],	# r: "radii" (half span of each axis)
+                    ax,	    		        	# axes: box axes
+                    mat_subs,					 # data: any type, data associated with box shape
+                )
+
+	# etched pattern in slab cladding
+	# vacuum = NumMat(1.0)
+	# ax_cyl = SVector(0.,1.,0.)
+	# dx_sw_cyl = 0.5	# distance of etched cylinder centers from sidewalls
+	# r_cyl = 0.1
+	# z_cyl = 0.0
+	# c_cyl1 = SVector(wb_half+dx_sw_cyl, c_unetch_y, z_cyl)
+	# c_cyl2 = SVector(-wb_half-dx_sw_cyl, c_unetch_y, z_cyl)
+	# cyl1 = GeometryPrimitives.Cylinder(c_cyl1,r_cyl,t_unetch,SVector(0.,1.,0.),vacuum)
+	# cyl2 = GeometryPrimitives.Cylinder(c_cyl2,r_cyl,t_unetch,SVector(0.,1.,0.),vacuum)
+
+	return Geometry([core,b_unetch,b_subs])
+	# return Geometry([cyl1,cyl2,core,b_unetch,b_subs])
+end
+
+
+
+
+
+
+
+
+
+
+
+
+epse12 = εₑ_∂ωεₑ_∂²ωεₑ(rand(),normcart(vec3D(normalize(rand(2)))),mat_vals[:,1],mat_vals[:,2])
+epse13 = εₑ_∂ωεₑ_∂²ωεₑ(rand(),normcart(vec3D(normalize(rand(2)))),mat_vals[:,1],mat_vals[:,3])
+
+
+
 p2              =   rand(17)
-gr2             =   Grid(Δx,Δy,Nx,Ny)
+
 sh2             =   demo_shapes2D(p2)
 cs2             =   corner_sinds.((sh2,),corners(gr2))
 ps2             =   proc_sinds(corner_sinds(sh2,collect(x⃗c(gr2))))
 n_unique_sinds2 =   length.(unique.(cs2))
 minds2          =   1:(length(sh2)+1)
 mat_vals2       =   (getproperty.(sh2, (:data,))..., diagm([0.9,0.9,0.9]),)
+
 sm1s1           =   smoov1_single(sh2,mat_vals2,minds2,first(corners(gr2)))
 sm11            =   smoov11(sh2,mat_vals2,collect(minds2),gr2)
 sm12            =   smoov12(sh2,mat_vals2,collect(minds2),gr2)
 sm13            =   smoov13(sh2,mat_vals2,collect(minds2),gr2)
+
+
+fig,ax1,hm11_11 = heatmap(reshape(getindex.(sm11,(1,),(1,)),size(grid)))
 
 function foo2(p)
     shapes2 = demo_shapes2D(p)
