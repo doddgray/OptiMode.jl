@@ -35,9 +35,6 @@ Grid(Δx::T, Δy::T, Nx::Int, Ny::Int) where {T<:Real} = Grid{2,T}(
     1,
 )
 
-
-
-
 δx(g::Grid) = g.Δx / g.Nx
 δy(g::Grid) = g.Δy / g.Ny
 δz(g::Grid) = g.Δz / g.Nz
@@ -47,21 +44,31 @@ Grid(Δx::T, Δy::T, Nx::Int, Ny::Int) where {T<:Real} = Grid{2,T}(
 
 ∫(intgnd;g::Grid) = sum(intgnd)*δ(g)	# integrate a scalar field over the grid
 
+"""
+`myrange(a,b,N)` remimplements the functionality of the Base method `range(a,b,N)` in a Zygote compatible way
+This is just a temporary hack until an rrule for either of the LinRange or StepRangeLen constructors is added to ChainRules.jl 
+"""
+function myrange(a::Real,b::Real,N::Int)
+    step = (b-a)/(N-1.0)
+    map(i->(a+step*i),0:(N-1))
+end
+
 ### Grid Points (Voxel/Pixel Center Positions) ###
 function x(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
  	# ( ( g.Δx / g.Nx ) .* (0:(g.Nx-1))) .- g.Δx/2.
-	LinRange(-g.Δx/2, g.Δx/2 - g.Δx/g.Nx, g.Nx)
+	myrange(-g.Δx/2, g.Δx/2 - g.Δx/g.Nx, g.Nx)
 end
 function y(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
  	# ( ( g.Δy / g.Ny ) .* (0:(g.Ny-1))) .- g.Δy/2.
-	LinRange(-g.Δy/2, g.Δy/2 - g.Δy/g.Ny, g.Ny)
+	myrange(-g.Δy/2, g.Δy/2 - g.Δy/g.Ny, g.Ny)
 end
 function z(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
  	# ( ( g.Δz / g.Nz ) .* (0:(g.Nz-1))) .- g.Δz/2.
-	LinRange(-g.Δz/2, g.Δz/2 - g.Δz/g.Nz, g.Nz)
+	myrange(-g.Δz/2, g.Δz/2 - g.Δz/g.Nz, g.Nz)
 end
 function x⃗(g::Grid{2,T})::Array{SVector{3,T},2} where T<:Real
-	[ SVector{3,T}(xx,yy,zero(T)) for xx in x(g), yy in y(g) ] # (Nx × Ny ) 2D-Array of (x,y,z) vectors at pixel/voxel centers
+	# [ SVector{3,T}(xx,yy,zero(T)) for xx in x(g), yy in y(g) ] # (Nx × Ny ) 2D-Array of (x,y,z) vectors at pixel/voxel centers
+	map( xy->SVector{3}(first(xy),last(xy),0.0), Iterators.product(x(g),y(g)))
 end
 function x⃗(g::Grid{3,T})::Array{SVector{3,T},3} where T<:Real
 	[ SVector{3,T}(xx,yy,zz) for xx in x(g), yy in y(g), zz in z(g) ] # (Nx × Ny × Nz) 3D-Array of (x,y,z) vectors at pixel/voxel centers
@@ -159,12 +166,12 @@ end
 @inline _fftaxes(gr::Grid{3}) = (2:4)
 
 function g⃗(gr::Grid{2,T})::Array{SVector{3, T}, 2} where T
-	[	SVector(gx,gy,0.) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
+	[	SVector{3}(gx,gy,0.) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
 							   	gy in fftfreq(gr.Ny,gr.Ny/gr.Δy)		]
 end
 
 function g⃗(gr::Grid{3,T})::Array{SVector{3, T}, 3} where T<:Real
-	[	SVector(gx,gy,gz) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
+	[	SVector{3}(gx,gy,gz) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
 								gy in fftfreq(gr.Ny,gr.Ny/gr.Δy),
 							    gz in fftfreq(gr.Nz,gr.Nz/gr.Δz)		]
 end
@@ -172,15 +179,15 @@ end
 ### Iterators Over Grid Voxel/Pixel Corner Positions ###
 
 @inline function xc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-	LinRange(-(g.Δx + δx(g))/2, (g.Δx - δx(g))/2, g.Nx+1)
+	myrange(-(g.Δx + δx(g))/2, (g.Δx - δx(g))/2, g.Nx+1)
 end
 
 @inline function yc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-	LinRange(-(g.Δy + δy(g))/2, (g.Δy - δy(g))/2, g.Ny+1)
+	myrange(-(g.Δy + δy(g))/2, (g.Δy - δy(g))/2, g.Ny+1)
 end
 
 @inline function zc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-	LinRange(-(g.Δz + δz(g))/2, (g.Δz - δz(g))/2, g.Nz+1)
+	myrange(-(g.Δz + δz(g))/2, (g.Δz - δz(g))/2, g.Nz+1)
 end
 
 @inline function x⃗c(g::Grid{2,T})  where T<:Real
@@ -198,25 +205,60 @@ function corners(g::Grid{2,T}) where T<:Real
 	# 		xx + SVector{3,T}(	δx(g),	δy(g),	zero(T) ),
 	# 		xx + SVector{3,T}(	δx(g), -δy(g),	zero(T) ),
 	# 	) 	for xx in g 	)
-	(	( 
-		SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g), -δy(g)  ),
-		SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g),	δy(g)  ),
-		SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g),	δy(g)  ),
-		SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g), -δy(g)  ),
-	) 	for xx in g 	)
+	# (	( 
+	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g), -δy(g)  ),
+	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g),	δy(g)  ),
+	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g),	δy(g)  ),
+	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g), -δy(g)  ),
+	# ) 	for xx in g 	)
+	xcs = xc(g)
+	ycs = yc(g)
+	map(eachindex(g)) do I
+		x0 = xcs[I[1]]
+		x1 = xcs[I[1]+1]
+		y0 = ycs[I[2]]
+		y1 = ycs[I[2]+1]
+		( 
+			SVector{2}( x0, y0 ),
+			SVector{2}( x0, y1 ),
+			SVector{2}(	x1, y1 ),
+			SVector{2}(	x1, y0 ),
+		)
+	end
 end
 
 function corners(g::Grid{3,T}) where T<:Real
-	(	( 
-			xx + SVector{3,T}( -δx(g), -δy(g),	-δz(g) ),
-			xx + SVector{3,T}( -δx(g),	δy(g),	-δz(g) ),
-			xx + SVector{3,T}(	δx(g),	δy(g),	-δz(g) ),
-			xx + SVector{3,T}(	δx(g), -δy(g),	-δz(g) ),
-			xx + SVector{3,T}( -δx(g), -δy(g),	 δz(g) ),
-			xx + SVector{3,T}( -δx(g),	δy(g),	 δz(g) ),
-			xx + SVector{3,T}(	δx(g),	δy(g),	 δz(g) ),
-			xx + SVector{3,T}(	δx(g), -δy(g),	 δz(g) ),
-		) 	for xx in g 	)
+	# (	( 
+	# 		xx + SVector{3,T}( -δx(g), -δy(g),	-δz(g) ),
+	# 		xx + SVector{3,T}( -δx(g),	δy(g),	-δz(g) ),
+	# 		xx + SVector{3,T}(	δx(g),	δy(g),	-δz(g) ),
+	# 		xx + SVector{3,T}(	δx(g), -δy(g),	-δz(g) ),
+	# 		xx + SVector{3,T}( -δx(g), -δy(g),	 δz(g) ),
+	# 		xx + SVector{3,T}( -δx(g),	δy(g),	 δz(g) ),
+	# 		xx + SVector{3,T}(	δx(g),	δy(g),	 δz(g) ),
+	# 		xx + SVector{3,T}(	δx(g), -δy(g),	 δz(g) ),
+	# 	) 	for xx in g 	)
+	xcs = xc(g)
+	ycs = yc(g)
+	zcs = yc(g)
+	map(eachindex(g)) do I
+		x0 = xcs[I[1]]
+		x1 = xcs[I[1]+1]
+		y0 = ycs[I[2]]
+		y1 = ycs[I[2]+1]
+		z0 = zcs[I[2]]
+		z1 = zcs[I[2]+1]
+		( 
+			SVector{3}( x0, y0, z0 ),
+			SVector{3}( x0, y1, z0 ),
+			SVector{3}(	x1, y1, z0 ),
+			SVector{3}(	x1, y0, z0 ),
+			SVector{3}( x0, y0, z1 ),
+			SVector{3}( x0, y1, z1 ),
+			SVector{3}(	x1, y1, z1 ),
+			SVector{3}(	x1, y0, z1 ),
+		)
+	end
 end
 
 @inline function vxlmin(g::Grid{2,T}) where T<:Real

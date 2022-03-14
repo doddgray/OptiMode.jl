@@ -184,7 +184,7 @@ function rotate(χ::AbstractArray{T,4},𝓡::TR) where {T<:Real, TR<:StaticMatri
 	@tullio χᵣ[i,j,k,l] := 𝓡[a,i] * 𝓡[b,j] * 𝓡[c,k] * 𝓡[d,l] * χ[a,b,c,d]  fastmath=true
 end
 
-rotate(χ::Real,𝓡::StaticMatrix{3,3}) = χ
+# rotate(χ::Real,𝓡::StaticMatrix{3,3}) = χ
 
 function rotate(mat::TM,𝓡::TR;name=nothing,color=mat.color) where {TM<:AbstractMaterial,TR<:AbstractMatrix}
 	if eltype(𝓡)<:Num
