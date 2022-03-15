@@ -34,7 +34,7 @@ using SliceMap
 # using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
-# using Zygote
+using Zygote: Buffer
 ### Materials ###
 using Rotations
 using Symbolics

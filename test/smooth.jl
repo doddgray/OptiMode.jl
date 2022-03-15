@@ -1,7 +1,7 @@
 using LinearAlgebra, StaticArrays, GeometryPrimitives, OptiMode, Test
 using ChainRules, Zygote, FiniteDifferences, ForwardDiff
 using OptiMode: vec3D
-using CairoMakie
+# using CairoMakie
 
 function test_AD(f::Function,p;nFD=5)
     primal  =   f(p)
@@ -100,22 +100,20 @@ function geom2(p)  # slab_loaded_ridge_wg
     x_box_max       =   (Δx - edge_gap)/2
     y_box_min       =   c_slab_y + t_slab/2
     y_box_max       =   (Δy - edge_gap)/2
+    # b_unetch = GeometryPrimitives.Box( [0. , c_unetch_y], [Δx - edge_gap, t_unetch ],	ax,	mat_core )
+	b_slab = GeometryPrimitives.Box( SVector{2}([0. , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, )
+	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
 
-    boxes = map(eachcol(reshape(p[5:end],(4,10)))) do pp
+    boxes = mapreduce(vcat,eachcol(reshape(p[5:end],(4,10)))) do pp
         c_bb_x      =   pp[1]*(x_box_max-x_box_min) + x_box_min
         r_bb_x      =   pp[2]*min((c_bb_x-x_box_min),(x_box_max-c_bb_x))
         c_bb_y      =   pp[3]*(y_box_max-y_box_min) + y_box_min
         r_bb_y      =   pp[4]*min((c_bb_y-y_box_min),(y_box_max-c_bb_y))
-
-        ( GeometryPrimitives.Box( SVector{2}( c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ),
-          GeometryPrimitives.Box( SVector{2}(-c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ), )
+        [ GeometryPrimitives.Box( SVector{2}( c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ),
+          GeometryPrimitives.Box( SVector{2}(-c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ), ]
 
     end
-
-	# b_unetch = GeometryPrimitives.Box( [0. , c_unetch_y], [Δx - edge_gap, t_unetch ],	ax,	mat_core )
-	b_slab = GeometryPrimitives.Box( SVector{2}([0. , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, )
-	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
-	return (core,b_slab,b_subs)
+	return (boxes...,core,b_slab,b_subs)
 end
 
 # function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real,Δz::Real) #::Geometry{2}
@@ -168,7 +166,160 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
 ε⁻¹             =   sliceinv_3x3(ε)
+##
+kmags,evecs = find_k(1.0,ε,grid);
+ng1 = group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
 
+Zygote.gradient((k,ev,om,epsi,deps_dom)->group_index(k,ev,om,epsi,deps_dom,grid),kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω)
+
+##
+function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where{T1<:Real,T2<:Real}
+	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
+    T = promote_type(T1,T2)
+	n = Zygote.Buffer(g⃗s,size(g⃗s))
+	m = Zygote.Buffer(g⃗s,size(g⃗s))
+	mag = Zygote.Buffer(zeros(T,size(g⃗s)),size(g⃗s))
+	@fastmath @inbounds for i ∈ eachindex(g⃗s)
+		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
+		@inbounds mag[i] = norm(kpg)
+		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
+	end
+	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
+end
+
+function mag_m_n3(k⃗::SVector{3,T},g⃗s::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
+	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
+	local ẑ = SVector{3,T}(0.,0.,1.)
+	local ŷ = SVector{3,T}(0.,1.,0.)
+	n = similar(g⃗s,size(g⃗s))
+	m = similar(g⃗s,size(g⃗s))
+	mag = Array{T}(undef,size(g⃗s)) #similar(zeros(T,size(g⃗s)),size(g⃗s))
+	@fastmath @inbounds for i ∈ eachindex(g⃗s)
+		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
+		@inbounds mag[i] = norm(kpg)
+		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
+	end
+	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
+end
+
+function mag_m_n4(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+	local ẑ = SVector{3,T}(0,0,1)
+	local ŷ = SVector{3,T}(0,1,0)
+	magmn = mapreduce(hcat,g⃗s) do gg
+		kpg = k⃗ - gg
+		mag = norm(kpg)
+		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		m =  normalize( cross( n, kpg )  )
+        return (mag,m,n) #vcat(mag,m,n)
+	end
+
+    # mag = reshape(magmn[1,:],size(g⃗s))
+    # m = reshape(magmn[2:4,:],(3,size(g⃗s)...))
+    # n = reshape(magmn[5:7,:],(3,size(g⃗s)...))
+    # return mag,reinterpret(reshape,SVector{3,Float64},m),reinterpret(reshape,SVector{3,Float64},n)
+end
+
+function mag_m_n_single(k⃗::SVector{3,T1},g::SVector{3,T2}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+    local ẑ = SVector{3,T}(0,0,1)
+	local ŷ = SVector{3,T}(0,1,0)
+    kpg = k⃗ - g
+	mag = norm(kpg)
+	n =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+	m =  normalize( cross( n, kpg )  )
+    return vcat(mag,m,n)
+end
+
+function mag_mn5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+    mag = reshape(magmn[1,:],size(g⃗s))
+    mn =  reshape(magmn[2:7,:],(3,2,size(g⃗s)...))
+    # m = reshape(reinterpret(SVector{3,T},copy(magmn[2:4,:])),(3,size(g⃗s)...))
+    # n = reshape(reinterpret(SVector{3,T},copy(magmn[5:7,:])),(3,size(g⃗s)...))
+    # m   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[2:4,:])),size(g⃗s))
+    # n   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[5:7,:])),size(g⃗s))
+    return mag,mn
+    # return mag,reinterpret(reshape,SVector{3,Float64},m),reinterpret(reshape,SVector{3,Float64},n)
+end
+
+function mag_m_n5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+    mag = reshape(magmn[1,:],size(g⃗s))
+    # # m =  copy(reshape(magmn[2:4,:],(3,size(g⃗s)...)))
+    # # n =  copy(reshape(magmn[5:7,:],(3,size(g⃗s)...)))
+    m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
+    n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
+    return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
+    # return magmn
+end
+
+
+function mag_m_n6(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+    gsr = copy( reinterpret(reshape,T2,g⃗s) )# copy(reshape(reinterpret(T2,g⃗s),(3,size(g⃗s)...))) #
+    magmn = slicemap(gsr;dims=1) do gg
+        local ẑ = SVector{3,T}(0,0,1)
+	    local ŷ = SVector{3,T}(0,1,0)
+		kpg = k⃗ - gg
+		mag = norm(kpg)
+		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		m =  normalize( cross( n, kpg )  )
+        return vcat(mag,m,n)
+	end
+	# magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+    mag = reshape(magmn[1,..],size(g⃗s))
+    m   = reshape(reinterpret(reshape,SVector{3,T},magmn[2:4,..]),size(g⃗s))
+    n   = reshape(reinterpret(reshape,SVector{3,T},magmn[5:7,..]),size(g⃗s))
+    return mag,m,n
+end
+
+function mag_m_n7(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+    T = promote_type(T1,T2)
+    gsr = copy(reshape(reinterpret(T2,g⃗s),(3,length(g⃗s))))
+    magmn = ThreadMapCols{3}(gg->mag_m_n_single(k⃗,gg),gsr)
+    # magmn = ThreadMapCols{3}(gg->mag_m_n_single(k⃗,gg),gsr)
+	# magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+    mag = reshape(magmn[1,:],size(g⃗s))
+    m   = reshape(reinterpret(reshape,SVector{3,T},magmn[2:4,:]),size(g⃗s))
+    n   = reshape(reinterpret(reshape,SVector{3,T},magmn[5:7,:]),size(g⃗s))
+    return mag,m,n
+end
+
+magmn2 = mag_m_n2(SVector{3}(0.,0.,2.0),g⃗(grid))
+magmn3 = mag_m_n3(SVector{3}(0.,0.,2.0),g⃗(grid))
+magmn4 = mag_m_n4(SVector{3}(0.,0.,2.0),g⃗(grid))
+# magmn5 = mag_mn5(SVector{3}(0.,0.,2.0),g⃗(grid))
+magmn5 = mag_m_n5(SVector{3}(0.,0.,2.0),g⃗(grid))
+magmn6 = mag_m_n6(SVector{3}(0.,0.,2.0),g⃗(grid))
+magmn7 = mag_m_n7(SVector{3}(0.,0.,2.0),g⃗(grid))
+all(magmn3 .≈ magmn2)
+all(magmn4 .≈ magmn2)
+all(magmn5 .≈ magmn2)
+all(magmn6 .≈ magmn2)
+all(magmn7 .≈ magmn2)
+gs = g⃗(grid);
+Zygote.gradient(kk->sum(sum(mag_m_n2(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+Zygote.gradient(kk->sum(sum(mag_m_n3(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+Zygote.gradient(kk->sum(sum(mag_m_n4(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+Zygote.gradient(kk->sum(sum(mag_m_n5(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+Zygote.gradient(kk->sum(sum(mag_m_n6(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+Zygote.gradient(kk->sum(sum(mag_m_n7(SVector{3}(0.,0.,kk),gs)[2])),2.0)
+
+using OptiMode: ∇ₖmag_m_n
+n̄ = [SVector{3,Float64}(1.,1.,1.) for gg in gs];
+m̄ = [SVector{3,Float64}(1.,1.,1.) for gg in gs];
+māg =  zero(magmn2[1]);
+∇ₖmag_m_n(māg,m̄,n̄,mag_m_n2(SVector{3}(0.,0.,2.0),gs)...)
+@btime 
+
+##
 ## figure out fast+AD-compatible local ε tensor inversion ε→ε⁻¹  
 using SliceMap
 # function slice_inv(A::Array{T,4}) where {T}
@@ -204,9 +355,9 @@ ei5 ≈ ei2
 ei42 ≈ ei2
 ei52 ≈ ei2
 
-gr_ei1 = Zygote.gradient(x->sum(slice_inv(x)),ε)
-grf_ei1 = Zygote.gradient(x->sum(Zygote.forwarddiff(slice_inv,x)),ε)
-gr_ei2 = Zygote.gradient(x->sum(mapslices(inv, x, dims = [1,2])),ε)
+# gr_ei1 = Zygote.gradient(x->sum(slice_inv(x)),ε)
+# grf_ei1 = Zygote.gradient(x->sum(Zygote.forwarddiff(slice_inv,x)),ε)
+# gr_ei2 = Zygote.gradient(x->sum(mapslices(inv, x, dims = [1,2])),ε)
 gr_ei3 = Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),ε)[1]
 gr_ei4 = Zygote.gradient(x->sum(slice_inv4(x,size(grid))),ε)[1]
 gr_ei5 = Zygote.gradient(x->sum(slice_inv5(x,size(grid))),ε)[1]
@@ -217,6 +368,8 @@ gr_ei4 ≈ gr_ei3
 gr_ei5 ≈ gr_ei3
 gr_ei52 ≈ gr_ei3
 
+using BenchmarkTools
+@benchmark sin(3)
 @benchmark Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),$ε)
 @benchmark Zygote.gradient(x->sum(slice_inv4(x,$(size(grid)))),$ε)
 @benchmark Zygote.gradient(x->sum(slice_inv5(x,$(size(grid)))),$ε)
@@ -225,8 +378,10 @@ gr_ei52 ≈ gr_ei3
 
 fig,ax,hm = heatmap(gr_ei3[1,1,:,:]); Colorbar(fig[1,2],hm); fig
 ##
-# kmags,evecs = find_k(1.0,ε,grid)
-# group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
+kmags,evecs = find_k(1.0,ε,grid)
+group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
+
+##
 
 let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=(ε[1,1,:,:], ∂ε_∂ω[1,1,:,:], ∂²ε_∂ω²[1,1,:,:]), labels=("ε","∂ε_∂ω","∂²ε_∂ω²"), cmaps=(:viridis,:magma,:RdBu)
     axes = [ Axis(fig[i, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect()) for i=1:length(Z) ]

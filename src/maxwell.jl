@@ -524,6 +524,8 @@ end
 
 mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,0.,kz),g⃗)
 
+# Tullio version
+
 # function mag_m_n2(k⃗::SVector{3,T},g⃗::AbstractArray) where T <: Real
 # 	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
 # 	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
@@ -548,6 +550,8 @@ mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,
 # 	mag_m_n2(SVector{3,T}(0.,0.,kz),g⃗)
 # end
 
+# mutating version with Zygote Buffer
+
 function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
 	# for iz ∈ axes(g⃗,3), iy ∈ axes(g⃗,2), ix ∈ axes(g⃗,1) #, l in 0:0
 	local ẑ = SVector{3,T}(0.,0.,1.)
@@ -563,6 +567,82 @@ function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T
 	end
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
 end
+
+# mutating version without Zygote Buffer
+# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+# 	T = promote_type(T1,T2)
+# 	local ẑ = SVector{3,T}(0,0,1)
+# 	local ŷ = SVector{3,T}(0,1,0)
+# 	n = similar(g⃗s,size(g⃗s))
+# 	m = similar(g⃗s,size(g⃗s))
+# 	mag = Array{T}(undef,size(g⃗s)) #similar(zeros(T,size(g⃗s)),size(g⃗s))
+# 	@fastmath @inbounds for i ∈ eachindex(g⃗s)
+# 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
+# 		@inbounds mag[i] = norm(kpg)
+# 		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+# 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
+# 	end
+# 	return mag, m, n
+# end
+
+# # map-based mag_m_n
+
+# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+#     T = promote_type(T1,T2)
+# 	local ẑ = SVector{3,T}(0,0,1)
+# 	local ŷ = SVector{3,T}(0,1,0)
+# 	magmn = mapreduce(hcat,g⃗s) do gg
+# 		kpg = k⃗ - gg
+# 		mag = norm(kpg)
+# 		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
+# 		m =  normalize( cross( n, kpg )  )
+#         return (mag,m,n) #vcat(mag,m,n)
+# 	end
+#     mag = reshape(magmn[1,:],size(g⃗s))
+#     m =  reinterpret(SVector{3,T},magmn[2:4,:])
+#     n =  reinterpret(SVector{3,T},magmn[5:7,:])
+#     # m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
+#     # n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
+#     return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
+# end
+
+# function mag_m_n_single(k⃗::SVector{3,T1},g::SVector{3,T2}) where {T1<:Real,T2<:Real}
+#     T = promote_type(T1,T2)
+#     local ẑ = SVector{3,T}(0,0,1)
+# 	local ŷ = SVector{3,T}(0,1,0)
+#     kpg = k⃗ - g
+# 	mag = norm(kpg)
+# 	n =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+# 	m =  normalize( cross( n, kpg )  )
+#     return vcat(mag,m,n)
+# end
+
+# map-based mag_mn version
+
+# function mag_mn5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+#     T = promote_type(T1,T2)
+# 	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+#     mag = reshape(magmn[1,:],size(g⃗s))
+#     mn =  reshape(magmn[2:7,:],(3,2,size(g⃗s)...))
+#     # m = reshape(reinterpret(SVector{3,T},copy(magmn[2:4,:])),(3,size(g⃗s)...))
+#     # n = reshape(reinterpret(SVector{3,T},copy(magmn[5:7,:])),(3,size(g⃗s)...))
+#     # m   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[2:4,:])),size(g⃗s))
+#     # n   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[5:7,:])),size(g⃗s))
+#     return mag,mn
+# end
+
+# map-based mag_m_n with fn barrier
+# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+#     T = promote_type(T1,T2)
+# 	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
+#     mag = reshape(magmn[1,:],size(g⃗s))
+#     m =  reinterpret(SVector{3,T},magmn[2:4,:])
+#     n =  reinterpret(SVector{3,T},magmn[5:7,:])
+#     # m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
+#     # n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
+#     return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
+# end
+
 
 function mag_m_n(kmag::T,g⃗::AbstractArray{SVector{3,T2}};k̂=SVector(0.,0.,1.)) where {T<:Real,T2<:Real}
 	k⃗ = kmag * k̂
