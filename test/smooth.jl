@@ -44,55 +44,55 @@ function demo_shapes2D(p::Vector{T}=rand(17)) where T<:Real
 	return ( t, s, b )
 end
 
-function smoov1_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real} 
-    # sinds = corner_sinds(shapes,crnrs)  # indices (of `shapes`) of foreground shapes at corners of pixel/voxel
-    # ps = proc_sinds(sinds)
-    ps = proc_sinds(corner_sinds(shapes,crnrs))
-    if iszero(ps[2])
-        return mat_vals[:,minds[first(ps)]]
-	elseif iszero(ps[3])
-        sidx1   =   ps[1]
-        sidx2   =   ps[2]
-        xyz     =   sum(crnrs)/NC # sum(crnrs)/NC
-        r₀_n⃗    =   surfpt_nearby(xyz, shapes[sidx1])
-        r₀      =   first(r₀_n⃗)
-        n⃗       =   last(r₀_n⃗)
-        rvol    =   volfrac((vxlmin(crnrs),vxlmax(crnrs)),n⃗,r₀)
-        return εₑ_∂ωεₑ_∂²ωεₑ(
-            rvol,
-            normcart(vec3D(n⃗)),
-            mat_vals[:,minds[sidx1]],
-            mat_vals[:,minds[sidx2]],
-        )
-    else
-        return sum(i->mat_vals[:,minds[i]],ps) / NC  # naive averaging to be used
-    end
-end
+# function smoov1_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real} 
+#     # sinds = corner_sinds(shapes,crnrs)  # indices (of `shapes`) of foreground shapes at corners of pixel/voxel
+#     # ps = proc_sinds(sinds)
+#     ps = proc_sinds(corner_sinds(shapes,crnrs))
+#     if iszero(ps[2])
+#         return mat_vals[:,minds[first(ps)]]
+# 	elseif iszero(ps[3])
+#         sidx1   =   ps[1]
+#         sidx2   =   ps[2]
+#         xyz     =   sum(crnrs)/NC # sum(crnrs)/NC
+#         r₀_n⃗    =   surfpt_nearby(xyz, shapes[sidx1])
+#         r₀      =   first(r₀_n⃗)
+#         n⃗       =   last(r₀_n⃗)
+#         rvol    =   volfrac((vxlmin(crnrs),vxlmax(crnrs)),n⃗,r₀)
+#         return εₑ_∂ωεₑ_∂²ωεₑ(
+#             rvol,
+#             normcart(vec3D(n⃗)),
+#             mat_vals[:,minds[sidx1]],
+#             mat_vals[:,minds[sidx2]],
+#         )
+#     else
+#         return sum(i->mat_vals[:,minds[i]],ps) / NC  # naive averaging to be used
+#     end
+# end
 
-function smoov11(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-	smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
-		smoov1_single(shapes,mat_vals,minds,crnrs)
-	end
-	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-end
+# function smoov11(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
+# 	smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
+# 		smoov1_single(shapes,mat_vals,minds,crnrs)
+# 	end
+# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
+# end
 
-function smoov12(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-    smoothed_vals = let shapes=shapes,mat_vals=mat_vals,minds=minds,grid=grid
-        mapreduce(vcat,corners(grid)) do crnrs
-		    smoov1_single(shapes,mat_vals,minds,crnrs)
-        end
-	end
-	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-end
+# function smoov12(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
+#     smoothed_vals = let shapes=shapes,mat_vals=mat_vals,minds=minds,grid=grid
+#         mapreduce(vcat,corners(grid)) do crnrs
+# 		    smoov1_single(shapes,mat_vals,minds,crnrs)
+#         end
+# 	end
+# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
+# end
 
-function smoov13(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-    smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
-        let shapes=shapes,mat_vals=mat_vals,minds=minds
-		    smoov1_single(shapes,mat_vals,minds,crnrs)
-        end
-	end
-	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-end
+# function smoov13(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
+#     smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
+#         let shapes=shapes,mat_vals=mat_vals,minds=minds
+# 		    smoov1_single(shapes,mat_vals,minds,crnrs)
+#         end
+# 	end
+# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
+# end
 
 
 # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
@@ -168,9 +168,12 @@ p               =   [1.0, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128)
 shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
-
 minds           =   (1,2,3,4)
-sm1             =   smoov11(shapes,mat_vals,minds,grid);
+sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
+ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
+∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
+∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+
 using CairoMakie
 
 yidx = 64 
@@ -182,7 +185,7 @@ mat_vals[:,minds[first(ps)]]
 shapes          =   geom1(p[2:5]);
 valinds = 1,1,1,xidx,yidx # last two are x,y indices of grid point on shape boundary
 sm1[:,:,valinds[3:5]...]
-let fig = Figure(resolution = (600, 400)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=sm1[1,1,1,:,:]
+let fig = Figure(resolution = (600, 400)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=sm1[1,2,1,:,:]
     ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect())
     hmap = heatmap!(X,Y,Z; colormap = :plasma)
     Colorbar(fig[1, 2], hmap; label = "values",) # width = 15, height=200, ticksize = 15, tickalign = 1)

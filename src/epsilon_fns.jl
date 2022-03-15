@@ -1,7 +1,8 @@
 export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, 
-    ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ, εₑ_∂ωεₑ_∂²ωεₑ_herm, εₑ_∂ωεₑ_herm,
-    f_εₑᵣ, fj_εₑᵣ, fjh_εₑᵣ, f_εₑᵣ!, fj_εₑᵣ!, fjh_εₑᵣ!,
-    f_εₑᵣ_herm, fj_εₑᵣ_herm, fjh_εₑᵣ_herm, f_εₑᵣ_herm!, fj_εₑᵣ_herm!, fjh_εₑᵣ_herm!, _f_ε_mats_sym
+    ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ #,
+    # εₑ_∂ωεₑ_∂²ωεₑ_herm, εₑ_∂ωεₑ_herm,
+    # f_εₑᵣ, fj_εₑᵣ, fjh_εₑᵣ, f_εₑᵣ!, fj_εₑᵣ!, fjh_εₑᵣ!,
+    # f_εₑᵣ_herm, fj_εₑᵣ_herm, fjh_εₑᵣ_herm, f_εₑᵣ_herm!, fj_εₑᵣ_herm!, fjh_εₑᵣ_herm!, _f_ε_mats_sym
 
 rules_2D = Prewalk(PassThrough(@acrule sin(~x)^2 + cos(~x)^2 => 1 ))
 
@@ -339,116 +340,116 @@ end
 ############################################################################################################################################################
 ############################################################################################################################################################
 
-function _f_εₑᵣ_herm_sym()
-    p = @variables r₁ ε₁ᵣ_11 ε₁ᵣ_12 ε₁ᵣ_13 ε₁ᵣ_22 ε₁ᵣ_23 ε₁ᵣ_33 ε₂ᵣ_11 ε₂ᵣ_12 ε₂ᵣ_13 ε₂ᵣ_22 ε₂ᵣ_23 ε₂ᵣ_33
-    ε₁ᵣ = [ ε₁ᵣ_11  ε₁ᵣ_12  ε₁ᵣ_13 ;  ε₁ᵣ_12  ε₁ᵣ_22  ε₁ᵣ_23 ; ε₁ᵣ_13  ε₁ᵣ_23  ε₁ᵣ_33 ];
-    ε₂ᵣ = [ ε₂ᵣ_11  ε₂ᵣ_12  ε₂ᵣ_13 ;  ε₂ᵣ_12  ε₂ᵣ_22  ε₂ᵣ_23 ; ε₂ᵣ_13  ε₂ᵣ_23  ε₂ᵣ_33 ];
-    τavg = ( r₁ * τ_trans( ε₁ᵣ ) ) + ( (1-r₁) * τ_trans( ε₂ᵣ ) )
-    epse_rot = τ⁻¹_trans(τavg)
-    # f_εₑᵣ_sym = simplify_fractions.(getindex.((epse_rot,),[1,2,3,5,6,9]))
-    f_εₑᵣ_sym = simplify_fractions.(herm_vec(epse_rot))
-    return f_εₑᵣ_sym, p
-end
+# function _f_εₑᵣ_herm_sym()
+#     p = @variables r₁ ε₁ᵣ_11 ε₁ᵣ_12 ε₁ᵣ_13 ε₁ᵣ_22 ε₁ᵣ_23 ε₁ᵣ_33 ε₂ᵣ_11 ε₂ᵣ_12 ε₂ᵣ_13 ε₂ᵣ_22 ε₂ᵣ_23 ε₂ᵣ_33
+#     ε₁ᵣ = [ ε₁ᵣ_11  ε₁ᵣ_12  ε₁ᵣ_13 ;  ε₁ᵣ_12  ε₁ᵣ_22  ε₁ᵣ_23 ; ε₁ᵣ_13  ε₁ᵣ_23  ε₁ᵣ_33 ];
+#     ε₂ᵣ = [ ε₂ᵣ_11  ε₂ᵣ_12  ε₂ᵣ_13 ;  ε₂ᵣ_12  ε₂ᵣ_22  ε₂ᵣ_23 ; ε₂ᵣ_13  ε₂ᵣ_23  ε₂ᵣ_33 ];
+#     τavg = ( r₁ * τ_trans( ε₁ᵣ ) ) + ( (1-r₁) * τ_trans( ε₂ᵣ ) )
+#     epse_rot = τ⁻¹_trans(τavg)
+#     # f_εₑᵣ_sym = simplify_fractions.(getindex.((epse_rot,),[1,2,3,5,6,9]))
+#     f_εₑᵣ_sym = simplify_fractions.(herm_vec(epse_rot))
+#     return f_εₑᵣ_sym, p
+# end
 
-f_εₑᵣ_herm_sym, protH = _f_εₑᵣ_herm_sym();
-fj_εₑᵣ_herm_sym, fjh_εₑᵣ_herm_sym = _fj_fjh_sym(f_εₑᵣ_herm_sym, protH);
-f_εₑᵣ_herm   = eval_fn_oop(f_εₑᵣ_herm_sym,protH);
-fj_εₑᵣ_herm  = eval_fn_oop(fj_εₑᵣ_herm_sym,protH);
-fjh_εₑᵣ_herm  = eval_fn_oop(fjh_εₑᵣ_herm_sym,protH);
-f_εₑᵣ_herm!   = eval_fn_ip(f_εₑᵣ_herm_sym,protH);
-fj_εₑᵣ_herm!  = eval_fn_ip(fj_εₑᵣ_herm_sym,protH);
-fjh_εₑᵣ_herm! = eval_fn_ip(fjh_εₑᵣ_herm_sym,protH);
-fout_rot = f_εₑᵣ_herm(rand(13));
-fjout_rot = fj_εₑᵣ_herm(rand(13));
-fjhout_rot = fjh_εₑᵣ_herm(MVector{13}(rand(13)));
-f_εₑᵣ_herm!(similar(fout_rot),rand(13));
-fj_εₑᵣ_herm!(similar(fjout_rot),rand(13));
-fjh_εₑᵣ_herm!(similar(fjhout_rot),rand(13));
+# f_εₑᵣ_herm_sym, protH = _f_εₑᵣ_herm_sym();
+# fj_εₑᵣ_herm_sym, fjh_εₑᵣ_herm_sym = _fj_fjh_sym(f_εₑᵣ_herm_sym, protH);
+# f_εₑᵣ_herm   = eval_fn_oop(f_εₑᵣ_herm_sym,protH);
+# fj_εₑᵣ_herm  = eval_fn_oop(fj_εₑᵣ_herm_sym,protH);
+# fjh_εₑᵣ_herm  = eval_fn_oop(fjh_εₑᵣ_herm_sym,protH);
+# f_εₑᵣ_herm!   = eval_fn_ip(f_εₑᵣ_herm_sym,protH);
+# fj_εₑᵣ_herm!  = eval_fn_ip(fj_εₑᵣ_herm_sym,protH);
+# fjh_εₑᵣ_herm! = eval_fn_ip(fjh_εₑᵣ_herm_sym,protH);
+# fout_rot = f_εₑᵣ_herm(rand(13));
+# fjout_rot = fj_εₑᵣ_herm(rand(13));
+# fjhout_rot = fjh_εₑᵣ_herm(MVector{13}(rand(13)));
+# f_εₑᵣ_herm!(similar(fout_rot),rand(13));
+# fj_εₑᵣ_herm!(similar(fjout_rot),rand(13));
+# fjh_εₑᵣ_herm!(similar(fjhout_rot),rand(13));
 
-∂ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ_herm(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
+# ∂ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ_herm(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
 
-function εₑᵣ_∂ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
-    fj_εₑᵣ_12 = similar(ε₁,6,14) # fj_εₑᵣ_herm(fj_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
-    fj_εₑᵣ_herm!(fj_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
-    f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
-    εₑᵣ_12 = SHermitianCompact{3}( f_εₑᵣ_12 )
-    v_∂ω = vcat(0.0,herm_vec(∂ω_ε₁),herm_vec(∂ω_ε₂));
-    ∂ω_εₑᵣ_12 = SHermitianCompact{3}( j_εₑᵣ_12 * v_∂ω );
-    return εₑᵣ_12, ∂ω_εₑᵣ_12
-end
+# function εₑᵣ_∂ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)
+#     fj_εₑᵣ_12 = similar(ε₁,6,14) # fj_εₑᵣ_herm(fj_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
+#     fj_εₑᵣ_herm!(fj_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
+#     f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
+#     εₑᵣ_12 = SHermitianCompact{3}( f_εₑᵣ_12 )
+#     v_∂ω = vcat(0.0,herm_vec(∂ω_ε₁),herm_vec(∂ω_ε₂));
+#     ∂ω_εₑᵣ_12 = SHermitianCompact{3}( j_εₑᵣ_12 * v_∂ω );
+#     return εₑᵣ_12, ∂ω_εₑᵣ_12
+# end
 
-function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂)
-    fjh_εₑᵣ_12 = similar(ε₁,6,183) # fjh_εₑᵣ_herm(fjh_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
-    fjh_εₑᵣ_herm!(fjh_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
-    f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:14], reshape(fjh_εₑᵣ_12[:,15:183],(6,13,13));
-    εₑᵣ_12 = SHermitianCompact{3}(f_εₑᵣ_12,)
-    v_∂ω, v_∂²ω = vcat(0.0,herm_vec(∂ω_ε₁),herm_vec(∂ω_ε₂)), vcat(0.0,herm_vec(∂²ω_ε₁),herm_vec(∂²ω_ε₂));
-    ∂ω_εₑᵣ_12 = SHermitianCompact{3}( j_εₑᵣ_12 * v_∂ω,  );
-    ∂ω²_εₑᵣ_12 = SHermitianCompact{3}( [dot(v_∂ω,h_εₑᵣ_12[i,:,:],v_∂ω) for i=1:6] + j_εₑᵣ_12*v_∂²ω  );
-    return εₑᵣ_12, ∂ω_εₑᵣ_12, ∂ω²_εₑᵣ_12
-end
-
-
-@inline εₑ_∂ωεₑ_herm(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_herm(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂)))
-@inline εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ_herm(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂)))
-@inline εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,idx1,idx2,ε,∂ω_ε,∂²ω_ε) = @inbounds εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,ε[idx1],ε[idx2],∂ω_ε[idx1],∂ω_ε[idx2],∂²ω_ε[idx1],∂²ω_ε[idx2])
+# function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ_herm(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂)
+#     fjh_εₑᵣ_12 = similar(ε₁,6,183) # fjh_εₑᵣ_herm(fjh_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
+#     fjh_εₑᵣ_herm!(fjh_εₑᵣ_12,vcat(r₁,herm_vec(ε₁),herm_vec(ε₂)));
+#     f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:14], reshape(fjh_εₑᵣ_12[:,15:183],(6,13,13));
+#     εₑᵣ_12 = SHermitianCompact{3}(f_εₑᵣ_12,)
+#     v_∂ω, v_∂²ω = vcat(0.0,herm_vec(∂ω_ε₁),herm_vec(∂ω_ε₂)), vcat(0.0,herm_vec(∂²ω_ε₁),herm_vec(∂²ω_ε₂));
+#     ∂ω_εₑᵣ_12 = SHermitianCompact{3}( j_εₑᵣ_12 * v_∂ω,  );
+#     ∂ω²_εₑᵣ_12 = SHermitianCompact{3}( [dot(v_∂ω,h_εₑᵣ_12[i,:,:],v_∂ω) for i=1:6] + j_εₑᵣ_12*v_∂²ω  );
+#     return εₑᵣ_12, ∂ω_εₑᵣ_12, ∂ω²_εₑᵣ_12
+# end
 
 
-###
+# @inline εₑ_∂ωεₑ_herm(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_herm(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂)))
+# @inline εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂,∂²ω_ε₁,∂²ω_ε₂) = _rotate.((transpose(S),),εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ_herm(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂)))
+# @inline εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,idx1,idx2,ε,∂ω_ε,∂²ω_ε) = @inbounds εₑ_∂ωεₑ_∂²ωεₑ_herm(r₁,S,ε[idx1],ε[idx2],∂ω_ε[idx1],∂ω_ε[idx2],∂²ω_ε[idx1],∂²ω_ε[idx2])
 
 
-function _f_epse3D_sym()
-    p = @variables r₁ n_1 n_2 n_3 ε₁_11 ε₁_12 ε₁_13 ε₁_21 ε₁_22 ε₁_23 ε₁_31 ε₁_32 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_21 ε₂_22 ε₂_23 ε₂_31 ε₂_32 ε₂_33 
-    ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_21  ε₁_22  ε₁_23 ; ε₁_31  ε₁_32  ε₁_33 ] 
-    ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_21  ε₂_22  ε₂_23 ; ε₂_31  ε₂_32  ε₂_33 ]
-    n = [ n_1, n_2, n_3 ]
-    S = simplify.(normcart(n))
-    τ1 = τ_trans( S' * ε₁ * S )
-    τ2 = τ_trans( S' * ε₂ * S )
-    τavg =  r₁ * τ1  +  (1-r₁) * τ2 
-    f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * S' )
-    return f_εₑ_sym, p
-end
+# ###
 
-function _f_epse3D_sym_Arr()
-    # p = @variables r₁, n[1:3], ε₁[1:3,1:3], ε₂[1:3,1:3]
-    p = @variables r₁, S[1:3,1:3], ε₁[1:3,1:3], ε₂[1:3,1:3]
-    τ1 = τ_trans( scalarize(transpose(S) * ε₁ * S) )
-    τ2 = τ_trans( scalarize(transpose(S) * ε₂ * S) )
-    τavg =  r₁ * τ1  +  (1-r₁) * τ2 
-    f_εₑ_sym = vec( scalarize(S * τ⁻¹_trans(τavg) ) * scalarize(transpose(S)) )
-    pf = vcat(r₁,vec(scalarize(S)),vec(scalarize(ε₁)),vec(scalarize(ε₂)))
-    return f_εₑ_sym, pf
-end
 
-### 3D Hermitian case ###
+# function _f_epse3D_sym()
+#     p = @variables r₁ n_1 n_2 n_3 ε₁_11 ε₁_12 ε₁_13 ε₁_21 ε₁_22 ε₁_23 ε₁_31 ε₁_32 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_21 ε₂_22 ε₂_23 ε₂_31 ε₂_32 ε₂_33 
+#     ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_21  ε₁_22  ε₁_23 ; ε₁_31  ε₁_32  ε₁_33 ] 
+#     ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_21  ε₂_22  ε₂_23 ; ε₂_31  ε₂_32  ε₂_33 ]
+#     n = [ n_1, n_2, n_3 ]
+#     S = simplify.(normcart(n))
+#     τ1 = τ_trans( S' * ε₁ * S )
+#     τ2 = τ_trans( S' * ε₂ * S )
+#     τavg =  r₁ * τ1  +  (1-r₁) * τ2 
+#     f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * S' )
+#     return f_εₑ_sym, p
+# end
 
-function _f_epse3DH_sym()
-    p = @variables r₁ n_1 n_2 n_3 ε₁_11 ε₁_12 ε₁_13 ε₁_22 ε₁_23 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_22 ε₂_23 ε₂_33
-    ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_12  ε₁_22  ε₁_23 ; ε₁_13  ε₁_23  ε₁_33 ];
-    ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_12  ε₂_22  ε₂_23 ; ε₂_13  ε₂_23  ε₂_33 ];
-    n = [ n_1, n_2, n_3 ]
-    S = simplify.(normcart(n))
-    τ1 = τ_trans( transpose(S) * ε₁ * S )
-    τ2 = τ_trans( transpose(S) * ε₂ * S )
-    τavg =  r₁ * τ1  +  (1-r₁) * τ2 
-    f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * transpose(S) )
-    return f_εₑ_sym, p
-end
+# function _f_epse3D_sym_Arr()
+#     # p = @variables r₁, n[1:3], ε₁[1:3,1:3], ε₂[1:3,1:3]
+#     p = @variables r₁, S[1:3,1:3], ε₁[1:3,1:3], ε₂[1:3,1:3]
+#     τ1 = τ_trans( scalarize(transpose(S) * ε₁ * S) )
+#     τ2 = τ_trans( scalarize(transpose(S) * ε₂ * S) )
+#     τavg =  r₁ * τ1  +  (1-r₁) * τ2 
+#     f_εₑ_sym = vec( scalarize(S * τ⁻¹_trans(τavg) ) * scalarize(transpose(S)) )
+#     pf = vcat(r₁,vec(scalarize(S)),vec(scalarize(ε₁)),vec(scalarize(ε₂)))
+#     return f_εₑ_sym, pf
+# end
 
-### 2D Hermitian case ###
+# ### 3D Hermitian case ###
 
-function _f_epse2DH_sym()
-    p = @variables r₁ θ ε₁_11 ε₁_12 ε₁_13 ε₁_22 ε₁_23 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_22 ε₂_23 ε₂_33
-    ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_12  ε₁_22  ε₁_23 ; ε₁_13  ε₁_23  ε₁_33 ] 
-    ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_12  ε₂_22  ε₂_23 ; ε₂_13  ε₂_23  ε₂_33 ]
-    S = simplify.(simplify.(normcart([sin(θ), cos(θ), 0]);threaded=true); rewriter=rules_2D);
-    τ1 = τ_trans( transpose(S) * ε₁ * S )
-    τ2 = τ_trans( transpose(S) * ε₂ * S )
-    τavg =  r₁ * τ1  +  (1-r₁) * τ2 
-    f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * transpose(S) )
-    return f_εₑ_sym, p
-end
+# function _f_epse3DH_sym()
+#     p = @variables r₁ n_1 n_2 n_3 ε₁_11 ε₁_12 ε₁_13 ε₁_22 ε₁_23 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_22 ε₂_23 ε₂_33
+#     ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_12  ε₁_22  ε₁_23 ; ε₁_13  ε₁_23  ε₁_33 ];
+#     ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_12  ε₂_22  ε₂_23 ; ε₂_13  ε₂_23  ε₂_33 ];
+#     n = [ n_1, n_2, n_3 ]
+#     S = simplify.(normcart(n))
+#     τ1 = τ_trans( transpose(S) * ε₁ * S )
+#     τ2 = τ_trans( transpose(S) * ε₂ * S )
+#     τavg =  r₁ * τ1  +  (1-r₁) * τ2 
+#     f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * transpose(S) )
+#     return f_εₑ_sym, p
+# end
+
+# ### 2D Hermitian case ###
+
+# function _f_epse2DH_sym()
+#     p = @variables r₁ θ ε₁_11 ε₁_12 ε₁_13 ε₁_22 ε₁_23 ε₁_33 ε₂_11 ε₂_12 ε₂_13 ε₂_22 ε₂_23 ε₂_33
+#     ε₁ = [ ε₁_11  ε₁_12  ε₁_13 ;  ε₁_12  ε₁_22  ε₁_23 ; ε₁_13  ε₁_23  ε₁_33 ] 
+#     ε₂ = [ ε₂_11  ε₂_12  ε₂_13 ;  ε₂_12  ε₂_22  ε₂_23 ; ε₂_13  ε₂_23  ε₂_33 ]
+#     S = simplify.(simplify.(normcart([sin(θ), cos(θ), 0]);threaded=true); rewriter=rules_2D);
+#     τ1 = τ_trans( transpose(S) * ε₁ * S )
+#     τ2 = τ_trans( transpose(S) * ε₂ * S )
+#     τavg =  r₁ * τ1  +  (1-r₁) * τ2 
+#     f_εₑ_sym = vec( S * τ⁻¹_trans(τavg) * transpose(S) )
+#     return f_εₑ_sym, p
+# end
 
 
 

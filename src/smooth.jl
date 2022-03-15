@@ -50,6 +50,15 @@ function proc_sinds(corner_sinds::NTuple{4,T}) where T<:Int
 	return sinds_proc
 end
 
+function proc_sinds(corner_sinds::NTuple{8,T}) where T<:Int
+	# unq = T[corner_sinds...]
+	# unique!( unq )
+	unq = unique(corner_sinds)
+	sinds_proc = isone(lastindex(unq)) ? (first(unq),0,0,0,0,0,0,0) :
+			( lastindex(unq)===2 ?  ( xtrm=extrema(unq); (xtrm[1],xtrm[2],0,0,0,0,0,0) ) : corner_sinds )
+	return sinds_proc
+end
+
 @non_differentiable proc_sinds(crnr_sinds::Any)
 
 function smooth_ε_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real} 
