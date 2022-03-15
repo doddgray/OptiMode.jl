@@ -26,6 +26,7 @@ using FFTW
 using AbstractFFTs
 using LoopVectorization
 using Tullio
+using SliceMap
 
 ### AD ###
 # using ForwardDiff

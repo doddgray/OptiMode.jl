@@ -2,7 +2,7 @@ export _mult, _dot, _3dot
 export _cross, _cross_x, _cross_y, _cross_z
 export _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
 export _outer, _expect
-export slice_inv
+export sliceinv_3x3
 
 
 """
@@ -125,17 +125,16 @@ end
 """
 Tensor utilities
 """
-
-function slice_inv(A::Array{T,4}) where {T}
-    B = reinterpret(SArray{Tuple{3,3},T,2,9}, vec(A))
-    C = map(inv, B)
-    reshape(reinterpret(T, B), size(A))
+function sliceinv_3x3(A::AbstractArray{T,4},gridsize::NTuple{2,Int}=(size(A,3),size(A,4))) where {T<:Number}
+        reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
 end
 
-function slice_inv(A::Array{T,5}) where {T}
-    B = reinterpret(SArray{Tuple{3,3},T,2,9}, vec(A))
-    C = map(inv, B)
-    reshape(reinterpret(T, B), size(A))
+function sliceinv_3x3(A::AbstractArray{T,5},gridsize::NTuple{3,Int}=(size(A,3),size(A,4),size(A,5))) where {T<:Number}
+        reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
+end
+
+function sliceinv_3x3(A::AbstractArray,grid::Grid{ND}) where {ND}
+        reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,length(grid)))),(3,3,size(grid)...))
 end
 
 """

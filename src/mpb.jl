@@ -17,10 +17,21 @@ export n_range #, mp, mpb, np
 # SHM3 = SHermitianCompact{3,Float64,6}
 # Conda.add("wurlitzer"; channel="conda-forge")
 
+const DEFAULT_MPB_LOGPATH = "log.txt"
+const DEFAULT_MPB_EPSPATH = "-epsilon.h5"
+
+# These empty Python object assignments just set asside pointers for loading Python modules
+const pymeep    =   PyNULL()
+const pympb     =   PyNULL()
+# const numpy     =   PyNULL()
+
 function __init__()
-    @eval global mp = pyimport("meep")
-    @eval global mpb = pyimport("meep.mpb")
-    @eval global np = pyimport("numpy")
+    # @eval global mp = pyimport("meep")
+    # @eval global mpb = pyimport("meep.mpb")
+    # @eval global np = pyimport("numpy")
+    copy!(pymeep, pyimport("meep"))
+    copy!(pympb, pyimport("meep.mpb"))
+    # copy!(numpy, pyimport("numpy"))
     # wurlitzer = pyimport("wurlitzer")
     py"""
     import numpy
@@ -74,10 +85,6 @@ function __init__()
     """
 end
 
-
-const DEFAULT_MPB_LOGPATH = "log.txt"
-const DEFAULT_MPB_EPSPATH = "-epsilon.h5"
-
 function get_Δs_mpb(ms)
     Δx, Δy, Δz = ms.geometry_lattice.size.__array__()
 end
@@ -105,7 +112,7 @@ function get_ε⁻¹_mpb(ms)
     Nz = length(z)
     ε⁻¹ = Array{Float64,5}(undef, (3, 3, Nx, Ny, Nz))
     for i = 1:Nx, j = 1:Ny, k = 1:Nz
-        ε⁻¹[:, :, i, j, k] .= real(ms.get_epsilon_inverse_tensor_point(mp.Vector3(
+        ε⁻¹[:, :, i, j, k] .= real(ms.get_epsilon_inverse_tensor_point(pymeep.Vector3(
             x[i],
             y[j],
             z[k],
@@ -121,7 +128,7 @@ function get_ε_mpb(ms)
     Nz = length(z)
     ε = Array{Float64,5}(undef, (3, 3, Nx, Ny, Nz))
     for i = 1:Nx, j = 1:Ny, k = 1:Nz
-        ε[:, :, i, j, k] .= real(ms.get_epsilon_inverse_tensor_point(mp.Vector3(
+        ε[:, :, i, j, k] .= real(ms.get_epsilon_inverse_tensor_point(pymeep.Vector3(
             x[i],
             y[j],
             z[k],
@@ -130,11 +137,11 @@ function get_ε_mpb(ms)
     return ε
 end
 
-mpMatrix(M::AbstractMatrix) = mp.Matrix([mp.Vector3(M[:,j]...) for j=1:size(M)[2]]...)
+mpMatrix(M::Matrix) = pymeep.Matrix([pymeep.Vector3(M[:,j]...) for j=1:size(M)[2]]...)
 
 function mpMedium(mat,λ)
     eps = mat.fε(λ)
-    return mp.Medium(epsilon_diag=mp.Vector3(eps[1,1],eps[2,2],eps[3,3]),epsilon_offdiag=mp.Vector3(eps[1,2],eps[1,3],eps[2,3]))
+    return pymeep.Medium(epsilon_diag=pymeep.Vector3(eps[1,1],eps[2,2],eps[3,3]),epsilon_offdiag=pymeep.Vector3(eps[1,2],eps[1,3],eps[2,3]))
 end
 
 """
@@ -308,7 +315,7 @@ end
 
 """
 from the mpb docs:
-https://mpb.readthedocs.io/en/latest/Python_User_Interface/#the-inverse-problem-k-as-a-function-of-frequency
+https://pympb.readthedocs.io/en/latest/Python_User_Interface/#the-inverse-problem-k-as-a-function-of-frequency
 
 we expect the kvals line format to be
 "kvals: omega, band-min, band-max, korig1, korig2, korig3, kdir1, kdir2, kdir3, k magnitudes... "
@@ -339,7 +346,7 @@ group velocity line format example:
 "velocity:, 1, Vector3<-8.863934120552942e-06, -2.9413768567368583e-06, 0.41192396407478216>"
 
 see the mpb docs:
-https://mpb.readthedocs.io/en/latest/Python_User_Interface/#miscellaneous-functions
+https://pympb.readthedocs.io/en/latest/Python_User_Interface/#miscellaneous-functions
 """
 function parse_grpvels(grpvel_line)
     gv_strs = split(grpvel_line,"Vector3")[2:end]
@@ -358,7 +365,7 @@ f-energy-components line format example:
 "D-energy-components:, 1, 1, 0.00358093, 0.82414, 0.172279"
 
 from the mpb docs:
-https://mpb.readthedocs.io/en/latest/Python_User_Interface/#loading-and-manipulating-the-current-field
+https://pympb.readthedocs.io/en/latest/Python_User_Interface/#loading-and-manipulating-the-current-field
 
 we expect the `f`-energy line format to be
 "`f`-energy-components:, k-index, band-index, x-fraction, y-fraction, z-fraction"
@@ -407,37 +414,37 @@ end
 
 
 
-res_mpb(grid::Grid{2}) = mp.Vector3((grid.Nx / grid.Δx), (grid.Ny / grid.Δy), 1)
-res_mpb(grid::Grid{3}) = mp.Vector3((grid.Nx / grid.Δx), (grid.Ny / grid.Δy), (grid.Nz / grid.Δz))
-lat_mpb(grid::Grid{2}) = mp.Lattice(size = mp.Vector3(grid.Δx, grid.Δy, 1.0)) #mp.Lattice(size = mp.Vector3(grid.Δx, grid.Δy, 0))
-lat_mpb(grid::Grid{3}) = mp.Lattice(size = mp.Vector3(grid.Δx, grid.Δy, grid.Δz))
+res_mpb(grid::Grid{2}) = pymeep.Vector3((grid.Nx / grid.Δx), (grid.Ny / grid.Δy), 1)
+res_mpb(grid::Grid{3}) = pymeep.Vector3((grid.Nx / grid.Δx), (grid.Ny / grid.Δy), (grid.Nz / grid.Δz))
+lat_mpb(grid::Grid{2}) = pymeep.Lattice(size = pymeep.Vector3(grid.Δx, grid.Δy, 1.0)) #pymeep.Lattice(size = pymeep.Vector3(grid.Δx, grid.Δy, 0))
+lat_mpb(grid::Grid{3}) = pymeep.Lattice(size = pymeep.Vector3(grid.Δx, grid.Δy, grid.Δz))
 
 
 function mpGeomObj(b::GeometryPrimitives.Box{2};λ=1.55,thickness=10.0)
-    return mp.Block(
-        center = mp.Vector3(b.c...),
-        size = 2 * mp.Vector3(b.r[1],b.r[2],thickness),
-        e1 = mp.Vector3(b.p[:,1]...),
-        e2 = mp.Vector3(b.p[:,2]...),
-        e3 = mp.Vector3(0,0,1),
+    return pymeep.Block(
+        center = pymeep.Vector3(b.c...),
+        size = 2 * pymeep.Vector3(b.r[1],b.r[2],thickness),
+        e1 = pymeep.Vector3(b.p[:,1]...),
+        e2 = pymeep.Vector3(b.p[:,2]...),
+        e3 = pymeep.Vector3(0,0,1),
         material=mpMedium(b.data,λ),
         )
 end
 
 function mpGeomObj(b::GeometryPrimitives.Box{3};λ=1.55)
-    return mp.Block(
-        center = mp.Vector3(b.c...),
-        size = 2 * mp.Vector3(b.r...),
-        e1 = mp.Vector3(b.p[:,1]...),
-        e2 = mp.Vector3(b.p[:,2]...),
-        e3 = mp.Vector3(b.p[:,3]...),
+    return pymeep.Block(
+        center = pymeep.Vector3(b.c...),
+        size = 2 * pymeep.Vector3(b.r...),
+        e1 = pymeep.Vector3(b.p[:,1]...),
+        e2 = pymeep.Vector3(b.p[:,2]...),
+        e3 = pymeep.Vector3(b.p[:,3]...),
         material=mpMedium(b.data,λ),
         )
 end
 
 function mpGeomObj(p::GeometryPrimitives.Polygon;λ=1.55,thickness=10.0)
-    return mp.Prism(
-        [mp.Vector3(p.v[i,1],p.v[i,2],-thickness/2.) for i=1:size(p.v)[1]],
+    return pymeep.Prism(
+        [pymeep.Vector3(p.v[i,1],p.v[i,2],-thickness/2.) for i=1:size(p.v)[1]],
         height = thickness,
         material=mpMedium(p.data,λ),
         )
@@ -464,16 +471,16 @@ function ms_mpb(;resolution=10,
     k_points=[],
     ensure_periodicity=true,
     geometry=[],
-    geometry_lattice=mp.Lattice(),
-    geometry_center=mp.Vector3(0, 0, 0),
-    default_material=mp.Medium(epsilon=1),
+    geometry_lattice=pymeep.Lattice(),
+    geometry_center=pymeep.Vector3(0, 0, 0),
+    default_material=pymeep.Medium(epsilon=1),
     dimensions=3,
     random_fields=false,
     filename_prefix="",
     deterministic=true,
     verbose=false,
-    parity=mp.NO_PARITY)
-    ms = mpb.ModeSolver(;
+    parity=pymeep.NO_PARITY)
+    ms = pympb.ModeSolver(;
         resolution,
         is_negative_epsilon_ok,
         eigensolver_flops,
@@ -612,8 +619,8 @@ function already_calculated(ω,filename_prefix,bands;data_path=pwd())::Bool
 end
 
 function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",
-    band_func=[mpb.fix_efield_phase],save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
-    parity=mp.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND
+    band_func=[pympb.fix_efield_phase],save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
+    parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND
     n_bands_out = band_max-band_min+1
     evecs = zeros(ComplexF64,(N(grid),2,n_bands_out))
     if save_evecs
@@ -623,11 +630,11 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
     end
 
     if save_efield
-        push!(band_func,mpb.output_efield)
+        push!(band_func,pympb.output_efield)
     end
 
     if save_hfield
-        push!(band_func,mpb.output_hfield)
+        push!(band_func,pympb.output_hfield)
     end
 
     if calc_polarization
@@ -635,7 +642,7 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
     end
 
     if calc_grp_vels
-        push!(band_func,mpb.display_group_velocities)
+        push!(band_func,pympb.display_group_velocities)
     end
 
     init_path = pwd()
@@ -657,7 +664,7 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
                 ω,                    # ω at which to solve for k
                 1,                 # band_min (find k(ω) for bands
                 ms.num_bands,                 # band_max  band_min:band_max)
-                mp.Vector3(k_dir...),     # k direction to search
+                pymeep.Vector3(k_dir...),     # k direction to search
                 ms.tolerance,             # fractional k error tolerance
                 n_guess * ω,              # kmag_guess, |k| estimate
                 n_min * ω,                # kmag_min (find k in range
@@ -680,8 +687,8 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
 end
 
 # function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",
-#     band_func=[mpb.fix_efield_phase,py"output_evecs"],save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
-#     parity=mp.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND  
+#     band_func=[pympb.fix_efield_phase,py"output_evecs"],save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
+#     parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND  
 
 function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),kwargs...) where ND  
     if already_calculated(ω,filename_prefix,band_min:band_max;data_path)

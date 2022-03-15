@@ -1,7 +1,8 @@
 using LinearAlgebra, StaticArrays, GeometryPrimitives, OptiMode, Test
 using ChainRules, Zygote, FiniteDifferences, ForwardDiff
 using OptiMode: vec3D
-# using CairoMakie
+using CairoMakie
+
 function test_AD(f::Function,p;nFD=5)
     primal  =   f(p)
     gr_RM   =   first(Zygote.gradient(f,p))
@@ -124,6 +125,53 @@ function geom1(p)  # slab_loaded_ridge_wg
 	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
 	return (core,b_slab,b_subs)
 end
+
+function geom2(p)  # slab_loaded_ridge_wg
+    wₜₒₚ        =   p[1]
+    t_core      =   p[2]
+    θ           =   p[3]
+    t_slab      =   p[4]
+    edge_gap    =   0.5
+    mat_core    =   1
+    mat_slab    =   2
+    mat_subs    =   3
+    Δx          =   6.0
+    Δy          =   4.0
+    t_subs = (Δy -t_core - edge_gap )/2. - t_slab
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+	c_slab_y = -Δy/2. + edge_gap/2. + t_subs + t_slab/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	# t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	# c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_slab + t_unetch/2.
+	verts           =   SMatrix{4,2}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core            =   GeometryPrimitives.Polygon(verts,mat_core)
+    ax              =   SMatrix{2,2}( [      1.     0.   ;   0.     1.      ] )
+    
+    x_box_min       =   wb_half
+    x_box_max       =   (Δx - edge_gap)/2
+    y_box_min       =   c_slab_y + t_slab/2
+    y_box_max       =   (Δy - edge_gap)/2
+
+    boxes = map(eachcol(reshape(p[5:end],(4,10)))) do pp
+        c_bb_x      =   pp[1]*(x_box_max-x_box_min) + x_box_min
+        r_bb_x      =   pp[2]*min((c_bb_x-x_box_min),(x_box_max-c_bb_x))
+        c_bb_y      =   pp[3]*(y_box_max-y_box_min) + y_box_min
+        r_bb_y      =   pp[4]*min((c_bb_y-y_box_min),(y_box_max-c_bb_y))
+
+        ( GeometryPrimitives.Box( SVector{2}([c_box_x , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, ),
+        )
+
+    end
+
+	# b_unetch = GeometryPrimitives.Box( [0. , c_unetch_y], [Δx - edge_gap, t_unetch ],	ax,	mat_core )
+	b_slab = GeometryPrimitives.Box( SVector{2}([0. , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, )
+	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
+	return (core,b_slab,b_subs)
+end
+
+
 # function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real,Δz::Real) #::Geometry{2}
 function geom3(p)
     wₜₒₚ        =   p[1]
@@ -173,27 +221,87 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
 ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+ε⁻¹             =   sliceinv_3x3(ε)
 
-using CairoMakie
+## figure out fast+AD-compatible local ε tensor inversion ε→ε⁻¹  
+using SliceMap
+# function slice_inv(A::Array{T,4}) where {T}
+#     B = reinterpret(SArray{Tuple{3,3},T,2,9}, vec(A))
+#     C = map(inv, B)
+#     reshape(reinterpret(T, B), size(A))
+# end
+
+function slice_inv4(A::Array{T,4},gridsize::NTuple{ND,Int}=(size(A,3),size(A,4))) where {T,ND}
+    reshape(MapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
+end
+
+function slice_inv5(A::Array{T,4},gridsize::NTuple{ND,Int}=(size(A,3),size(A,4))) where {T,ND}
+    reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
+end
+
+
+ei1 = slice_inv(ε)
+ei2 = mapslices(inv, ε, dims = [1,2])
+ei3 = slicemap(inv, ε; dims = [1,2])
+# ei4 = reshape(MapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(ε,(9,length(grid)))),(3,3,size(grid)...))
+# ei5 = reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(ε,(9,length(grid)))),(3,3,size(grid)...))
+ei4 = slice_inv4(ε,size(grid))
+ei5 = slice_inv5(ε,size(grid))
+ei42 = slice_inv4(ε)
+ei52 = slice_inv5(ε)
+
+# ei4 = slicemap(inv, ε; dims = [1,2])
+ei1 ≈ ei2
+ei3 ≈ ei2
+ei4 ≈ ei2
+ei5 ≈ ei2
+ei42 ≈ ei2
+ei52 ≈ ei2
+
+gr_ei1 = Zygote.gradient(x->sum(slice_inv(x)),ε)
+grf_ei1 = Zygote.gradient(x->sum(Zygote.forwarddiff(slice_inv,x)),ε)
+gr_ei2 = Zygote.gradient(x->sum(mapslices(inv, x, dims = [1,2])),ε)
+gr_ei3 = Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),ε)[1]
+gr_ei4 = Zygote.gradient(x->sum(slice_inv4(x,size(grid))),ε)[1]
+gr_ei5 = Zygote.gradient(x->sum(slice_inv5(x,size(grid))),ε)[1]
+gr_ei42 = Zygote.gradient(x->sum(slice_inv4(x)),ε)[1]
+gr_ei52 = Zygote.gradient(x->sum(slice_inv5(x)),ε)[1]
+
+gr_ei4 ≈ gr_ei3
+gr_ei5 ≈ gr_ei3
+gr_ei52 ≈ gr_ei3
+
+@benchmark Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),$ε)
+@benchmark Zygote.gradient(x->sum(slice_inv4(x,$(size(grid)))),$ε)
+@benchmark Zygote.gradient(x->sum(slice_inv5(x,$(size(grid)))),$ε)
+@benchmark Zygote.gradient(x->sum(slice_inv4(x)),$ε)
+@benchmark Zygote.gradient(x->sum(slice_inv5(x)),$ε)
+
+fig,ax,hm = heatmap(gr_ei3[1,1,:,:]); Colorbar(fig[1,2],hm); fig
+##
+# kmags,evecs = find_k(1.0,ε,grid)
+# group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
+
+let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=(ε[1,1,:,:], ∂ε_∂ω[1,1,:,:], ∂²ε_∂ω²[1,1,:,:]), labels=("ε","∂ε_∂ω","∂²ε_∂ω²"), cmaps=(:viridis,:magma,:RdBu)
+    axes = [ Axis(fig[i, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect()) for i=1:length(Z) ]
+    for (i,ZZ) in enumerate(Z)
+        # ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect())
+        hmap = heatmap!(axes[i],X,Y,ZZ; colormap = cmaps[i])
+        Colorbar(fig[i, 2], hmap; label = labels[i],) # width = 15, height=200, ticksize = 15, tickalign = 1)
+        scatter!(axes[i],Point2f(X[valinds[4]],Y[valinds[5]]))
+    end
+    # colsize!(fig.layout, 1, Aspect(1, 1.0))
+    # colgap!(fig.layout, 1)
+    display(fig)
+end;
 
 yidx = 64 
 xidx = findfirst(x->!iszero(x),sm1[1,2,1,:,yidx]) # index of first nonzero off-diagonal epsilon value along grid row at yidx
 crnrs = corners(grid)[xidx,yidx]
 ps = proc_sinds(corner_sinds(shapes,crnrs))
-iszero(ps[2])
-mat_vals[:,minds[first(ps)]]
-shapes          =   geom1(p[2:5]);
 valinds = 1,1,1,xidx,yidx # last two are x,y indices of grid point on shape boundary
-sm1[:,:,valinds[3:5]...]
-let fig = Figure(resolution = (600, 400)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=sm1[1,2,1,:,:]
-    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect())
-    hmap = heatmap!(X,Y,Z; colormap = :plasma)
-    Colorbar(fig[1, 2], hmap; label = "values",) # width = 15, height=200, ticksize = 15, tickalign = 1)
-    scatter!(ax,Point2f(X[valinds[4]],Y[valinds[5]]))
-    # colsize!(fig.layout, 1, Aspect(1, 1.0))
-    # colgap!(fig.layout, 1)
-    display(fig)
-end;
+#∂²ε_∂ω²[:,:,xidx,yidx]
+
 
 # AD through material dielectric fn
 ff1(p) = sum(f_ε_mats(p[1:1]))
