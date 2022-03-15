@@ -133,9 +133,9 @@ function sliceinv_3x3(A::AbstractArray{T,5},gridsize::NTuple{3,Int}=(size(A,3),s
         reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
 end
 
-function sliceinv_3x3(A::AbstractArray,grid::Grid{ND}) where {ND}
-        reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,length(grid)))),(3,3,size(grid)...))
-end
+# function sliceinv_3x3(A::AbstractArray,grid::Grid{ND}) where {ND}
+#         reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,length(grid)))),(3,3,size(grid)...))
+# end
 
 """
 Spatially local linear algebra operations for flat (non-nested) arrays of 3-vectors and 3x3 tensors

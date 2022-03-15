@@ -45,59 +45,6 @@ function demo_shapes2D(p::Vector{T}=rand(17)) where T<:Real
 	return ( t, s, b )
 end
 
-# function smoov1_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real} 
-#     # sinds = corner_sinds(shapes,crnrs)  # indices (of `shapes`) of foreground shapes at corners of pixel/voxel
-#     # ps = proc_sinds(sinds)
-#     ps = proc_sinds(corner_sinds(shapes,crnrs))
-#     if iszero(ps[2])
-#         return mat_vals[:,minds[first(ps)]]
-# 	elseif iszero(ps[3])
-#         sidx1   =   ps[1]
-#         sidx2   =   ps[2]
-#         xyz     =   sum(crnrs)/NC # sum(crnrs)/NC
-#         r₀_n⃗    =   surfpt_nearby(xyz, shapes[sidx1])
-#         r₀      =   first(r₀_n⃗)
-#         n⃗       =   last(r₀_n⃗)
-#         rvol    =   volfrac((vxlmin(crnrs),vxlmax(crnrs)),n⃗,r₀)
-#         return εₑ_∂ωεₑ_∂²ωεₑ(
-#             rvol,
-#             normcart(vec3D(n⃗)),
-#             mat_vals[:,minds[sidx1]],
-#             mat_vals[:,minds[sidx2]],
-#         )
-#     else
-#         return sum(i->mat_vals[:,minds[i]],ps) / NC  # naive averaging to be used
-#     end
-# end
-
-# function smoov11(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-# 	smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
-# 		smoov1_single(shapes,mat_vals,minds,crnrs)
-# 	end
-# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-# end
-
-# function smoov12(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-#     smoothed_vals = let shapes=shapes,mat_vals=mat_vals,minds=minds,grid=grid
-#         mapreduce(vcat,corners(grid)) do crnrs
-# 		    smoov1_single(shapes,mat_vals,minds,crnrs)
-#         end
-# 	end
-# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-# end
-
-# function smoov13(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
-#     smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
-#         let shapes=shapes,mat_vals=mat_vals,minds=minds
-# 		    smoov1_single(shapes,mat_vals,minds,crnrs)
-#         end
-# 	end
-# 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
-# end
-
-
-# f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
-
 function geom1(p)  # slab_loaded_ridge_wg
     wₜₒₚ        =   p[1]
     t_core      =   p[2]
@@ -160,8 +107,8 @@ function geom2(p)  # slab_loaded_ridge_wg
         c_bb_y      =   pp[3]*(y_box_max-y_box_min) + y_box_min
         r_bb_y      =   pp[4]*min((c_bb_y-y_box_min),(y_box_max-c_bb_y))
 
-        ( GeometryPrimitives.Box( SVector{2}([c_box_x , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, ),
-        )
+        ( GeometryPrimitives.Box( SVector{2}( c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ),
+          GeometryPrimitives.Box( SVector{2}(-c_bb_x , c_bb_y), SVector{2}(2*r_bb_x, 2*r_bb_y ), ax, mat_boxes, ), )
 
     end
 
@@ -170,7 +117,6 @@ function geom2(p)  # slab_loaded_ridge_wg
 	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
 	return (core,b_slab,b_subs)
 end
-
 
 # function ridge_wg_partial_etch3D(wₜₒₚ::Real,t_core::Real,etch_frac::Real,θ::Real,edge_gap::Real,mat_core,mat_subs,Δx::Real,Δy::Real,Δz::Real) #::Geometry{2}
 function geom3(p)
@@ -211,7 +157,7 @@ end
 mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum];
 mat_vars = (:ω,)
 np_mats = length(mat_vars)
-f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars)
+f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
 p               =   [1.0, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128)
