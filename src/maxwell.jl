@@ -1,4 +1,4 @@
-export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, update_k, update_k!
+export HelmholtzMap, HelmholtzPreconditioner, ModeSolver, update_k, update_k!, replan_ffts!
 export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, mag_mn, kx_ct, kx_tc, zx_tc, zx_ct
 export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
 export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z, eid!
@@ -511,12 +511,13 @@ end
 
 function mag_m_n!(mag,m,n,k⃗::SVector{3,T},g⃗) where T <: Real
 	# for iz ∈ axes(g⃗,3), iy ∈ axes(g⃗,2), ix ∈ axes(g⃗,1) #, l in 0:0
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
+	local ẑ = SVector{3}(0,0,1)
+	local ŷ = SVector{3}(0,1,0)
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : SVector(-1.,0.,0.) #ŷ
+		# @inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds n[i] =  !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
 	end
 	return mag,m,n
@@ -562,7 +563,7 @@ function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds n[i] =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
 	end
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
@@ -730,8 +731,8 @@ function mag_mn(kmag::T,g::TG;k̂=SVector(0.,0.,1.)) where {T<:Real,TG}
 end
 
 function mag_mn!(mag,mn::AbstractArray{T1,NDp2},k⃗::SVector{3,T2},g⃗) where {T1<:Real,T2<:Real,NDp2}
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
 	# mv = view(mn,1:3,1,eachindex(g⃗)...)
 	# nv = view(mn,1:3,2,eachindex(g⃗)...)
 	# mvs = reinterpret(reshape,SVector{3,T1},mv)
@@ -755,7 +756,7 @@ mag_mn!(mag,mn,kmag::T,g⃗;k̂=SVector(0.,0.,1.)) where T <: Real = mag_mn!(mag
 assumes mn and mn̄ have axes/sizes:
 dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny
 """
-function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn;dk̂=ẑ) where {T1<:Real,T2<:Number}
+function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn;dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Number}
 	m = view(mn,:,1,:,:)
 	n = view(mn,:,2,:,:)
 	@tullio kp̂g_over_mag[i,ix,iy] := m[mod(i-2),ix,iy] * n[mod(i-1),ix,iy] / mag[ix,iy] - m[mod(i-1),ix,iy] * n[mod(i-2),ix,iy] / mag[ix,iy] (i in 1:3)
@@ -772,7 +773,7 @@ end
 assumes mn and mn̄ have axes/sizes:
 dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny, z_idx=1:Nz
 """
-function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn;dk̂=ẑ) where {T1<:Real,T2<:Number}
+function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn;dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Number}
 	m = view(mn,:,1,:,:,:)
 	n = view(mn,:,2,:,:,:)
 	@tullio kp̂g_over_mag[i,ix,iy,iz] := m[mod(i-2),ix,iy,iz] * n[mod(i-1),ix,iy,iz] / mag[ix,iy,iz] - m[mod(i-1),ix,iy,iz] * n[mod(i-2),ix,iy,iz] / mag[ix,iy,iz] (i in 1:3)
@@ -791,7 +792,7 @@ dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny
 
 Method with `kpg` (= k⃗ .+ g⃗(grid)) input for pullback performance
 """
-function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn,kpg;dk̂=ẑ) where {T1<:Real,T2<:Number}
+function ∇ₖmag_mn(māg::AbstractArray{T1,2},mn̄,mag::AbstractArray{T2,2},mn,kpg;dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Number}
 	@tullio kp̂g_over_mag[i,ix,iy] := kpg[i,ix,iy] / mag[ix,iy] 
 	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
 	@tullio k̄_mag := māg[ix,iy] * mag[ix,iy] * kp̂g_over_mag[j,ix,iy] * dk̂[j]
@@ -808,7 +809,7 @@ dim_idx=1:3, mn_idx=1:2, x_idx=1:Nx, y_idx=1:Ny, z_idx=1:Nz
 
 Method with `kpg` (= k⃗ .+ g⃗(grid)) input for pullback performance
 """
-function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn,kpg;dk̂=ẑ) where {T1<:Real,T2<:Number}
+function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},mn,kpg;dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Number}
 	@tullio kp̂g_over_mag[i,ix,iy,iz] := kpg[i,ix,iy,iz]  / mag[ix,iy,iz] 
 	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
 	@tullio k̄_mag := māg[ix,iy,iz] * mag[ix,iy,iz] * kp̂g_over_mag[j,ix,iy,iz] * dk̂[j]
@@ -817,9 +818,9 @@ function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},m
 	return k̄_magmn
 end
 
-function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector(0.,0.,1.)) where {T1<:Real,T2<:Real}
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
+function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
 	grid_size = size(g)
 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
 	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
@@ -849,9 +850,9 @@ function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3
     return ((mag, mn) , mag_mn_pullback)
 end
 
-function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector(0.,0.,1.)) where {T1<:Real,T2<:Real}
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
+function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
 	k⃗ = kmag * dk̂
 	grid_size = size(g)
 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
@@ -1202,6 +1203,21 @@ end
 
 function _unsafe_mul!(y::AbstractVecOrMat, P̂::HelmholtzPreconditioner, x::AbstractVector)
     P̂(y, x)
+end
+
+# replan_ffts! methods (ModeSolver FFT plans should be re-created for backwards pass during AD)
+function replan_ffts!(ms::ModeSolver{3,T}) where T<:Real
+	ms.M̂.𝓕! = plan_fft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹! = plan_bfft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
+	ms.M̂.𝓕 = plan_fft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹ = plan_bfft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)),(2:4),flags=FFTW.PATIENT);
+end
+
+function replan_ffts!(ms::ModeSolver{2,T}) where T<:Real
+	ms.M̂.𝓕! = plan_fft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹! = plan_bfft!(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕 = plan_fft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
+	ms.M̂.𝓕⁻¹ = plan_bfft(randn(Complex{T}, (3,ms.M̂.Nx,ms.M̂.Ny)),(2:3),flags=FFTW.PATIENT);
 end
 
 # Update k methods

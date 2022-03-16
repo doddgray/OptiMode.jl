@@ -53,10 +53,10 @@ using GeometryPrimitives
 
 ### Iterative Solvers ###
 using IterativeSolvers
-# using KrylovKit
+using KrylovKit
 # using DFTK: LOBPCG
-# using KrylovKit: eigsolve
-# using Roots
+# using KrylovKit: eigsolve, linsolve
+using Roots
 using PyCall
 
 ### Visualization ###
@@ -75,7 +75,7 @@ using DelimitedFiles
 using EllipsisNotation
 using Printf
 using ProgressMeter
-
+# using Distributed
 
 ### Utils ###
 # using Statistics
@@ -83,7 +83,6 @@ using ProgressMeter
 # using IterTools
 
 
-RuntimeGeneratedFunctions.init(@__MODULE__)
 
 
 ## Exports ##
@@ -157,9 +156,9 @@ include("maxwell.jl")
 include("mpb.jl")
 include("analyze.jl")
 # include("constraints.jl")
-# include("fields.jl")
+include("fields.jl")
 
-# include("solve.jl")
+include("solve.jl")
 # include("grads.jl")
 # include("explicit.jl")
 # include("io.jl")

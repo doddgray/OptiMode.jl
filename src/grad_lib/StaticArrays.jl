@@ -23,7 +23,7 @@ ChainRulesCore.rrule(T::Type{<:MVector}, x::AbstractVector) = ( T(x), dv -> (Cha
 function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{T1},A::AbstractArray{SVector{N1,T2},N2}) where {T1,N1,T2,N2}
 	# return ( reinterpret(reshape,T1,A), Δ->( NoTangent(), ZeroTangent(), ZeroTangent(), reinterpret( reshape,SVector{N1,T1}, Δ ) ) )
 	function reinterpret_reshape_SV_pullback(Δ)
-		return (ChainRulescore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret(reshape,SVector{N1,eltype(Δ)},Δ))
+		return (ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret(reshape,SVector{N1,eltype(Δ)},Δ))
 	end
 	( reinterpret(reshape,T1,A), reinterpret_reshape_SV_pullback )
 end
@@ -41,7 +41,7 @@ function ChainRulesCore.rrule(T::Type{ReinterpretArray{T1, N1, SVector{N2, T2}, 
 		else
 			Δr = reinterpret(SVector{N2,eltype(Δ)},Δ)
 		end
-		return (ChainRulescore.NoTangent(), Δr)
+		return (ChainRulesCore.NoTangent(), Δr)
 	end
 	( T(x), ReinterpretArray_SV_pullback )
 end
@@ -58,16 +58,16 @@ function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{T1},A::Ab
 	# 	@show size(Δ)
 	# 	# @show Δ
 	# 	@show typeof(Δ)
-	# 	return ( ChainRulescore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) )
+	# 	return ( ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, Δ ) )
 	# end
 	# return ( reinterpret(reshape,T1,A), Δ->f_pb(Δ) )
-	return ( reinterpret(reshape,T1,A), Δ->( ChainRulescore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, real(Δ) ) ) )
+	return ( reinterpret(reshape,T1,A), Δ->( ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape,SMatrix{N1,N2,T1,N3}, real(Δ) ) ) )
 end
 
 function ChainRulesCore.rrule(::typeof(reinterpret),reshape,type::Type{<:SMatrix{N1,N2,T1,N3}},A::AbstractArray{T1}) where {T1,T2,N1,N2,N3}
 	# @show type
 	# @show eltype(A)
-	return ( reinterpret(reshape,type,A), Δ->( ChainRulescore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
+	return ( reinterpret(reshape,type,A), Δ->( ChainRulesCore.NoTangent(), ChainRulesCore.ZeroTangent(), ChainRulesCore.ZeroTangent(), reinterpret( reshape, eltype(A), Δ ) ) )
 end
 
 # adjoint for constructor Base.ReinterpretArray{SMatrix{3, 3, Float64, 9}, 1, Float64, Vector{Float64}, false}.
@@ -76,7 +76,7 @@ end
 function ChainRulesCore.rrule(::typeof(reinterpret), ::typeof(reshape), ::Type{R}, A::AbstractArray{T}) where {N1, N2, T, R <: SMatrix{N1,N2,T}}
     function pullback(Ā)
         ∂A = mapreduce(v -> v isa R ? v : zero(R), vcat, Ā; init = similar(A, 0))
-        return (ChainRulescore.NoTangent(), DoesNotExist(), DoesNotExist(), reshape(∂A, size(A)))
+        return (ChainRulesCore.NoTangent(), DoesNotExist(), DoesNotExist(), reshape(∂A, size(A)))
     end
     return (reinterpret(reshape, R, A), pullback)
 end

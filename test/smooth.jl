@@ -156,7 +156,8 @@ mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum];
 mat_vars = (:ω,)
 np_mats = length(mat_vars)
 f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
-p               =   [1.0, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
+ω               =   1.0
+p               =   [ω, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128)
 shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
@@ -165,221 +166,99 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
 ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
-ε⁻¹             =   sliceinv_3x3(ε)
-##
-kmags,evecs = find_k(1.0,ε,grid);
-ng1 = group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
-
-Zygote.gradient((k,ev,om,epsi,deps_dom)->group_index(k,ev,om,epsi,deps_dom,grid),kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω)
-
-##
-function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where{T1<:Real,T2<:Real}
-	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
-	local ẑ = SVector{3}(0.,0.,1.)
-	local ŷ = SVector{3}(0.,1.,0.)
-    T = promote_type(T1,T2)
-	n = Zygote.Buffer(g⃗s,size(g⃗s))
-	m = Zygote.Buffer(g⃗s,size(g⃗s))
-	mag = Zygote.Buffer(zeros(T,size(g⃗s)),size(g⃗s))
-	@fastmath @inbounds for i ∈ eachindex(g⃗s)
-		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
-		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
-	end
-	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
-end
-
-function mag_m_n3(k⃗::SVector{3,T},g⃗s::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
-	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
-	local ẑ = SVector{3,T}(0.,0.,1.)
-	local ŷ = SVector{3,T}(0.,1.,0.)
-	n = similar(g⃗s,size(g⃗s))
-	m = similar(g⃗s,size(g⃗s))
-	mag = Array{T}(undef,size(g⃗s)) #similar(zeros(T,size(g⃗s)),size(g⃗s))
-	@fastmath @inbounds for i ∈ eachindex(g⃗s)
-		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
-		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
-	end
-	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
-end
-
-function mag_m_n4(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-	local ẑ = SVector{3,T}(0,0,1)
-	local ŷ = SVector{3,T}(0,1,0)
-	magmn = mapreduce(hcat,g⃗s) do gg
-		kpg = k⃗ - gg
-		mag = norm(kpg)
-		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		m =  normalize( cross( n, kpg )  )
-        return (mag,m,n) #vcat(mag,m,n)
-	end
-
-    # mag = reshape(magmn[1,:],size(g⃗s))
-    # m = reshape(magmn[2:4,:],(3,size(g⃗s)...))
-    # n = reshape(magmn[5:7,:],(3,size(g⃗s)...))
-    # return mag,reinterpret(reshape,SVector{3,Float64},m),reinterpret(reshape,SVector{3,Float64},n)
-end
-
-function mag_m_n_single(k⃗::SVector{3,T1},g::SVector{3,T2}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-    local ẑ = SVector{3,T}(0,0,1)
-	local ŷ = SVector{3,T}(0,1,0)
-    kpg = k⃗ - g
-	mag = norm(kpg)
-	n =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-	m =  normalize( cross( n, kpg )  )
-    return vcat(mag,m,n)
-end
-
-function mag_mn5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-    mag = reshape(magmn[1,:],size(g⃗s))
-    mn =  reshape(magmn[2:7,:],(3,2,size(g⃗s)...))
-    # m = reshape(reinterpret(SVector{3,T},copy(magmn[2:4,:])),(3,size(g⃗s)...))
-    # n = reshape(reinterpret(SVector{3,T},copy(magmn[5:7,:])),(3,size(g⃗s)...))
-    # m   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[2:4,:])),size(g⃗s))
-    # n   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[5:7,:])),size(g⃗s))
-    return mag,mn
-    # return mag,reinterpret(reshape,SVector{3,Float64},m),reinterpret(reshape,SVector{3,Float64},n)
-end
-
-function mag_m_n5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-    mag = reshape(magmn[1,:],size(g⃗s))
-    # # m =  copy(reshape(magmn[2:4,:],(3,size(g⃗s)...)))
-    # # n =  copy(reshape(magmn[5:7,:],(3,size(g⃗s)...)))
-    m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
-    n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
-    return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
-    # return magmn
-end
-
-
-function mag_m_n6(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-    gsr = copy( reinterpret(reshape,T2,g⃗s) )# copy(reshape(reinterpret(T2,g⃗s),(3,size(g⃗s)...))) #
-    magmn = slicemap(gsr;dims=1) do gg
-        local ẑ = SVector{3,T}(0,0,1)
-	    local ŷ = SVector{3,T}(0,1,0)
-		kpg = k⃗ - gg
-		mag = norm(kpg)
-		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		m =  normalize( cross( n, kpg )  )
-        return vcat(mag,m,n)
-	end
-	# magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-    mag = reshape(magmn[1,..],size(g⃗s))
-    m   = reshape(reinterpret(reshape,SVector{3,T},magmn[2:4,..]),size(g⃗s))
-    n   = reshape(reinterpret(reshape,SVector{3,T},magmn[5:7,..]),size(g⃗s))
-    return mag,m,n
-end
-
-function mag_m_n7(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-    T = promote_type(T1,T2)
-    gsr = copy(reshape(reinterpret(T2,g⃗s),(3,length(g⃗s))))
-    magmn = ThreadMapCols{3}(gg->mag_m_n_single(k⃗,gg),gsr)
-    # magmn = ThreadMapCols{3}(gg->mag_m_n_single(k⃗,gg),gsr)
-	# magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-    mag = reshape(magmn[1,:],size(g⃗s))
-    m   = reshape(reinterpret(reshape,SVector{3,T},magmn[2:4,:]),size(g⃗s))
-    n   = reshape(reinterpret(reshape,SVector{3,T},magmn[5:7,:]),size(g⃗s))
-    return mag,m,n
-end
-
-magmn2 = mag_m_n2(SVector{3}(0.,0.,2.0),g⃗(grid))
-magmn3 = mag_m_n3(SVector{3}(0.,0.,2.0),g⃗(grid))
-magmn4 = mag_m_n4(SVector{3}(0.,0.,2.0),g⃗(grid))
-# magmn5 = mag_mn5(SVector{3}(0.,0.,2.0),g⃗(grid))
-magmn5 = mag_m_n5(SVector{3}(0.,0.,2.0),g⃗(grid))
-magmn6 = mag_m_n6(SVector{3}(0.,0.,2.0),g⃗(grid))
-magmn7 = mag_m_n7(SVector{3}(0.,0.,2.0),g⃗(grid))
-all(magmn3 .≈ magmn2)
-all(magmn4 .≈ magmn2)
-all(magmn5 .≈ magmn2)
-all(magmn6 .≈ magmn2)
-all(magmn7 .≈ magmn2)
-gs = g⃗(grid);
-Zygote.gradient(kk->sum(sum(mag_m_n2(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-Zygote.gradient(kk->sum(sum(mag_m_n3(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-Zygote.gradient(kk->sum(sum(mag_m_n4(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-Zygote.gradient(kk->sum(sum(mag_m_n5(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-Zygote.gradient(kk->sum(sum(mag_m_n6(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-Zygote.gradient(kk->sum(sum(mag_m_n7(SVector{3}(0.,0.,kk),gs)[2])),2.0)
-
-using OptiMode: ∇ₖmag_m_n
-n̄ = [SVector{3,Float64}(1.,1.,1.) for gg in gs];
-m̄ = [SVector{3,Float64}(1.,1.,1.) for gg in gs];
-māg =  zero(magmn2[1]);
-∇ₖmag_m_n(māg,m̄,n̄,mag_m_n2(SVector{3}(0.,0.,2.0),gs)...)
-@btime 
+ε⁻¹             =   sliceinv_3x3(ε);
+kmags,evecs = find_k(ω,ε,grid);
+ng1 = group_index(kmags[1],evecs[1],ω,ε⁻¹,∂ε_∂ω,grid)
+ng_grads = Zygote.gradient((k,ev,om,epsi,deps_dom)->group_index(k,ev,om,epsi,deps_dom,grid),kmags[1],evecs[1],ω,ε⁻¹,∂ε_∂ω);
+E1 = E⃗(kmags[1],evecs[1],ε⁻¹,∂ε_∂ω,grid)
+kg1 = k_guess(ω,ε⁻¹)
+k1 = kmags[1]
+# kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
+ms = ModeSolver(kmags[1], ε⁻¹, grid; nev=2, maxiter=100, tol=1e-8)
+res1 = solve_ω²(ms)
 
 ##
-## figure out fast+AD-compatible local ε tensor inversion ε→ε⁻¹  
-using SliceMap
-# function slice_inv(A::Array{T,4}) where {T}
-#     B = reinterpret(SArray{Tuple{3,3},T,2,9}, vec(A))
-#     C = map(inv, B)
-#     reshape(reinterpret(T, B), size(A))
-# end
+# kz1,ev1 = solve_k(ms,ω,ε⁻¹;nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+ωₜ = 1.0
+eigind = 1
+ω²,ev1 = solve_ω²(ms,kmags[1];nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+Δω² = ω²[eigind] - ωₜ^2
+∂ω²∂k = 2 * HMₖH(ev1[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+2 * HMₖH(vec(evecs[1]),ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+2 * HMₖH((ev1[:,eigind])./sqrt(sum(abs2,ev1[:,eigind])),ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) 
+# 2 * HMₖH(ev1[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn[:,1,:,:],ms.M̂.mn[:,2,:,:])
+mag3,mn3 = mag_mn(kmags[1],grid)
+2 * HMₖH(vec(evecs[1]),ε⁻¹,mag3,mn3)
 
-function slice_inv4(A::Array{T,4},gridsize::NTuple{ND,Int}=(size(A,3),size(A,4))) where {T,ND}
-    reshape(MapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
+
+using CairoMakie
+let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=(ε[1,1,:,:], ∂ε_∂ω[1,1,:,:], ∂²ε_∂ω²[1,1,:,:]), labels=("ε","∂ε_∂ω","∂²ε_∂ω²"), cmaps=(:viridis,:magma,:RdBu)
+    axes = [ Axis(fig[i, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect()) for i=1:length(Z) ]
+    for (i,ZZ) in enumerate(Z)
+        # ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect())
+        hmap = heatmap!(axes[i],X,Y,ZZ; colormap = cmaps[i])
+        Colorbar(fig[i, 2], hmap; label = labels[i],) # width = 15, height=200, ticksize = 15, tickalign = 1)
+        scatter!(axes[i],Point2f(X[valinds[4]],Y[valinds[5]]))
+    end
+    # colsize!(fig.layout, 1, Aspect(1, 1.0))
+    # colgap!(fig.layout, 1)
+    display(fig)
+end;
+function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
+	xs = x(grid)
+	ys = y(grid)
+	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
+	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
+
+	# ax = [Axis(pos[1,j]) for j=1:2]
+	# ax = [Axis(pos[j]) for j=1:2]
+	labels = label.*label_base
+	Fs = [view(F,j,:,:) for j=1:2]
+	magmax = maximum(abs,F)
+	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax1 = pos[1]
+	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
+	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax2 = pos[2]
+	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
+	# hms = [hm1,hm2]
+	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
+	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
+	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
+	# hideydecorations!.(ax[2])
+	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
+	# for axx in ax
+	# 	axx.xlabel= "x [μm]"
+	# 	xlims!(axx,xlim)
+	# 	ylims!(axx,ylim)
+	# 	axx.aspect=DataAspect()
+	# end
+	# linkaxes!(ax...)
+	return hm
+end
+function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
+	fig=Figure()
+	ax = fig[1,1] = Axis(fig,aspect=DataAspect())
+	hms = plot_field!(ax,F,grid;cmap,label_base,label,xlim,ylim,axind)
+    Colorbar(fig[1,2],hms;label=label*" axis $axind")
+	fig
 end
 
-function slice_inv5(A::Array{T,4},gridsize::NTuple{ND,Int}=(size(A,3),size(A,4))) where {T,ND}
-    reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
-end
+plot_field(E1,grid;axind=1)
 
+let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=(realE1[1,1,:,:], ∂ε_∂ω[1,1,:,:], ∂²ε_∂ω²[1,1,:,:]), labels=("ε","∂ε_∂ω","∂²ε_∂ω²"), cmaps=(:viridis,:magma,:RdBu)
+    axes = [ Axis(fig[i, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect()) for i=1:length(Z) ]
+    for (i,ZZ) in enumerate(Z)
+        # ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect())
+        hmap = heatmap!(axes[i],X,Y,ZZ; colormap = cmaps[i])
+        Colorbar(fig[i, 2], hmap; label = labels[i],) # width = 15, height=200, ticksize = 15, tickalign = 1)
+        scatter!(axes[i],Point2f(X[valinds[4]],Y[valinds[5]]))
+    end
+    # colsize!(fig.layout, 1, Aspect(1, 1.0))
+    # colgap!(fig.layout, 1)
+    display(fig)
+end;
 
-ei1 = slice_inv(ε)
-ei2 = mapslices(inv, ε, dims = [1,2])
-ei3 = slicemap(inv, ε; dims = [1,2])
-# ei4 = reshape(MapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(ε,(9,length(grid)))),(3,3,size(grid)...))
-# ei5 = reshape(ThreadMapCols{9}(x->vec(inv(SMatrix{3,3}(x))), reshape(ε,(9,length(grid)))),(3,3,size(grid)...))
-ei4 = slice_inv4(ε,size(grid))
-ei5 = slice_inv5(ε,size(grid))
-ei42 = slice_inv4(ε)
-ei52 = slice_inv5(ε)
-
-# ei4 = slicemap(inv, ε; dims = [1,2])
-ei1 ≈ ei2
-ei3 ≈ ei2
-ei4 ≈ ei2
-ei5 ≈ ei2
-ei42 ≈ ei2
-ei52 ≈ ei2
-
-# gr_ei1 = Zygote.gradient(x->sum(slice_inv(x)),ε)
-# grf_ei1 = Zygote.gradient(x->sum(Zygote.forwarddiff(slice_inv,x)),ε)
-# gr_ei2 = Zygote.gradient(x->sum(mapslices(inv, x, dims = [1,2])),ε)
-gr_ei3 = Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),ε)[1]
-gr_ei4 = Zygote.gradient(x->sum(slice_inv4(x,size(grid))),ε)[1]
-gr_ei5 = Zygote.gradient(x->sum(slice_inv5(x,size(grid))),ε)[1]
-gr_ei42 = Zygote.gradient(x->sum(slice_inv4(x)),ε)[1]
-gr_ei52 = Zygote.gradient(x->sum(slice_inv5(x)),ε)[1]
-
-gr_ei4 ≈ gr_ei3
-gr_ei5 ≈ gr_ei3
-gr_ei52 ≈ gr_ei3
-
-using BenchmarkTools
-@benchmark sin(3)
-@benchmark Zygote.gradient(x->sum(slicemap(inv, x; dims = [1,2])),$ε)
-@benchmark Zygote.gradient(x->sum(slice_inv4(x,$(size(grid)))),$ε)
-@benchmark Zygote.gradient(x->sum(slice_inv5(x,$(size(grid)))),$ε)
-@benchmark Zygote.gradient(x->sum(slice_inv4(x)),$ε)
-@benchmark Zygote.gradient(x->sum(slice_inv5(x)),$ε)
-
-fig,ax,hm = heatmap(gr_ei3[1,1,:,:]); Colorbar(fig[1,2],hm); fig
-##
-kmags,evecs = find_k(1.0,ε,grid)
-group_index(kmags[1],evecs[1],1.0,ε⁻¹,∂ε_∂ω,grid)
 
 ##
 
