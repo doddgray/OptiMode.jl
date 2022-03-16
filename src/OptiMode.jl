@@ -167,10 +167,10 @@ include("solve.jl")
 # include("optimize.jl")
 
 
-# These empty Python object assignments just set asside pointers for loading Python modules
-const pymeep    =   PyNULL()
-const pympb     =   PyNULL()
-# const numpy     =   PyNULL()
+# # These empty Python object assignments just set asside pointers for loading Python modules
+# const pymeep    =   PyNULL()
+# const pympb     =   PyNULL()
+# # const numpy     =   PyNULL()
 
 
 function __init__()
@@ -181,11 +181,12 @@ function __init__()
 	@require DFTK="acf6eb54-70d9-11e9-0013-234b7a5f5337" include("solvers/dftk.jl")
 
     @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
-        # @eval global mp = pyimport("meep")
-        # @eval global mpb = pyimport("meep.mpb")
+        @eval global mp = pyimport("meep")
+        @eval global mpb = pyimport("meep.mpb")
         # @eval global np = pyimport("numpy")
-        copy!(pymeep, pyimport("meep"))
-        copy!(pympb, pyimport("meep.mpb"))
+        
+        # copy!(pymeep, pyimport("meep"))
+        # copy!(pympb, pyimport("meep.mpb"))
         # copy!(numpy, pyimport("numpy"))
         # wurlitzer = pyimport("wurlitzer")
         py"""
