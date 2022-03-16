@@ -553,7 +553,7 @@ end
 
 
 
-function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_overwrite=false)
+function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),overwrite=false)
     fnames = readdir(data_path)
     for b_ind in b_inds
         evecs_source_fname = filename_prefix * (@sprintf "-evecs.b%02i.h5" b_ind)
@@ -562,7 +562,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_
             mv(
                 joinpath(data_path,evecs_source_fname),
                 joinpath(data_path,evecs_target_fname);
-                force=allow_overwrite,
+                force=overwrite,
             )
         end
         efield_source_fname = filename_prefix * (@sprintf "-e.k%02i.b%02i.h5" k_ind b_ind)
@@ -571,7 +571,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_
             mv(
                 joinpath(data_path,efield_source_fname),
                 joinpath(data_path,efield_target_fname);
-                force=allow_overwrite,
+                force=overwrite,
             )
         end
         hfield_source_fname = filename_prefix * (@sprintf "-h.k%02i.b%02i.h5" k_ind b_ind)
@@ -580,7 +580,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_
             mv(
                 joinpath(data_path,hfield_source_fname),
                 joinpath(data_path,hfield_target_fname);
-                force=allow_overwrite,
+                force=overwrite,
             )
         end
     end
@@ -589,7 +589,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_
     # mv(
     #     joinpath(data_path,log_source_fname),
     #     joinpath(data_path,log_target_fname);
-    #     force=allow_overwrite,
+    #     force=overwrite,
     # )
     eps_source_fname = filename_prefix * "-epsilon.h5"
     if in(eps_source_fname,fnames)
@@ -597,7 +597,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),allow_
         mv(
             joinpath(data_path,eps_source_fname),
             joinpath(data_path,eps_target_fname);
-            force=allow_overwrite,
+            force=overwrite,
         )
     end
 end
@@ -674,7 +674,7 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
             return kmags
         end
     end
-    rename_findk_data(filename_prefix,band_min:band_max;data_path)
+    rename_findk_data(filename_prefix,band_min:band_max;data_path,overwrite)
     write_k(kmags,ω,filename_prefix)
     # evecs   =   [load_evec_arr( joinpath(data_path,("evecs." * filename_prefix * (@sprintf ".b%02i.h5" bidx))), bidx, grid) for bidx=band_min:band_max]
     # evecs_out = copy(reshape(permutedims(evecs,(2,1,3)),(2,size(grid)...,num_bands)))

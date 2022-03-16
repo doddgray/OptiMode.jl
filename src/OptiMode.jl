@@ -10,6 +10,8 @@ module OptiMode
 
 ##### Imports ######
 
+using Requires
+
 ### Linear Algebra Types and Libraries ###
 using LinearAlgebra
 using LinearAlgebra: diag
@@ -52,8 +54,8 @@ using GeometryPrimitives
 # using GeometryPrimitives: Cylinder
 
 ### Iterative Solvers ###
-using IterativeSolvers
-using KrylovKit
+# using IterativeSolvers
+# using KrylovKit
 # using DFTK: LOBPCG
 # using KrylovKit: eigsolve, linsolve
 using Roots

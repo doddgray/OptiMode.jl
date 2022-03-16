@@ -1,4 +1,5 @@
-export solve_ω², _solve_Δω², solve_k, filter_eigs
+export solve_ω², _solve_Δω², solve_k, solve_k_single, filter_eigs
+export AbstractEigensolver, KrylovKitEigsolve, MPB_Solver
 
 """
 ################################################################################
@@ -11,16 +12,46 @@ export solve_ω², _solve_Δω², solve_k, filter_eigs
 # add try/catch with
 # res = DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
 
-# struct Eigensolver end
+abstract type AbstractEigensolver end
 # struct IterativeSolversLOBPCG <: Eigensolver end
 # struct DFTK_LOBPCG <: Eigensolver end
-# struct KrylovKitEigsolve <: Eigensolver end
-# struct MPB_Solver <: Eigensolver end
 
-# function _solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+mutable struct MPB_Solver <: AbstractEigensolver end
+
+function __init__()
+    @require KrylovKit="0b1a1467-8014-51b9-945f-bf0ae24f4b77" include("solvers/krylovkit.jl")
+end
+
+function __init__()
+    @require IterativeSolvers="42fd0dbc-a981-5370-80f2-aaf504508153" include("solvers/iterativesolvers.jl")
+end
+
+# abstract type AbstractLinearSolver end
+
+function solve_ω²(ms::ModeSolver{ND,T},solver::TS;kwargs...) where {ND,T<:Real,TS<:AbstractEigensolver} end
+
+
+# function _solve_ω²(ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
 # 	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
 # 	howmany =	nev				# how many eigenvector/value pairs to find
 # 	which	=	:SR				# :SR="Smallest Real" eigenvalues
+# 	# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
+# 	evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
+# 	info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
+# 	println("evals: $evals")
+# 	n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
+# 	evals_res = evals[1:n_results]
+# 	evecs_res = vec.(evecs[1:n_results])
+# 	copyto!(ms.ω²,evals_res)
+# 	copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
+# 	return real(evals_res), evecs_res
+# end
+
+# function _solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+# 	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
+# 	howmany =	nev				# how many eigenvector/value pairs to find
+# 	which	=	:SR				# :SR="Smallest Real" eigenvalues
+#   res		=	DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
 # 	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
 # 	copyto!(ms.H⃗,hcat(evecs...)[1:size(ms.H⃗,2)])
 # 	copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
@@ -39,44 +70,39 @@ end
 
 # # function _solve_ω²(ms::ModeSolver{ND,T},::;nev=1,eigind=1,maxiter=100,tol=1.6e-8
 
+# function solve_ω²(ms::ModeSolver{ND,T},solver::AbstractEigensolver;nev=1,maxiter=200,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+# 	evals,evecs = _solve_ω²(ms,solver;nev,eigind,maxiter,tol,log,f_filter)
+# 	# @assert isequal(size(ms.H⃗,2),nev) # check that the modesolver struct is consistent with the number of eigenvalue/vector pairs `nev`
+# 	# evals_res = evals[1:nev]
+# 	# evecs_res = vec.(evecs[1:nev])
+# 	# copyto!(ms.H⃗,hcat(evecs_res...)) 
+# 	# copyto!(ms.ω²,evals_res)
+	
+# 	# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
 
-#::Tuple{Vector{T},Matrix{Complex{T}}}
-function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-
-		
-	# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
-	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,vec(copy(ms.H⃗[:,1])),nev,:SR;maxiter,tol,krylovdim=50,verbosity=2)
-	copyto!(ms.H⃗,hcat(evecs...)) #[1:size(ms.H⃗,2)])
-	copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
-	println("evals: $evals")
-	# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
-
-	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
-	# copyto!(ms.H⃗,res.X)
-	# copyto!(ms.ω²,res.λ)
+# 	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
+# 	# copyto!(ms.H⃗,res.X)
+# 	# copyto!(ms.ω²,res.λ)
 
 
-	# if isnothing(f_filter)
-	# 	return   (copy(real(ms.ω²)), copy(ms.H⃗))
-	# else
-	# 	return filter_eigs(ms, f_filter)
-	# end
-	return real(evals), evecs
+# 	# if isnothing(f_filter)
+# 	# 	return   (copy(real(ms.ω²)), copy(ms.H⃗))
+# 	# else
+# 	# 	return filter_eigs(ms, f_filter)
+# 	# end
+# 	return evals, evecs
+# end
+
+function solve_ω²(ms::ModeSolver{ND,T},k::TK,solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
+	@ignore(update_k!(ms,k))
+	solve_ω²(ms,solver; nev, maxiter, tol, log, solver, f_filter)
 end
 
-function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
-		# nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where T<:Real
+function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
 	@ignore(update_k!(ms,k))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_ω²(ms; nev, eigind, maxiter, tol, log, f_filter)
+	solve_ω²(ms,solver; nev, maxiter, tol, log, solver, f_filter)
 end
-
-function solve_ω²(ms::ModeSolver{ND,T},k::TK;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
-		# nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where T<:Real
-	@ignore(update_k!(ms,k))
-	solve_ω²(ms; nev, eigind, maxiter, tol, log, f_filter)
-end
-
 
 """
 ################################################################################
@@ -90,37 +116,43 @@ end
 """
 modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x)) as input to solve f(x) = 0
 """
-function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK}
+function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T,solver::AbstractEigensolver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK}
 	# println("k: $(k)")
-	ω²,evecs = solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
-	Δω² = ω²[eigind] - ωₜ^2
-	∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂kz); ∂ω/∂kz = group velocity = c / ng; c = 1 here
+	evals,evecs = solve_ω²(ms,k,solver; nev, maxiter, tol, log, solver, f_filter)
+	Δω² = evals[eigind] - ωₜ^2
+	∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
 	println("Δω²: $(Δω²)")
 	println("∂ω²∂k: $(∂ω²∂k)")
-    return Δω² , Δω² / ∂ω²∂k #Δω² / copy(ms.∂ω²∂k[eigind])
+    return Δω² , ( Δω² / ∂ω²∂k )
 end
 
-function solve_k(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=100,tol=1e-8,atol=tol,maxevals=60,log=false,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real} #
-	# if iszero(ms.M̂.k⃗[3])
-	# 	ms.M̂.k⃗ = SVector(0., 0., ω*ñₘₐₓ(ms.M̂.ε⁻¹))
-	# end
-    kz = Roots.find_zero(x -> _solve_Δω²(ms,x,ω;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton(); atol,maxevals,verbose=true,)
-	# if isnothing(f_filter)
-	# 	Hv = ms.H⃗[:,eigind]
-	# else
-	# 	Hv = filter_eigs(ms, f_filter)[2][:,eigind]
-	# end
-    # return ( copy(kz), copy(Hv) ) # maybe copy(ds.H⃗) instead?
-	return copy(kz), copy(ms.H⃗[:,eigind])
+# ::Tuple{T,Vector{Complex{T}}}
+function solve_k_single(ms::ModeSolver{ND,T},ω::T,solver::AbstractEigensolver;nev=1,eigind=1,maxiter=100,tol=1e-8,atol=tol,maxevals=60,log=false,f_filter=nothing) where {ND,T<:Real} #
+    kmag = Roots.find_zero(x -> _solve_Δω²(ms,x,ω,solver;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton(); atol,maxevals,verbose=true,)
+	return kmag, copy(ms.H⃗[:,eigind])
 end
 
-function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real} #
+# ::Tuple{T,Vector{Complex{T}}}
+function solve_k(ms::ModeSolver{ND,T},ω::T,solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,atol=tol,maxevals=60,log=false,f_filter=nothing) where {ND,T<:Real} #
+	kmags = Vector{T}(undef,nev)
+	evecs = Matrix{Complex{T}}(undef,(size(ms.H⃗,1),nev))
+	for (idx,eigind) in enumerate(1:nev)
+		idx>1 && copyto!(ms.H⃗,repeat(evecs[:,idx-1],1,size(ms.H⃗,2)))
+		kmag_evec = solve_k_single(ms,ω,solver;nev,eigind,maxiter,tol,atol,maxevals,log)
+		kmags[idx] = first(kmag_evec)
+		copyto!(evecs[:,idx],last(kmag_evec))
+	end
+	return kmags, collect(eachcol(evecs))
+end
+
+
+function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real} 
 	Zygote.@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_k(ms, ω; nev, eigind, maxiter, tol, log, f_filter)
+	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND};kguess=nothing,Hguess=nothing,nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real,F<:Function}
+function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
 	ms = ignore() do
 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
@@ -130,10 +162,10 @@ function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND};kguess=nothin
 		end
 		return ms
 	end
-	solve_k(ms, ω; nev, eigind, maxiter, tol, log, f_filter)
+	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{ND};kguess=nothing,Hguess=nothing,nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
+function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
 	# ms = @ignore(ModeSolver(k_guess(first(ω),first(ε⁻¹)), first(ε⁻¹), grid; nev, maxiter, tol))
 	ms = ignore() do
@@ -149,7 +181,7 @@ function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{N
 	Hv = Buffer([1.0 + 3.0im, 2.1+4.0im],(size(ms.M̂)[1],nω))
 	for ωind=1:nω
 		@ignore(update_ε⁻¹(ms,ε⁻¹[ωind]))
-		kHv = solve_k(ms,ω[ωind]; nev, eigind, maxiter, tol, log, f_filter)
+		kHv = solve_k(ms,ω[ωind],solver; nev, maxiter, tol, log, f_filter)
 		k[ωind] = kHv[1]
 		Hv[:,ωind] = kHv[2]
 	end
