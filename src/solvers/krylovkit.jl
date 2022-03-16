@@ -7,6 +7,8 @@
 
 using .KrylovKit
 
+export KrylovKitEigsolve
+
 """
 $(TYPEDEF)
 Create a linear solver based on GMRES from `KrylovKit.jl`. Can be used to solve `(a₀ * I + a₁ * J) * x = rhs`.
