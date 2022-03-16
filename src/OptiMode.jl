@@ -59,7 +59,7 @@ using GeometryPrimitives
 # using DFTK: LOBPCG
 # using KrylovKit: eigsolve, linsolve
 using Roots
-using PyCall
+# using PyCall
 
 ### Visualization ###
 using Colors
