@@ -31,10 +31,10 @@ using SliceMap
 ### AD ###
 # using ForwardDiff
 # using ChainRules: ChainRulesCore, @non_differentiable,  NoTangent, @thunk, @not_implemented, AbstractZero
-# using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
-using Zygote: Buffer
+using Zygote
+using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
 ### Materials ###
 using Rotations
 using Symbolics

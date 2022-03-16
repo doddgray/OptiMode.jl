@@ -620,7 +620,7 @@ end
 
 function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",
     band_func=[pympb.fix_efield_phase],save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
-    parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND
+    parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),overwrite=false,kwargs...) where ND
     n_bands_out = band_max-band_min+1
     evecs = zeros(ComplexF64,(N(grid),2,n_bands_out))
     if save_evecs
@@ -690,13 +690,13 @@ end
 #     band_func=[pympb.fix_efield_phase,py"output_evecs"],save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
 #     parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),kwargs...) where ND  
 
-function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),kwargs...) where ND  
-    if already_calculated(ω,filename_prefix,band_min:band_max;data_path)
+function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),overwrite=false,kwargs...) where ND  
+    if !overwrite && already_calculated(ω,filename_prefix,band_min:band_max;data_path)
         println("loading pre-calculated data for "*filename_prefix)
         kmags = read_k(filename_prefix;data_path)[1]
         evecs = [load_evec_arr( joinpath(data_path,("evecs." * filename_prefix * (@sprintf ".b%02i.h5" bidx))), bidx, grid) for bidx=band_min:band_max]
     else
-        kmags,evecs = _find_k(ω,ε,grid;filename_prefix,num_bands,band_min,band_max,data_path,kwargs...)
+        kmags,evecs = _find_k(ω,ε,grid;filename_prefix,num_bands,band_min,band_max,data_path,overwrite,kwargs...)
     end
     return kmags,evecs
 end

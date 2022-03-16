@@ -12,8 +12,19 @@ export solve_ω², _solve_Δω², solve_k, filter_eigs
 # res = DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
 
 # struct Eigensolver end
-# struct IS_LOBPCG <: Eigensolver end
+# struct IterativeSolversLOBPCG <: Eigensolver end
 # struct DFTK_LOBPCG <: Eigensolver end
+# struct KrylovKitEigsolve <: Eigensolver end
+# struct MPB_Solver <: Eigensolver end
+
+# function _solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+# 	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
+# 	howmany =	nev				# how many eigenvector/value pairs to find
+# 	which	=	:SR				# :SR="Smallest Real" eigenvalues
+# 	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
+# 	copyto!(ms.H⃗,hcat(evecs...)[1:size(ms.H⃗,2)])
+# 	copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
+# end
 
 """
 f_filter takes in a ModeSolver and an eigenvalue/vector pair `αX` and outputs boolean,
@@ -26,27 +37,31 @@ function filter_eigs(ms::ModeSolver{ND,T},f_filter::Function)::Tuple{Vector{T},M
 	# return getindex.(ω²H_filt,1), hcat(getindex.(ω²H_filt,2)...) # ω²_filt, H_filt
 end
 
-# function _solve_ω²(ms::ModeSolver{ND,T},::;nev=1,eigind=1,maxiter=100,tol=1.6e-8
-
-function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)::Tuple{Vector{T},Matrix{Complex{T}}} where {ND,T<:Real}
-
-		# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50)
-		evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
-		copyto!(ms.H⃗,hcat(evecs...)[1:size(ms.H⃗,2)])
-		copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
-
-		# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
-
-		# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
-		# copyto!(ms.H⃗,res.X)
-		# copyto!(ms.ω²,res.λ)
+# # function _solve_ω²(ms::ModeSolver{ND,T},::;nev=1,eigind=1,maxiter=100,tol=1.6e-8
 
 
-	if isnothing(f_filter)
-		return   (copy(real(ms.ω²)), copy(ms.H⃗))
-	else
-		return filter_eigs(ms, f_filter)
-	end
+#::Tuple{Vector{T},Matrix{Complex{T}}}
+function solve_ω²(ms::ModeSolver{ND,T};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+
+		
+	# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
+	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,vec(copy(ms.H⃗[:,1])),nev,:SR;maxiter,tol,krylovdim=50,verbosity=2)
+	copyto!(ms.H⃗,hcat(evecs...)) #[1:size(ms.H⃗,2)])
+	copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
+	println("evals: $evals")
+	# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
+
+	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
+	# copyto!(ms.H⃗,res.X)
+	# copyto!(ms.ω²,res.λ)
+
+
+	# if isnothing(f_filter)
+	# 	return   (copy(real(ms.ω²)), copy(ms.H⃗))
+	# else
+	# 	return filter_eigs(ms, f_filter)
+	# end
+	return real(evals), evecs
 end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
@@ -77,27 +92,27 @@ modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x))
 """
 function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK}
 	# println("k: $(k)")
-	ω²,H⃗ = solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
+	ω²,evecs = solve_ω²(ms,k; nev, eigind, maxiter, tol, log, f_filter)
 	Δω² = ω²[eigind] - ωₜ^2
-	# ms.∂ω²∂k[eigind] = 2 * HMₖH(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.m,ms.M̂.n) # = 2ω*ωₖ; ωₖ = ∂ω/∂kz = group velocity = c / ng; c = 1 here
-	∂ω²∂k = 2 * HMₖH(H⃗[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+	∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂kz); ∂ω/∂kz = group velocity = c / ng; c = 1 here
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
-	# println("Δω²: $(Δω²)")
-	# println("∂ω²∂k: $(∂ω²∂k)")
+	println("Δω²: $(Δω²)")
+	println("∂ω²∂k: $(∂ω²∂k)")
     return Δω² , Δω² / ∂ω²∂k #Δω² / copy(ms.∂ω²∂k[eigind])
 end
 
 function solve_k(ms::ModeSolver{ND,T},ω::T;nev=1,eigind=1,maxiter=100,tol=1e-8,atol=tol,maxevals=60,log=false,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real} #
-	if iszero(ms.M̂.k⃗[3])
-		ms.M̂.k⃗ = SVector(0., 0., ω*ñₘₐₓ(ms.M̂.ε⁻¹))
-	end
-    kz = Roots.find_zero(x -> _solve_Δω²(ms,x,ω;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton(); atol,maxevals,) #  verbose=true,)
-	if isnothing(f_filter)
-		Hv = ms.H⃗[:,eigind]
-	else
-		Hv = filter_eigs(ms, f_filter)[2][:,eigind]
-	end
-    return ( copy(kz), copy(Hv) ) # maybe copy(ds.H⃗) instead?
+	# if iszero(ms.M̂.k⃗[3])
+	# 	ms.M̂.k⃗ = SVector(0., 0., ω*ñₘₐₓ(ms.M̂.ε⁻¹))
+	# end
+    kz = Roots.find_zero(x -> _solve_Δω²(ms,x,ω;nev,eigind,maxiter,tol,f_filter), ms.M̂.k⃗[3], Roots.Newton(); atol,maxevals,verbose=true,)
+	# if isnothing(f_filter)
+	# 	Hv = ms.H⃗[:,eigind]
+	# else
+	# 	Hv = filter_eigs(ms, f_filter)[2][:,eigind]
+	# end
+    # return ( copy(kz), copy(Hv) ) # maybe copy(ds.H⃗) instead?
+	return copy(kz), copy(ms.H⃗[:,eigind])
 end
 
 function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T};nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)::Tuple{T,Vector{Complex{T}}} where {ND,T<:Real} #
