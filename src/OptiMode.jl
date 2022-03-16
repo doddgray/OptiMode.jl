@@ -59,7 +59,7 @@ using GeometryPrimitives
 # using DFTK: LOBPCG
 # using KrylovKit: eigsolve, linsolve
 using Roots
-# using PyCall
+using PyCall
 
 ### Visualization ###
 using Colors
@@ -155,8 +155,7 @@ include("smooth.jl")
 include("grads.jl")
 
 include("maxwell.jl")
-# include("mpb.jl")
-include("analyze.jl")
+
 # include("constraints.jl")
 include("fields.jl")
 
@@ -168,8 +167,8 @@ include("solve.jl")
 
 
 # # These empty Python object assignments just set asside pointers for loading Python modules
-# const pymeep    =   PyNULL()
-# const pympb     =   PyNULL()
+const pymeep    =   PyNULL()
+const pympb     =   PyNULL()
 # # const numpy     =   PyNULL()
 
 
@@ -180,71 +179,74 @@ function __init__()
 
 	@require DFTK="acf6eb54-70d9-11e9-0013-234b7a5f5337" include("solvers/dftk.jl")
 
-    @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
-        @eval global mp = pyimport("meep")
-        @eval global mpb = pyimport("meep.mpb")
+    # @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
+        # using .PyCall
+        # @eval global mp = pyimport("meep")
+        # @eval global mpb = pyimport("meep.mpb")
         # @eval global np = pyimport("numpy")
         
-        # copy!(pymeep, pyimport("meep"))
-        # copy!(pympb, pyimport("meep.mpb"))
-        # copy!(numpy, pyimport("numpy"))
-        # wurlitzer = pyimport("wurlitzer")
-        py"""
-        import numpy
-        import h5py
-        from numpy import linspace, transpose
-        from scipy.interpolate import interp2d
-        from meep import Medium, Vector3
+    copy!(pymeep, pyimport("meep"))
+    copy!(pympb, pyimport("meep.mpb"))
+    # copy!(numpy, pyimport("numpy"))
+    # wurlitzer = pyimport("wurlitzer")
+    py"""
+    import numpy
+    import h5py
+    from numpy import linspace, transpose
+    from scipy.interpolate import interp2d
+    from meep import Medium, Vector3
 
-        def return_evec(evecs_out):
-            fn = lambda ms, band: numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-            return fn
-            
-        def save_evecs(ms,band):
-            ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-            
-        def return_and_save_evecs(evecs_out):
-            # fn = lambda ms, band: ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5"); numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0]) )
-            def fn(ms,band):
-                ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-                numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-            return fn
-
-        def output_dfield_energy(ms,band):
-            D = ms.get_dfield(band, bloch_phase=False)
-            # U, xr, xi, yr, yi, zr, zi = ms.compute_field_energy()
-            # numpy.savetxt(
-            #     f"dfield_energy.b{band:02}.csv",
-            #     [U, xr, xi, yr, yi, zr, zi],
-            #     delimiter=","
-            # )
-            ms.compute_field_energy()
-
-        # load epsilon data into python closure function `fmat(p)`
-        # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-        # and return a "meep.Material" object with dielectric tensor data for that point
-        def matfn_from_file(fpath,Dx,Dy,Nx,Ny):
-            x = linspace(-Dx/2., Dx*(0.5 - 1./Nx), Nx)
-            y = linspace(-Dy/2., Dy*(0.5 - 1./Ny), Ny)
-            with h5py.File(fpath, 'r') as f:
-                f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(f["epsilon."+s])) for s in ["xx","xy","xz","yy","yz","zz"] ]
-            matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-            return matfn
-
-        # Transfer Julia epsilon data directly into python closure function `fmat(p)`
-        # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-        # and return a "meep.Material" object with dielectric tensor data for that point
-        def matfn(eps,x,y):
-            f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(eps[ix,iy,:,:])) for (ix,iy) in [(0,0),(0,1),(0,2),(1,1),(1,2),(2,2)] ]
-            matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-            return matfn
-        """
+    def return_evec(evecs_out):
+        fn = lambda ms, band: numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
+        return fn
         
-        include("solvers/mpb.jl")
-    end
+    def save_evecs(ms,band):
+        ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
+        
+    def return_and_save_evecs(evecs_out):
+        # fn = lambda ms, band: ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5"); numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0]) )
+        def fn(ms,band):
+            ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
+            numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
+        return fn
+
+    def output_dfield_energy(ms,band):
+        D = ms.get_dfield(band, bloch_phase=False)
+        # U, xr, xi, yr, yi, zr, zi = ms.compute_field_energy()
+        # numpy.savetxt(
+        #     f"dfield_energy.b{band:02}.csv",
+        #     [U, xr, xi, yr, yi, zr, zi],
+        #     delimiter=","
+        # )
+        ms.compute_field_energy()
+
+    # load epsilon data into python closure function `fmat(p)`
+    # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
+    # and return a "meep.Material" object with dielectric tensor data for that point
+    def matfn_from_file(fpath,Dx,Dy,Nx,Ny):
+        x = linspace(-Dx/2., Dx*(0.5 - 1./Nx), Nx)
+        y = linspace(-Dy/2., Dy*(0.5 - 1./Ny), Ny)
+        with h5py.File(fpath, 'r') as f:
+            f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(f["epsilon."+s])) for s in ["xx","xy","xz","yy","yz","zz"] ]
+        matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
+        return matfn
+
+    # Transfer Julia epsilon data directly into python closure function `fmat(p)`
+    # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
+    # and return a "meep.Material" object with dielectric tensor data for that point
+    def matfn(eps,x,y):
+        f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(eps[ix,iy,:,:])) for (ix,iy) in [(0,0),(0,1),(0,2),(1,1),(1,2),(2,2)] ]
+        matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
+        return matfn
+    """
+        
+    # include("solvers/mpb.jl")
+    # end
 end
 
-
+include("solvers/mpb.jl")
+# include("mpb.jl")
+include("analyze.jl")
 
 ## Definitions ##
 
