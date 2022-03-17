@@ -28,12 +28,14 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=
 	println("evals: $evals")
 	n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
 	evals_res = evals[1:n_results]
-	evecs_res = canonicalize_phase(vec.(evecs[1:n_results]),ms)
+	# evecs_res = canonicalize_phase(vec.(evecs[1:n_results]),ms)
+    evecs_res = copy.(vec.(evecs[1:n_results]))
 	copyto!(ms.ω²,evals_res)
 	copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
     # canonicalize_phase!(ms)
     # copyto!(evecs_res,eachcol(ms.H⃗))
-	return real(evals_res), evecs_res #collect(eachcol(ms.H⃗))
+	# return real(evals_res), evecs_res #collect(eachcol(ms.H⃗))
+    return copy(real(ms.ω²)), evecs_res #copy.(eachcol(ms.H⃗))
 end
 
 

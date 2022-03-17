@@ -156,7 +156,7 @@ mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum];
 mat_vars = (:ω,)
 np_mats = length(mat_vars)
 f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
-ω               =   0.8
+ω               =   1.0
 p               =   [ω, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128)
@@ -181,6 +181,56 @@ using DFTK: LOBPCG
 ms_df = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
 kmags_df,evecs_df = solve_k(ms_df,ω,DFTK_LOBPCG();nev=2)
 
+using CairoMakie
+function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
+	xs = x(grid)
+	ys = y(grid)
+	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
+	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
+
+	# ax = [Axis(pos[1,j]) for j=1:2]
+	# ax = [Axis(pos[j]) for j=1:2]
+	labels = label.*label_base
+	Fs = [view(F,j,:,:) for j=1:2]
+	magmax = maximum(abs,F)
+	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax1 = pos[1]
+	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
+	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
+	# ax2 = pos[2]
+	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
+	# hms = [hm1,hm2]
+	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
+	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
+	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
+	# hideydecorations!.(ax[2])
+	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
+	# for axx in ax
+	# 	axx.xlabel= "x [μm]"
+	# 	xlims!(axx,xlim)
+	# 	ylims!(axx,ylim)
+	# 	axx.aspect=DataAspect()
+	# end
+	# linkaxes!(ax...)
+	return hm
+end
+function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
+	fig=Figure()
+	ax = fig[1,1] = Axis(fig,aspect=DataAspect())
+	hms = plot_field!(ax,F,grid;cmap,label_base,label,xlim,ylim,axind)
+    Colorbar(fig[1,2],hms;label=label*" axis $axind")
+	fig
+end
+plot_field(E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_is[1],evecs_is[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_df[1],evecs_df[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+
+E1kk = E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)
+val_magmax(E1kk)
+argmax(abs2.(E1kk))
 
 eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗,ms.P̂)
 res_is =  lobpcg!(eigs_itr; log=false,not_zeros=false,maxiter=200,tol=1e-8)
@@ -237,9 +287,11 @@ kg1 = k_guess(ω,ε⁻¹)
 k1 = kmags[1]
 # kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
 using OptiMode: _solve_Δω²
-ms = ModeSolver(kmags[1], ε⁻¹, grid; nev=2, maxiter=100, tol=1e-8)
-evals_kk,evecs_kk = solve_ω²(ms;nev=2)
-Δω²,Δω²_∂ω²∂k = _solve_Δω²(ms,kmags[1],1.0;nev=2,eigind=1)
+ms = ModeSolver(1.9, ε⁻¹, grid; nev=2, maxiter=100, tol=1e-8)
+evals_kk,evecs_kk,convinfo_kk = eigsolve(x->ms.M̂*x,copy(ms.H⃗[:,1]),2,:SR;maxiter=100,tol=1e-8,krylovdim=50,verbosity=2)
+E1_kk = E⃗(kmags[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)
+# evals_kk,evecs_kk = solve_ω²(ms;nev=2)
+# Δω²,Δω²_∂ω²∂k = _solve_Δω²(ms,kmags[1],1.0;nev=2,eigind=1)
 
 hcat(vec.(evecs_mpb)...)
 
@@ -252,10 +304,10 @@ dot(x0,x0)
 dot(x1,x1)
 dot(evecs_kk[1],evecs_kk[1])
 
-evals_kk,evecs_kk,convinfo_kk = eigsolve(x->ms.M̂*x,copy(ms.H⃗[:,1]),2,:SR;maxiter=100,tol=1e-8,krylovdim=50,verbosity=2)
-E1_kk = E⃗(kmags[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)
+
+
 isapprox(E1,E1_kk,rtol=1e-2)
-_solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1
+_solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1)
 
 ##
 # kz1,ev1 = solve_k(ms,ω,ε⁻¹;nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
@@ -289,47 +341,8 @@ let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.
     # colgap!(fig.layout, 1)
     display(fig)
 end;
-function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
-	xs = x(grid)
-	ys = y(grid)
-	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
-	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
 
-	# ax = [Axis(pos[1,j]) for j=1:2]
-	# ax = [Axis(pos[j]) for j=1:2]
-	labels = label.*label_base
-	Fs = [view(F,j,:,:) for j=1:2]
-	magmax = maximum(abs,F)
-	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-	# ax1 = pos[1]
-	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
-	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-	# ax2 = pos[2]
-	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
-	# hms = [hm1,hm2]
-	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
-	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
-	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
-	# hideydecorations!.(ax[2])
-	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
-	# for axx in ax
-	# 	axx.xlabel= "x [μm]"
-	# 	xlims!(axx,xlim)
-	# 	ylims!(axx,ylim)
-	# 	axx.aspect=DataAspect()
-	# end
-	# linkaxes!(ax...)
-	return hm
-end
-function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
-	fig=Figure()
-	ax = fig[1,1] = Axis(fig,aspect=DataAspect())
-	hms = plot_field!(ax,F,grid;cmap,label_base,label,xlim,ylim,axind)
-    Colorbar(fig[1,2],hms;label=label*" axis $axind")
-	fig
-end
 
-plot_field(E1,grid;axind=1)
 plot_field(E1_kk,grid;axind=1)
 plot_field(E1 .- E1_kk,grid;axind=1)
 

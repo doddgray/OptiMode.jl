@@ -2,7 +2,7 @@
 # LOBPCG Eigensolver from DFTK.jl
 ####################################################################################################
 
-using .DFTK
+using .DFTK: LOBPCG
 
 export DFTK_LOBPCG
 
@@ -40,7 +40,7 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxi
 	res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
     copyto!(ms.H⃗,res.X)
     copyto!(ms.ω²,res.λ)
-    canonicalize_phase!(ms)
+    # canonicalize_phase!(ms)
     # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
 	# println("evals: $evals")
@@ -50,5 +50,6 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxi
 	# copyto!(ms.ω²,evals_res)
 	# copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
 	# return real(evals_res), evecs_res
-    return real(ms.ω²), collect(eachcol(ms.H⃗))
+    # return real(ms.ω²), collect(eachcol(ms.H⃗))
+    return copy(real(res.λ)), copy.(eachcol(res.X))
 end

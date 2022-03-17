@@ -21,13 +21,14 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,ei
 	res = lobpcg!(eigs_itr;log,not_zeros=false,maxiter,tol)
     copyto!(ms.H⃗,res.X)
     copyto!(ms.ω²,res.λ)
-    canonicalize_phase!(ms)
-    copyto!(res.X,ms.H⃗)
+    # canonicalize_phase!(ms)
+    # copyto!(res.X,ms.H⃗)
+
     # res = lobpcg(ms.M̂,ms.H⃗[:,1]; log,not_zeros=false,maxiter,tol)
     # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
 	# println("evals: $evals")
-	return real(ms.ω²), collect(eachcol(ms.H⃗))
+	return copy(real(ms.ω²)), copy.(eachcol(ms.H⃗))
 end
 
 

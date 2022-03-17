@@ -3,6 +3,24 @@ export MPB_Solver, n_range #, mp, mpb, np
 
 mutable struct MPB_Solver <: AbstractEigensolver end
 
+# function solve_ω²(ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+# 	res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
+#     copyto!(ms.H⃗,res.X)
+#     copyto!(ms.ω²,res.λ)
+#     return copy(real(res.λ)), copy.(eachcol(res.X))
+# end
+
+# find_k signature (defined below):
+# find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),overwrite=false,kwargs...)
+function solve_k(ω::Real,ε::AbstractArray,grid::Grid{ND},solver::MPB_Solver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,kwargs...) where {ND}
+	ks,evecs = find_k(ω,ε,grid;num_bands=nev,kwargs...)
+    return ks, [vec(ev) for ev in evecs]
+end
+
+# function solve_k(ω::,ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,kwargs...) where {ND,T<:Real}
+# 	ks,evecs = find_k(ω,ε,grid;num_bands=nev,kwargs...)
+#     return ks, evecs
+# end
 
 ### Dependencies of MPB interface in case this should be a sub-module
 # using PyCall
