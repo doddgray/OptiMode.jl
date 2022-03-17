@@ -17,19 +17,25 @@ export IterativeSolversLOBPCG
 mutable struct IterativeSolversLOBPCG <: AbstractEigensolver end
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	# x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
-	# howmany =	nev				# how many eigenvector/value pairs to find
-	# which	=	:SR				# :SR="Smallest Real" eigenvalues
-	# # evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
-	res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
+    eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗,ms.P̂) # ,constraint)
+	res = lobpcg!(eigs_itr;log,not_zeros=false,maxiter,tol)
+    copyto!(ms.H⃗,res.X)
+    copyto!(ms.ω²,res.λ)
+    canonicalize_phase!(ms)
+    copyto!(res.X,ms.H⃗)
+    # res = lobpcg(ms.M̂,ms.H⃗[:,1]; log,not_zeros=false,maxiter,tol)
     # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
 	# println("evals: $evals")
-	# n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
-	# evals_res = evals[1:n_results]
-	# evecs_res = vec.(evecs[1:n_results])
-	# copyto!(ms.ω²,evals_res)
-	# copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
-	# return real(evals_res), evecs_res
-    return res
+	return real(ms.ω²), collect(eachcol(ms.H⃗))
 end
+
+
+	# λ⃗ = randn(Complex{T},2*M̂.N)
+	# b⃗ = similar(λ⃗)
+	# adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
+    #                          Pl = Identity(),
+    #                          max_mv_products = size(M̂, 2),
+    #                          abstol = zero(T),
+    #                          reltol = sqrt(eps(T)),
+    #                          initial_zero = false)

@@ -7,15 +7,15 @@
 
 using .KrylovKit
 
-export KrylovKitEigsolve
+export KrylovKitEigsolve, solve_ω²
 
-"""
-$(TYPEDEF)
-Create a linear solver based on GMRES from `KrylovKit.jl`. Can be used to solve `(a₀ * I + a₁ * J) * x = rhs`.
-$(TYPEDFIELDS)
-!!! tip "Different linear solvers"
-    By tuning the options, you can select CG, GMRES... see [here](https://jutho.github.io/KrylovKit.jl/stable/man/linear/#KrylovKit.linsolve)
-"""
+# """
+# $(TYPEDEF)
+# Create a linear solver based on GMRES from `KrylovKit.jl`. Can be used to solve `(a₀ * I + a₁ * J) * x = rhs`.
+# $(TYPEDFIELDS)
+# !!! tip "Different linear solvers"
+#     By tuning the options, you can select CG, GMRES... see [here](https://jutho.github.io/KrylovKit.jl/stable/man/linear/#KrylovKit.linsolve)
+# """
 mutable struct KrylovKitEigsolve <: AbstractEigensolver end
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
@@ -28,10 +28,12 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=
 	println("evals: $evals")
 	n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
 	evals_res = evals[1:n_results]
-	evecs_res = vec.(evecs[1:n_results])
+	evecs_res = canonicalize_phase(vec.(evecs[1:n_results]),ms)
 	copyto!(ms.ω²,evals_res)
 	copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
-	return real(evals_res), evecs_res
+    # canonicalize_phase!(ms)
+    # copyto!(evecs_res,eachcol(ms.H⃗))
+	return real(evals_res), evecs_res #collect(eachcol(ms.H⃗))
 end
 
 

@@ -156,7 +156,7 @@ mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum];
 mat_vars = (:ω,)
 np_mats = length(mat_vars)
 f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
-ω               =   1.0
+ω               =   0.8
 p               =   [ω, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128)
@@ -167,25 +167,110 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
 ε⁻¹             =   sliceinv_3x3(ε);
-kmags,evecs = find_k(ω,ε,grid);
+kmags_mpb,evecs_mpb = find_k(ω,ε,grid;overwrite=true);
+
+using KrylovKit
+ms_kk = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+kmags_kk,evecs_kk = solve_k(ms_kk,ω,KrylovKitEigsolve();nev=2)
+
+using IterativeSolvers
+ms_is = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+kmags_is,evecs_is = solve_k(ms_is,ω,IterativeSolversLOBPCG();nev=2)
+
+using DFTK: LOBPCG
+ms_df = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+kmags_df,evecs_df = solve_k(ms_df,ω,DFTK_LOBPCG();nev=2)
+
+
+eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗,ms.P̂)
+res_is =  lobpcg!(eigs_itr; log=false,not_zeros=false,maxiter=200,tol=1e-8)
+copyto!(ms.H⃗,res_is.X)
+copyto!(ms.ω²,res_is.λ)
+canonicalize_phase!(ms)
+Hin = reshape(copy(ms.H⃗[:,1]),2,size(grid)...)
+Ekk1,Ekk2 = copy(E⃗(ms,evecs_kk)) #E⃗(ms.M̂.k⃗[3],Hin,ε⁻¹,∂ε_∂ω,grid,normalized=false)
+# Ekk1c,Ekk2c = E⃗(ms,canonicalize_phase!(ms,copy.(evecs_kk))
+canonicalize_phase!(ms,evecs_kk)
+evecs_kkc = canonicalize_phase(evecs_kk,ms)
+
+
+
+E12 = E⃗(ms,2)
+E11,E12 = E⃗(evecs_kk,ms)
+E11c,E12c = E⃗(evecs_kkc,ms)
+imagmax1, imagmax2 = argmax(abs2.(E11)), argmax(abs2.(E12))
+E_magmax1 = E11[imagmax1]
+E_magmax2 = E12[imagmax2]
+
+imagmax1c, imagmax2c = argmax(abs2.(E11c)), argmax(abs2.(E12c))
+E_magmax1c = E11c[argmax(abs2.(E11c))]
+E_magmax2c = E12c[argmax(abs2.(E12c))]
+
+Ephase_magmax1 = angle(E_magmax1)
+Ephase_magmax2 = angle(E_magmax2)
+
+E_canon = E11 * cis(-Ephase_magmax)
+cis(-Ephase_magmax) |> abs2
+E_canon_magmax = E_canon[argmax(abs2.(E_canon))]
+
+E_canon2 = E⃗(ms.M̂.k⃗[3],Hin*cis(-Ephase_magmax),ε⁻¹,∂ε_∂ω,grid,normalized=false)
+E_canon2_magmax = E_canon2[argmax(abs2.(E_canon2))]
+
+
+# function canonicalize_phase!(Hin::AbstractMatrix,ms::ModeSolver,eig_idx::Int)
+#     ms.H⃗ *= cis(-angle(magmax(E⃗(ms,eig_idx))))
+# end
+
+Hin_canon = Hin * 
+
+# 
+
+# kmag1_kk,evec1_kk = solve_k_single(ms,ω;nev=2,eigind=1)
+# kmag2_kk,evec2_kk = solve_k_single(ms,ω;nev=2,eigind=2)
+kmags_kk,evecs_kk = solve_k(ms,ω;nev=2)
+
+kmags,evecs = copy(kmags_mpb),copy(evecs_mpb);
 ng1 = group_index(kmags[1],evecs[1],ω,ε⁻¹,∂ε_∂ω,grid)
 ng_grads = Zygote.gradient((k,ev,om,epsi,deps_dom)->group_index(k,ev,om,epsi,deps_dom,grid),kmags[1],evecs[1],ω,ε⁻¹,∂ε_∂ω);
 E1 = E⃗(kmags[1],evecs[1],ε⁻¹,∂ε_∂ω,grid)
 kg1 = k_guess(ω,ε⁻¹)
 k1 = kmags[1]
 # kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
+using OptiMode: _solve_Δω²
 ms = ModeSolver(kmags[1], ε⁻¹, grid; nev=2, maxiter=100, tol=1e-8)
-res1 = solve_ω²(ms)
+evals_kk,evecs_kk = solve_ω²(ms;nev=2)
+Δω²,Δω²_∂ω²∂k = _solve_Δω²(ms,kmags[1],1.0;nev=2,eigind=1)
+
+hcat(vec.(evecs_mpb)...)
+
+copyto!(ms.H⃗,hcat(vec.(evecs_mpb)...))
+x0 = copy(ms.H⃗[:,1]) # isapprox(x0,evecs_kk[1])
+x1 = ms.M̂ * x0
+
+dot(x0,x1)
+dot(x0,x0)
+dot(x1,x1)
+dot(evecs_kk[1],evecs_kk[1])
+
+evals_kk,evecs_kk,convinfo_kk = eigsolve(x->ms.M̂*x,copy(ms.H⃗[:,1]),2,:SR;maxiter=100,tol=1e-8,krylovdim=50,verbosity=2)
+E1_kk = E⃗(kmags[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)
+isapprox(E1,E1_kk,rtol=1e-2)
+_solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T;nev=1,eigind=1
 
 ##
 # kz1,ev1 = solve_k(ms,ω,ε⁻¹;nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
 ωₜ = 1.0
 eigind = 1
-ω²,ev1 = solve_ω²(ms,kmags[1];nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
+# ω²,ev1 = solve_ω²(ms,kmags[1];nev=2,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
 Δω² = ω²[eigind] - ωₜ^2
-∂ω²∂k = 2 * HMₖH(ev1[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+
+
+∂ω²∂k_mpb = 2 * HMₖH(evecs_mpb[1],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+∂ω²∂k_kk  = 2 * HMₖH(evecs_kk[1], ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+
+
 2 * HMₖH(vec(evecs[1]),ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
-2 * HMₖH((ev1[:,eigind])./sqrt(sum(abs2,ev1[:,eigind])),ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) 
+2 * HMₖH((ev1[:,eigind]),ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # ./sqrt(sum(abs2,ev1[:,eigind]))
 # 2 * HMₖH(ev1[:,eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn[:,1,:,:],ms.M̂.mn[:,2,:,:])
 mag3,mn3 = mag_mn(kmags[1],grid)
 2 * HMₖH(vec(evecs[1]),ε⁻¹,mag3,mn3)
@@ -245,6 +330,8 @@ function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y
 end
 
 plot_field(E1,grid;axind=1)
+plot_field(E1_kk,grid;axind=1)
+plot_field(E1 .- E1_kk,grid;axind=1)
 
 let fig = Figure(resolution = (600, 1200)), X=x(Grid(6.,4.,256,128)),Y=y(Grid(6.,4.,256,128)),Z=(realE1[1,1,:,:], ∂ε_∂ω[1,1,:,:], ∂²ε_∂ω²[1,1,:,:]), labels=("ε","∂ε_∂ω","∂²ε_∂ω²"), cmaps=(:viridis,:magma,:RdBu)
     axes = [ Axis(fig[i, 1]; xlabel = "x", ylabel = "y", aspect=DataAspect()) for i=1:length(Z) ]

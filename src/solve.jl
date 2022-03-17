@@ -99,13 +99,13 @@ end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::TK,solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
 	@ignore(update_k!(ms,k))
-	solve_ω²(ms,solver; nev, maxiter, tol, log, solver, f_filter)
+	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
 end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
 	@ignore(update_k!(ms,k))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
-	solve_ω²(ms,solver; nev, maxiter, tol, log, solver, f_filter)
+	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
 end
 
 """
@@ -122,7 +122,7 @@ modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x))
 """
 function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T,solver::AbstractEigensolver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK}
 	# println("k: $(k)")
-	evals,evecs = solve_ω²(ms,k,solver; nev, maxiter, tol, log, solver, f_filter)
+	evals,evecs = solve_ω²(ms,k,solver; nev, maxiter, tol, log, f_filter)
 	Δω² = evals[eigind] - ωₜ^2
 	∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
@@ -193,77 +193,3 @@ function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{N
 end
 
 
-# # function find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),kwargs...) where ND
-# function rrule(::typeof(find_k),ω::Real,ε⁻¹,grid::Grid{ND};nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND}
-# 		# ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T};nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing
-# 	kmags, evecs = find_k(ω,ε,grid);
-	
-# 	function find_k_pullback(ΔΩ)
-# 		k̄, ēvecs = ΔΩ
-# 		ε⁻¹ = sliceinv_3x3(ε)
-# 		ms = ModeSolver(kmags[1], ε⁻¹, grid; nev, maxiter, tol)
-# 		# println("\tsolve_k_pullback:")
-# 		# println("k̄ (bar): $k̄")
-# 		update_k!(ms,k)
-# 		update_ε⁻¹(ms,ε⁻¹) #ε⁻¹)
-# 		ms.ω²[eigind] = omsq_soln # ω^2
-# 		ms.∂ω²∂k[eigind] = ∂ω²∂k
-# 		copyto!(ms.H⃗, Hv)
-# 		replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-# 		λ⃗ = similar(Hv)
-# 		λd =  similar(ms.M̂.d)
-# 		λẽ = similar(ms.M̂.d)
-# 		# ε⁻¹_bar = similar(ε⁻¹)
-# 		# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
-# 		# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-# 		# Nranges = eachindex(ms.grid)
-
-# 		H = reshape(Hv,(2,Ns...))
-# 		# if typeof(k̄)==ZeroTangent()
-# 		if isa(k̄,AbstractZero)
-# 			k̄ = 0.
-# 		end
-# 		# if typeof(ēvecs) != ZeroTangent()
-# 		if !isa(ēvecs,AbstractZero)
-# 			# solve_adj!(ms,ēvecs,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = ēvecs - dot(Hv,ēvecs)*Hv
-# 			solve_adj!(λ⃗,ms.M̂,ēvecs,omsq_soln,Hv,eigind;log=false)
-# 			# solve_adj!(ms,ēvecs,ω^2,Hv,eigind)
-# 			λ⃗ -= dot(Hv,λ⃗) * Hv
-# 			λ = reshape(λ⃗,(2,Ns...))
-# 			d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
-# 			λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
-# 			# eīₕ = ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), Ns...)
-# 			eīₕ = ε⁻¹_bar(vec(ms.M̂.d), vec(λd), Ns...)
-# 			# eīₕ = copy(ε⁻¹_bar)
-# 			# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
-# 			λd *=  ms.M̂.Ninv
-# 			λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
-# 			ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-# 			kx̄_m⃗ = real.( λẽ_sv .* conj.(view(H,2,Nranges...)) .+ ẽ .* conj.(view(λ,2,Nranges...)) )
-# 			kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view(H,1,Nranges...)) .+ ẽ .* conj.(view(λ,1,Nranges...)) )
-# 			māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-# 			k̄ₕ = -mag_m_n_pb(( māg, kx̄_m⃗.*mag, kx̄_n⃗.*mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
-# 		else
-# 			eīₕ = zero(ε⁻¹)#fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
-# 			k̄ₕ = 0.0
-# 		end
-# 		# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω̄ and eīₖ
-# 		copyto!(λ⃗, ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * Hv )
-# 		λ = reshape(λ⃗,(2,Ns...))
-# 		d = _H2d!(ms.M̂.d, H * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( H , mn2, mag )  * ms.M̂.Ninv
-# 		λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
-# 		# ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), Ns...)
-# 		# eīₖ = copy(ε⁻¹_bar)
-# 		eīₖ = ε⁻¹_bar(vec(ms.M̂.d), vec(λd), Ns...)
-# 		# ε⁻¹_bar = eīₖ + eīₕ
-# 		eibar = eīₖ + eīₕ
-# 		ω̄  =  ( 2ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
-# 		# if !(typeof(k)<:SVector)
-# 		# 	k̄_kx = k̄_kx[3]
-# 		# end
-# 		# ms.ω̄  = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
-# 		return (NoTangent(), ZeroTangent(), ω̄  , eibar)
-# 	end
-
-# 	return ((k, Hv), solve_k_pullback)
-# end

@@ -6,8 +6,8 @@
 ################################################################################
 """
 
-export unflat, _d2ẽ!, _H2d!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z
-export normE!, Ex_norm, Ey_norm, mn
+export unflat, _d2ẽ!, _H2d!, _H2e!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z
+export normE!, Ex_norm, Ey_norm, mn, val_magmax, canonicalize_phase, canonicalize_phase!
 # export _cross, _cross_x, _cross_y, _cross_z, _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
 # export _outer
  #, slice_inv 	# stuff to get rid of soon
@@ -52,6 +52,12 @@ function _H2d!(d::AbstractArray{Complex{T},3}, Hin::AbstractArray{Complex{T},3},
     mul!(d.data,M̂.𝓕!,d.data);
 	return d
 end
+
+# function _H2e!(e, Hin, M̂::HelmholtzMap{ND,T}) where {ND,T<:Real}
+#     _H2d!(e,Hin,M̂);
+# 	eid!(e,M̂.ε⁻¹,e);
+# 	return e
+# end
 
 function _d2ẽ!(e::AbstractArray{Complex{T},3}, d::AbstractArray{Complex{T},3},
 	M̂::HelmholtzMap{2,T})::AbstractArray{Complex{T},3} where T<:Real
@@ -182,16 +188,23 @@ H⃗x(ms::ModeSolver) = H⃗(ms;svecs=false)[1,eachindex(ms.grid)...]
 H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
 H⃗z(ms::ModeSolver) = H⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
 
-function E⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
+function E⃗(ms::ModeSolver{ND,T}) where {ND,T<:Real}
 	Earr = [ 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ ))) for eigind=1:size(ms.H⃗,2) ]
-	# svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Earr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Earr
 	return Earr
 end
 
-function E⃗(ms::ModeSolver{ND,T}, eigind::Int; svecs=true) where {ND,T<:Real}
+function E⃗(ms::ModeSolver{ND,T}, eigind::Int) where {ND,T<:Real}
 	E = 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
-	# svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
 	return E
+end
+
+function E⃗(evec::AbstractVector{Complex{T}}, ms::ModeSolver{ND,T}) where {ND,T<:Real}
+	return 1im * ε⁻¹_dot( fft( kx_tc( reshape(evec, (2,size(ms.grid)...)), mn(ms), ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
+end
+
+function E⃗(evecs::AbstractVector{TV}, ms::ModeSolver{ND,T}) where {ND,T<:Real,TV<:AbstractVector{Complex{T}}}
+	# return E⃗.(evecs,(ms,))
+	return [E⃗(ev,ms) for ev in evecs]
 end
 
 # function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
@@ -247,6 +260,52 @@ S⃗x(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 1)), E
 S⃗y(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 2)), E⃗(ms), H⃗(ms) ) #real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 2) )
 S⃗z(ms::ModeSolver) = map((E,H)->real( getindex.( cross.( conj.(E), H), 3)), E⃗(ms), H⃗(ms) ) #real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 3) )
 
+"""
+	val_magmax(F::AbstractArray)
+
+Return the largest-magnitude component of an array.
+
+This is useful for canonicalizing phase of a complex vector field.
+"""
+val_magmax(F::AbstractArray{T} where {T<:Number}) =  @inbounds F[argmax(abs2.(F))]
+
+"""
+	canonicalize_phase!(ms::ModeSolver[, eig_idx::Int])
+
+Canonicalize the phase of one or all eigenmodes in a ModeSolver struct.
+
+This shifts the phase of each mode field such that the largest magnitude
+component of the corresponding Electric field `E⃗` is purely real.
+"""
+function canonicalize_phase!(ms::ModeSolver,eig_idx::Int)
+    ms.H⃗[:,eig_idx] = cis(-angle(val_magmax(E⃗(ms,eig_idx)))) * ms.H⃗[:,eig_idx]
+    return nothing
+end
+function canonicalize_phase!(ms::ModeSolver)
+    for eig_idx=1:size(ms.H⃗,2)
+        canonicalize_phase!(ms,eig_idx)
+    end
+    return nothing
+end
+function canonicalize_phase!(evec::AbstractVector{Complex{T}}, ms::ModeSolver) where {T<:Real}
+    evec *= cis(-angle(val_magmax(E⃗(evec,ms))))
+    return nothing
+end
+function canonicalize_phase!(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
+    # canonicalize_phase!.(evecs,(ms,))
+	# foreach(ev->canonicalize_phase!(ev,ms),evecs)
+	for ev in evecs
+		ev *= cis(-angle(val_magmax(E⃗(ev,ms))))
+	end
+    return nothing
+end
+function canonicalize_phase(evec::AbstractVector{Complex{T}}, ms::ModeSolver) where {T<:Real}
+    return evec * cis(-angle(val_magmax(E⃗(evec,ms))))
+end
+function canonicalize_phase(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
+    # return canonicalize_phase.(evecs,(ms,))
+	return map(ev->canonicalize_phase(ev,ms),evecs)
+end
 
 
 function normE!(ms)

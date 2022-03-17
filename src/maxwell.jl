@@ -3,9 +3,9 @@ export update_ε⁻¹, ε⁻¹_ω, mag_m_n, mag_m_n2, mag_m_n!, mag_mn, kx_ct, k
 export ε⁻¹_dot, ε⁻¹_dot_t, _M!, _P!, kx_ct!, kx_tc!, zx_tc!, kxinv_ct!
 export kxinv_tc!, ε⁻¹_dot!, ε_dot_approx!, HMₖH, HMH, tc, ct, ng_z, eid!
 
-x̂ = SVector(1.,0.,0.)
-ŷ = SVector(0.,1.,0.)
-ẑ = SVector(0.,0.,1.)
+# x̂ = SVector(1.,0.,0.)
+# ŷ = SVector(0.,1.,0.)
+# ẑ = SVector(0.,0.,1.)
 
 """
 ################################################################################
