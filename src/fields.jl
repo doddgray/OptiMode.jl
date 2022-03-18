@@ -123,12 +123,12 @@ end
 	reshape(f,(ratio,Ns...))
 end
 
-mn(ms::ModeSolver) = ms.M̂.mn # vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
+# mn(ms::ModeSolver) = ms.M̂.mn # vcat(reshape(ms.M̂.m,(1,3,size(ms.grid)...)),reshape(ms.M̂.n,(1,3,size(ms.grid)...)))
 
 
 
 function H⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
-	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],mn(ms)), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
+	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],ms.M̂.mn), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
 	# svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
 	return Harr
 end
@@ -189,17 +189,17 @@ H⃗y(ms::ModeSolver) = H⃗(ms;svecs=false)[2,eachindex(ms.grid)...]
 H⃗z(ms::ModeSolver) = H⃗(ms;svecs=false)[3,eachindex(ms.grid)...]
 
 function E⃗(ms::ModeSolver{ND,T}) where {ND,T<:Real}
-	Earr = [ 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ ))) for eigind=1:size(ms.H⃗,2) ]
+	Earr = [ 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],ms.M̂.mn,ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ ))) for eigind=1:size(ms.H⃗,2) ]
 	return Earr
 end
 
 function E⃗(ms::ModeSolver{ND,T}, eigind::Int) where {ND,T<:Real}
-	E = 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],mn(ms),ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
+	E = 1im * ε⁻¹_dot( fft( kx_tc( unflat(ms.H⃗; ms)[eigind],ms.M̂.mn,ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
 	return E
 end
 
 function E⃗(evec::AbstractVector{Complex{T}}, ms::ModeSolver{ND,T}) where {ND,T<:Real}
-	return 1im * ε⁻¹_dot( fft( kx_tc( reshape(evec, (2,size(ms.grid)...)), mn(ms), ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
+	return 1im * ε⁻¹_dot( fft( kx_tc( reshape(evec, (2,size(ms.grid)...)), ms.M̂.mn, ms.M̂.mag), (2:1+ND) ), copy(flat( ms.M̂.ε⁻¹ )))
 end
 
 function E⃗(evecs::AbstractVector{TV}, ms::ModeSolver{ND,T}) where {ND,T<:Real,TV<:AbstractVector{Complex{T}}}
@@ -228,19 +228,22 @@ end
 # 	return E
 # end
 
-function E⃗(k,evec::AbstractArray{Complex{T}},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
+function E⃗(k,evec::AbstractArray{Complex{T}},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; canonicalize=true, normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	evec_gridshape = reshape(evec,(2,size(grid)...))
 	magmn = mag_mn(k,grid)
 	E0 = 1im * ε⁻¹_dot( fft( kx_tc( evec_gridshape,last(magmn),first(magmn)), (2:1+ND) ), ε⁻¹)
-	if normalized
-		imagmax = argmax(abs2.(E0))
-		E1 = E0 / E0[imagmax]
-		E1norm = dot(E1,_dot(∂ε_∂ω,E1)) * δ(grid)
-		E = E1 / sqrt(E1norm)
+	
+	if canonicalize
+		phase_factor = cis(-angle(val_magmax(E0)))
 	else
-		E = E0
+		phase_factor = one(T)
 	end
-	return E
+	if normalized
+		norm_factor = inv( sqrt( dot(E0,_dot(∂ε_∂ω,E0)) * δV(grid) )  ) 
+	else
+		norm_factor = one(T)
+	end
+	return norm_factor * (E0 * phase_factor)
 end
 
 E⃗x(ms::ModeSolver) = [ E[1,eachindex(ms.grid)...] for E in E⃗(ms;svecs=false) ]
@@ -306,6 +309,15 @@ function canonicalize_phase(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<
     # return canonicalize_phase.(evecs,(ms,))
 	return map(ev->canonicalize_phase(ev,ms),evecs)
 end
+
+# function canonicalize_phase(evec::AbstractVector{Complex{T}}, ms::ModeSolver) where {T<:Real}
+#     return evec * cis(-angle(val_magmax(E⃗(evec,ms))))
+# end
+# function canonicalize_phase(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
+#     # return canonicalize_phase.(evecs,(ms,))
+# 	return map(ev->canonicalize_phase(ev,ms),evecs)
+# end
+
 
 
 function normE!(ms)

@@ -3,8 +3,7 @@
 # export ∇ₖmag_mn
 
 # @non_differentiable KDTree(::Any)
-@non_differentiable g⃗(::Any)
-@non_differentiable _fftaxes(::Any)
+
 
 # include("grad_lib/ForwardDiff.jl")
 include("grad_lib/StaticArrays.jl")

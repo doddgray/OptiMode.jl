@@ -8,58 +8,20 @@ export AbstractEigensolver
 #																			   #
 ################################################################################
 """
-
-# add try/catch with
-# res = DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
-
 abstract type AbstractEigensolver end
-# struct IterativeSolversLOBPCG <: Eigensolver end
-# struct DFTK_LOBPCG <: Eigensolver end
-
-
-
-
-
-
-
-# function __init__()
-#     
-# end
-
-# function __init__()
-#     @require PyCall="" include("solvers/mpb.jl")
-# end
 
 # abstract type AbstractLinearSolver end
 
-function solve_ω²(ms::ModeSolver{ND,T},solver::TS;kwargs...) where {ND,T<:Real,TS<:AbstractEigensolver} end
+"""
+	solve_ω²(ms::ModeSolver, solver::AbstractEigensolver; kwargs...)
 
-
-# function _solve_ω²(ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
-# 	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
-# 	howmany =	nev				# how many eigenvector/value pairs to find
-# 	which	=	:SR				# :SR="Smallest Real" eigenvalues
-# 	# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
-# 	evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
-# 	info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
-# 	println("evals: $evals")
-# 	n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
-# 	evals_res = evals[1:n_results]
-# 	evecs_res = vec.(evecs[1:n_results])
-# 	copyto!(ms.ω²,evals_res)
-# 	copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
-# 	return real(evals_res), evecs_res
-# end
-
-# function _solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing)
-# 	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
-# 	howmany =	nev				# how many eigenvector/value pairs to find
-# 	which	=	:SR				# :SR="Smallest Real" eigenvalues
-#   res		=	DFTK.LOBPCG(ms.M̂,rand(ComplexF64,size(ms.M̂)[1],1),I,ms.P̂,1e-8,3000)
-# 	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗,size(ms.H⃗,2),:SR;maxiter,tol,krylovdim=50) #,verbosity=2)
-# 	copyto!(ms.H⃗,hcat(evecs...)[1:size(ms.H⃗,2)])
-# 	copyto!(ms.ω²,evals[1:size(ms.H⃗,2)])
-# end
+	Find a few extremal eigenvalue/eigenvector pairs of the `HelmholtzOperator` map 
+	in the modesolver object `ms`. The eigenvalues physically correspond to ω², the
+	square of the temporal frequencies of electromagnetic resonances (modes) of the
+	dielectric structure being modeled with Bloch wavevector k⃗, a 3-vector of spatial
+	frequencies.
+"""
+function solve_ω²(ms::ModeSolver{ND,T}, solver::TS; kwargs...)::Tuple{Vector{T},Vector{Vector{Complex{T}}}} where {ND,T<:Real,TS<:AbstractEigensolver} end
 
 """
 f_filter takes in a ModeSolver and an eigenvalue/vector pair `αX` and outputs boolean,
@@ -102,11 +64,24 @@ function solve_ω²(ms::ModeSolver{ND,T},k::TK,solver::AbstractEigensolver;nev=1
 	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
 end
 
-function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{SMatrix{3,3,T,9},ND},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
+function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{T},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
 	@ignore(update_k!(ms,k))
 	@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
 end
+
+function solve_ω²(k::TK,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,evecs_guess=nothing,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
+	ms = ignore() do
+		ms = ModeSolver(k, ε⁻¹, grid; nev, maxiter, tol)
+		if !isnothing(Hguess)
+			ms.H⃗ = reshape(Hguess,(2*length(grid),2))
+		end
+		return ms
+	end
+	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
+end
+
+
 
 """
 ################################################################################
@@ -142,22 +117,20 @@ function solve_k(ms::ModeSolver{ND,T},ω::T,solver::AbstractEigensolver;nev=1,ma
 	kmags = Vector{T}(undef,nev)
 	evecs = Matrix{Complex{T}}(undef,(size(ms.H⃗,1),nev))
 	for (idx,eigind) in enumerate(1:nev)
-		idx>1 && copyto!(ms.H⃗,repeat(evecs[:,idx-1],1,size(ms.H⃗,2)))
+		# idx>1 && copyto!(ms.H⃗,repeat(evecs[:,idx-1],1,size(ms.H⃗,2)))
 		kmag_evec = solve_k_single(ms,ω,solver;nev,eigind,maxiter,tol,atol,maxevals,log)
 		kmags[idx] = first(kmag_evec)
 		copyto!(evecs[:,idx],last(kmag_evec))
 	end
-	return kmags, collect(eachcol(evecs))
+	return kmags, [copy(ev) for ev in eachcol(evecs)] #collect(eachcol(evecs))
 end
-
 
 function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real} 
 	Zygote.@ignore(update_ε⁻¹(ms,ε⁻¹))
 	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
-	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
+function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,log=false,kguess=nothing,Hguess=nothing,f_filter=nothing) where {ND,T<:Real} 
 	ms = ignore() do
 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
 		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
@@ -169,27 +142,40 @@ function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::Abstr
 	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
 end
 
-function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
-	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
-	# ms = @ignore(ModeSolver(k_guess(first(ω),first(ε⁻¹)), first(ε⁻¹), grid; nev, maxiter, tol))
-	ms = ignore() do
-		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
-		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
-		if !isnothing(Hguess)
-			ms.H⃗ = Hguess
-		end
-		return ms
-	end
-	nω = length(ω)
-	k = Buffer(ω,nω)
-	Hv = Buffer([1.0 + 3.0im, 2.1+4.0im],(size(ms.M̂)[1],nω))
-	for ωind=1:nω
-		@ignore(update_ε⁻¹(ms,ε⁻¹[ωind]))
-		kHv = solve_k(ms,ω[ωind],solver; nev, maxiter, tol, log, f_filter)
-		k[ωind] = kHv[1]
-		Hv[:,ωind] = kHv[2]
-	end
-	return copy(k), copy(Hv)
-end
+# function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
+# 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
+# 	ms = ignore() do
+# 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
+# 		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
+# 		if !isnothing(Hguess)
+# 			ms.H⃗ = reshape(Hguess,size(ms.H⃗))
+# 		end
+# 		return ms
+# 	end
+# 	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
+# end
+
+# function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
+# 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
+# 	# ms = @ignore(ModeSolver(k_guess(first(ω),first(ε⁻¹)), first(ε⁻¹), grid; nev, maxiter, tol))
+# 	ms = ignore() do
+# 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
+# 		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
+# 		if !isnothing(Hguess)
+# 			ms.H⃗ = Hguess
+# 		end
+# 		return ms
+# 	end
+# 	nω = length(ω)
+# 	k = Buffer(ω,nω)
+# 	Hv = Buffer([1.0 + 3.0im, 2.1+4.0im],(size(ms.M̂)[1],nω))
+# 	for ωind=1:nω
+# 		@ignore(update_ε⁻¹(ms,ε⁻¹[ωind]))
+# 		kHv = solve_k(ms,ω[ωind],solver; nev, maxiter, tol, log, f_filter)
+# 		k[ωind] = kHv[1]
+# 		Hv[:,ωind] = kHv[2]
+# 	end
+# 	return copy(k), copy(Hv)
+# end
 
 

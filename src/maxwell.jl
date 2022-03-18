@@ -187,7 +187,7 @@ function kx_tc(H::AbstractArray{T,3},mn,mag) where T
 end
 
 """
-    kx_c2t: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
+    kx_ct: v⃗ (transverse vector) = k⃗ × a⃗ (cartesian vector)
 """
 function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
 	kxscales = [-1.; 1.]
@@ -197,7 +197,7 @@ function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
 end
 
 """
-    zx_t2c: a⃗ (cartesian vector) = ẑ × v⃗ (transverse vector)
+    zx_tc: a⃗ (cartesian vector) = ẑ × v⃗ (transverse vector)
 """
 function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
@@ -207,7 +207,7 @@ function zx_tc(H::AbstractArray{T,3},mn) where T
 end
 
 """
-    zx_c2t: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
+    zx_ct: v⃗ (transverse vector) = ẑ × a⃗ (cartesian vector)
 """
 function zx_ct(e⃗::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
@@ -516,14 +516,16 @@ function mag_m_n!(mag,m,n,k⃗::SVector{3,T},g⃗) where T <: Real
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		# @inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		@inbounds n[i] =  !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		# @inbounds n[i] =  !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
 	end
 	return mag,m,n
 end
 
 mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,0.,kz),g⃗)
+# mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
+# mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
 
 # Tullio version
 
@@ -563,7 +565,8 @@ function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
 		@inbounds mag[i] = norm(kpg)
-		@inbounds n[i] =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		@inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		# @inbounds n[i] =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
 	end
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
@@ -683,7 +686,8 @@ function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
 		@inbounds mag_buf[i] = norm(kpg_buf[i])
-		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
+		# @inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
 	end
 	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
@@ -1252,16 +1256,28 @@ update_k!(ms::ModeSolver,k) = update_k!(ms.M̂,k)
 
 # Update ε⁻¹ methods
 
-function update_ε⁻¹(M̂::HelmholtzMap{ND,T,NDp1,NDp2},ε⁻¹) where {ND,T<:Real,NDp1,NDp2}
+function update_ε⁻¹(M̂::HelmholtzMap{2,T,NDp1,NDp2},ε⁻¹) where {T<:Real,NDp1,NDp2}
 	@assert size(M̂.ε⁻¹) == size(ε⁻¹)
 	M̂.ε⁻¹ = ε⁻¹
-	M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix in axes(ε⁻¹,3), iy in axes(ε⁻¹,3)]
+	M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix in axes(ε⁻¹,3), iy in axes(ε⁻¹,4)]
 end
 
-function update_ε⁻¹(ms::ModeSolver{ND,T},ε⁻¹) where {ND,T<:Real}
+function update_ε⁻¹(M̂::HelmholtzMap{3,T,NDp1,NDp2},ε⁻¹) where {T<:Real,NDp1,NDp2}
+	@assert size(M̂.ε⁻¹) == size(ε⁻¹)
+	M̂.ε⁻¹ = ε⁻¹
+	M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy,iz]))) for ix in axes(ε⁻¹,3), iy in axes(ε⁻¹,4), iz in axes(ε⁻¹,5)]
+end
+
+function update_ε⁻¹(ms::ModeSolver{2,T},ε⁻¹) where {T<:Real}
 	@assert size(ms.M̂.ε⁻¹) == size(ε⁻¹)
 	ms.M̂.ε⁻¹ = ε⁻¹
-	ms.M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix=1:ms.grid.Nx, iy=1:ms.grid.Ny]
+	ms.M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy]))) for ix in 1:ms.grid.Nx, iy in 1:ms.grid.Ny]
+end
+
+function update_ε⁻¹(ms::ModeSolver{3,T},ε⁻¹) where {T<:Real}
+	@assert size(ms.M̂.ε⁻¹) == size(ε⁻¹)
+	ms.M̂.ε⁻¹ = ε⁻¹
+	ms.M̂.ε_ave = [ 3. * inv(sum(diag(ε⁻¹[:,:,ix,iy,iz]))) for ix in 1:ms.grid.Nx, iy in 1:ms.grid.Ny, iz in 1:ms.grid.Nz]
 end
 
 # property methods
@@ -1310,5 +1326,4 @@ LinearAlgebra.ldiv!(c,P̂::HelmholtzPreconditioner,b) = mul!(c,P̂,b) # P̂(c, b
 LinearAlgebra.ldiv!(P̂::HelmholtzPreconditioner,b) = mul!(b,P̂,b)
 
 
-mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
-mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
+

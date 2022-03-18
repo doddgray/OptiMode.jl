@@ -5,7 +5,7 @@
 # KrylovKit Solvers
 ####################################################################################################
 
-using .KrylovKit
+# using .KrylovKit	# uncomment if using Requires.jl for optional dependancy
 
 export KrylovKitEigsolve, solve_ω²
 
@@ -18,24 +18,26 @@ export KrylovKitEigsolve, solve_ω²
 # """
 mutable struct KrylovKitEigsolve <: AbstractEigensolver end
 
-function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
+function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=200,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+	x₀ 		=	copy(vec(ms.H⃗[:,1]))	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
 	howmany =	nev				# how many eigenvector/value pairs to find
 	which	=	:SR				# :SR="Smallest Real" eigenvalues
 	# evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
 	evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
-	info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
-	println("evals: $evals")
+	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
+	# println("evals: $evals")
 	n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
 	evals_res = evals[1:n_results]
 	# evecs_res = canonicalize_phase(vec.(evecs[1:n_results]),ms)
-    evecs_res = copy.(vec.(evecs[1:n_results]))
-	copyto!(ms.ω²,evals_res)
-	copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
+    #evecs_res = evecs#copy.(vec.(evecs[1:n_results]))
+	evecs_res = [copy(ev) for ev in evecs[1:n_results]]
+	# copyto!(ms.ω²,evals_res)
+	# copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
     # canonicalize_phase!(ms)
     # copyto!(evecs_res,eachcol(ms.H⃗))
 	# return real(evals_res), evecs_res #collect(eachcol(ms.H⃗))
-    return copy(real(ms.ω²)), evecs_res #copy.(eachcol(ms.H⃗))
+    # return copy(real(ms.ω²)), #copy.(eachcol(ms.H⃗))
+	return real(evals_res), evecs_res
 end
 
 

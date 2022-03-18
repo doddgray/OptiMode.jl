@@ -6,7 +6,8 @@
 ##############################################################################################
 """
 
-export Grid, δx, δy, δz, δ, x, y, z, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, Nranges, ∫, corners, vxlmin, vxlmax
+export Grid, δx, δy, δz, δV, xvals, yvals, zvals, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, Nranges, corners, vxlmin, vxlmax #, ∫dV
+export δ, x, y, z # TODO: remove these functions, their names are too short and likely to cause problems
 
 struct Grid{ND,T}
 	Δx::T
@@ -39,10 +40,20 @@ Grid(Δx::T, Δy::T, Nx::Int, Ny::Int) where {T<:Real} = Grid{2,T}(
 δy(g::Grid) = g.Δy / g.Ny
 δz(g::Grid) = g.Δz / g.Nz
 
-δ(g::Grid{2}) = g.Δx * g.Δy / ( g.Nx * g.Ny )
-δ(g::Grid{3}) = g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
+function δ(g::Grid{2})
+	@warn "Deprecation Warning: `δ(::Grid)` needs to be replaced with `δV(::Grid)`"
+	g.Δx * g.Δy / ( g.Nx * g.Ny )
+end
+function δ(g::Grid{3})
+	@warn "Deprecation Warning: `δ(::Grid)` needs to be replaced with `δV(::Grid)`"
+	g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
+end
 
-∫(intgnd;g::Grid) = sum(intgnd)*δ(g)	# integrate a scalar field over the grid
+δV(g::Grid{2}) = g.Δx * g.Δy / ( g.Nx * g.Ny )
+δV(g::Grid{3}) = g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
+
+
+# ∫dV(intgnd,g::Grid) = sum(intgnd)*δ(g)	# integrate a scalar field over the grid
 
 """
 `myrange(a,b,N)` remimplements the functionality of the Base method `range(a,b,N)` in a Zygote compatible way
@@ -175,6 +186,9 @@ function g⃗(gr::Grid{3,T})::Array{SVector{3, T}, 3} where T<:Real
 								gy in fftfreq(gr.Ny,gr.Ny/gr.Δy),
 							    gz in fftfreq(gr.Nz,gr.Nz/gr.Δz)		]
 end
+
+# @non_differentiable g⃗(::Any)
+@non_differentiable _fftaxes(::Any)
 
 ### Iterators Over Grid Voxel/Pixel Corner Positions ###
 

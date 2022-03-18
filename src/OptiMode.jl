@@ -10,8 +10,6 @@ module OptiMode
 
 ##### Imports ######
 
-using Requires
-
 ### Linear Algebra Types and Libraries ###
 using LinearAlgebra
 using LinearAlgebra: diag
@@ -54,10 +52,9 @@ using GeometryPrimitives
 # using GeometryPrimitives: Cylinder
 
 ### Iterative Solvers ###
-# using IterativeSolvers
-# using KrylovKit
+using IterativeSolvers
+using KrylovKit
 # using DFTK: LOBPCG
-# using KrylovKit: eigsolve, linsolve
 using Roots
 using PyCall
 
@@ -171,20 +168,20 @@ const pymeep    =   PyNULL()
 const pympb     =   PyNULL()
 # # const numpy     =   PyNULL()
 
+# using Requires
+# # function __init__()
+#     @require KrylovKit="0b1a1467-8014-51b9-945f-bf0ae24f4b77" include("solvers/krylovkit.jl")
 
+# 	@require IterativeSolvers="42fd0dbc-a981-5370-80f2-aaf504508153" include("solvers/iterativesolvers.jl")
+
+# 	@require DFTK="acf6eb54-70d9-11e9-0013-234b7a5f5337" include("solvers/dftk.jl")
+
+#     # @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
+#         # using .PyCall
+#         # @eval global mp = pyimport("meep")
+#         # @eval global mpb = pyimport("meep.mpb")
+#         # @eval global np = pyimport("numpy")
 function __init__()
-    @require KrylovKit="0b1a1467-8014-51b9-945f-bf0ae24f4b77" include("solvers/krylovkit.jl")
-
-	@require IterativeSolvers="42fd0dbc-a981-5370-80f2-aaf504508153" include("solvers/iterativesolvers.jl")
-
-	@require DFTK="acf6eb54-70d9-11e9-0013-234b7a5f5337" include("solvers/dftk.jl")
-
-    # @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
-        # using .PyCall
-        # @eval global mp = pyimport("meep")
-        # @eval global mpb = pyimport("meep.mpb")
-        # @eval global np = pyimport("numpy")
-        
     copy!(pymeep, pyimport("meep"))
     copy!(pympb, pyimport("meep.mpb"))
     # copy!(numpy, pyimport("numpy"))
@@ -207,7 +204,9 @@ function __init__()
         # fn = lambda ms, band: ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5"); numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0]) )
         def fn(ms,band):
             ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-            numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
+            # numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
+            # ms.get_eigenvectors(band,1)[:,:,0]
+            numpy.copyto(evecs_out[band-1,:,:],numpy.transpose(ms.get_eigenvectors(band,1)[:,:,0]))
         return fn
 
     def output_dfield_energy(ms,band):
@@ -245,8 +244,10 @@ function __init__()
 end
 
 include("solvers/mpb.jl")
-# include("mpb.jl")
-include("analyze.jl")
+include("solvers/iterativesolvers.jl")
+include("solvers/krylovkit.jl")
+include("solvers/dftk.jl")
+# include("analyze.jl")
 
 ## Definitions ##
 

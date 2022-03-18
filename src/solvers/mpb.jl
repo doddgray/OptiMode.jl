@@ -12,9 +12,10 @@ mutable struct MPB_Solver <: AbstractEigensolver end
 
 # find_k signature (defined below):
 # find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),overwrite=false,kwargs...)
-function solve_k(ω::Real,ε::AbstractArray,grid::Grid{ND},solver::MPB_Solver;nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,kwargs...) where {ND}
-	ks,evecs = find_k(ω,ε,grid;num_bands=nev,kwargs...)
-    return ks, [vec(ev) for ev in evecs]
+function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_Solver; nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,overwrite=false) where {ND,T<:Real}
+	ε = sliceinv_3x3(ε⁻¹)
+    ks,evecs = find_k(ω,ε,grid;num_bands=nev,overwrite)
+    return ks, evecs
 end
 
 # function solve_k(ω::,ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,kwargs...) where {ND,T<:Real}
@@ -26,7 +27,7 @@ end
 # using PyCall
 # using Distributed
 # using GeometryPrimitives
-# # using OptiMode
+# using OptiMode
 # using HDF5
 # using DelimitedFiles
 # using EllipsisNotation
@@ -637,7 +638,8 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
     band_func=[pympb.fix_efield_phase],save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
     parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),overwrite=false,kwargs...) where ND
     n_bands_out = band_max-band_min+1
-    evecs = zeros(ComplexF64,(N(grid),2,n_bands_out))
+    # evecs = zeros(ComplexF64,(N(grid),2,n_bands_out))
+    evecs = PyReverseDims(zeros(ComplexF64,(N(grid),2,n_bands_out)))
     if save_evecs
         push!(band_func,py"return_and_save_evecs"(evecs))
     else
@@ -692,11 +694,15 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
     rename_findk_data(filename_prefix,band_min:band_max;data_path,overwrite)
     write_k(kmags,ω,filename_prefix)
     # evecs   =   [load_evec_arr( joinpath(data_path,("evecs." * filename_prefix * (@sprintf ".b%02i.h5" bidx))), bidx, grid) for bidx=band_min:band_max]
-    # evecs_out = copy(reshape(permutedims(evecs,(2,1,3)),(2,size(grid)...,num_bands)))
-    evecs_out = map(1:n_bands_out) do bidx
-        # copy( reshape( permutedims( view(evecs,1:N(grid),1:2,bidx), (2,1) ), (2,size(grid)...) ) )
-        copy( permutedims( reshape( view(evecs,1:N(grid),1:2,bidx), (size(grid)...,2) ), (ND+1,(ND:-1:1)...) ) )
-    end
+    
+    #### reshuffle spatial grid axes of returned mpb eigenvector data.... kind of confusing ####
+    # I think the axis order of the returned eigenvector data, once passed through PyCall, is
+    #       [ band_idx=1:num_bands, mn_idx=1:2, G_idx=1:N(grid) ]
+    # but reshaping the 1:N(grid) axis to mulitple axes 1:Nx,1:Ny(,1:Nz) requires reversing the grid order.
+    # ie. it starts out as Nz x Ny x Nx, and here we swap those around to be Nx x Ny x Nz 
+    # before re-flattening each band solution a vector
+    evecs_out = vec.(copy.(collect(eachslice(permutedims(reshape(PyArray(evecs),(num_bands,2,reverse(size(grid))...)),(1,2,(reverse(1:ND).+2)...)),dims=1))))
+    
     cd(init_path)
     return kmags, evecs_out
 end

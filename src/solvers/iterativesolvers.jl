@@ -2,7 +2,7 @@
 # Solvers from IterativeSolvers.jl
 ####################################################################################################
 
-using .IterativeSolvers
+# using .IterativeSolvers   # uncomment if using Requires.jl for optional dependancy
 
 export IterativeSolversLOBPCG
 
@@ -17,7 +17,7 @@ export IterativeSolversLOBPCG
 mutable struct IterativeSolversLOBPCG <: AbstractEigensolver end
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-    eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗,ms.P̂) # ,constraint)
+    eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗, ms.P̂) # ,constraint)
 	res = lobpcg!(eigs_itr;log,not_zeros=false,maxiter,tol)
     copyto!(ms.H⃗,res.X)
     copyto!(ms.ω²,res.λ)
@@ -28,7 +28,8 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,ei
     # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
 	# println("evals: $evals")
-	return copy(real(ms.ω²)), copy.(eachcol(ms.H⃗))
+	# return copy(real(ms.ω²)), copy.(eachcol(ms.H⃗))
+    real(copy(res.λ)), [copy(ev) for ev in eachcol(res.X)] #copy(res.X) #
 end
 
 

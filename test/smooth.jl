@@ -159,7 +159,7 @@ f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f
 ω               =   1.0
 p               =   [ω, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
-grid            =   Grid(6.,4.,256,128)
+grid            =   Grid(6.,4.,256,128);
 shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
 minds           =   (1,2,3,4)
 sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
@@ -167,19 +167,23 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
 ε⁻¹             =   sliceinv_3x3(ε);
-kmags_mpb,evecs_mpb = find_k(ω,ε,grid;overwrite=true);
 
-using KrylovKit
-ms_kk = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-kmags_kk,evecs_kk = solve_k(ms_kk,ω,KrylovKitEigsolve();nev=2)
+kmags_mpb,evecs_mpb = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev=2,overwrite=true)
 
-using IterativeSolvers
-ms_is = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-kmags_is,evecs_is = solve_k(ms_is,ω,IterativeSolversLOBPCG();nev=2)
+# using KrylovKit
+# ms_kk = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+# kmags_kk,evecs_kk = solve_k(ms_kk,ω,KrylovKitEigsolve();nev=2)
+kmags_kk,evecs_kk = solve_k(ω,ε⁻¹,grid,KrylovKitEigsolve();nev=2)
 
-using DFTK: LOBPCG
-ms_df = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-kmags_df,evecs_df = solve_k(ms_df,ω,DFTK_LOBPCG();nev=2)
+# using IterativeSolvers
+# ms_is = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+# kmags_is,evecs_is = solve_k(ms_is,ω,IterativeSolversLOBPCG();nev=2)
+kmags_is,evecs_is = solve_k(ω,ε⁻¹,grid,IterativeSolversLOBPCG();nev=2)
+
+# using DFTK: LOBPCG
+# ms_df = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
+# kmags_df,evecs_df = solve_k(ms_df,ω,DFTK_LOBPCG();nev=2)
+kmags_df,evecs_df = solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev=2)
 
 using CairoMakie
 function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
@@ -221,12 +225,73 @@ function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y
     Colorbar(fig[1,2],hms;label=label*" axis $axind")
 	fig
 end
-plot_field(E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
 
-plot_field(E⃗(kmags_is[1],evecs_is[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+# previously working (for mpb modes) E⃗(evec,k,grid) code from analyze.jl
+# mags_mns = [mag_mn(kk,grid) for kk in ks]
+# Es = [-1im * ε⁻¹_dot(fft(kx_tc(evecs[omidx,bndidx],mags_mns[omidx,bndidx][2],mags_mns[omidx,bndidx][1]),(2:3)),epsi[omidx]) for omidx=1:length(oms), bndidx=1:num_bands]
+# Enorms =  [ EE[argmax(abs2.(EE))] for EE in Es ]
+# Es = Es ./ Enorms
 
-plot_field(E⃗(kmags_df[1],evecs_df[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+function Efield(k,evec::AbstractArray{<:Number},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; normalized=true) where {ND}
+    magmn = mag_mn(k,grid) 
+    return -1im * ε⁻¹_dot(fft(kx_tc(evec,magmn[2],magmn[1]),(2:3)),ε⁻¹)
+    #Enorms =  [ EE[argmax(abs2.(EE))] for EE in Es ]
+    #Es = Es ./ Enorms
+end
 
+E⃗2(kmags_mpb1[1],evecs_mpb1[1],ε⁻¹,∂ε_∂ω,grid)
+
+
+
+magmn = mag_mn(kmags_mpb1[1],grid) 
+size(magmn[2])
+E1m = -1im * ε⁻¹_dot(fft(kx_tc(evecs_mpb1[1],magmn[2],magmn[1]),(2:3)),ε⁻¹)
+kx_tc(evecs_mpb1[1],magmn[2],magmn[1])
+
+magmn2 = mag_mn(kmags_mpb2[1],grid) 
+size(magmn2[2])
+E2m = -1im * ε⁻¹_dot(fft(kx_tc(evecs_mpb2[1],magmn2[2],magmn2[1]),(2:3)),ε⁻¹)
+isapprox(magmn[1],magmn2[1])
+isapprox(magmn[2],magmn2[2])
+
+sum(abs2,evecs_kk[1])
+
+function E⃗2(ks,evecs::AbstractVector{TA},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; normalized=true) where {ND,TA<:AbstractArray{Complex{T}} where T<:Real}
+    map((k,evec)->E⃗2(k,evec,ε⁻¹,∂ε_∂ω,grid;normalized), zip(ks,evecs))
+end
+
+
+plot_field(E⃗2(kmags_mpb[1],evecs_mpb[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_mpb[1],evecs_mpb[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+
+plot_field(abs2.(E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)),grid;axind=3)
+plot_field(Efield(kmags_kk[1],reshape(copy(evecs_kk[1]),(2,size(grid)...)),ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_kk[2],evecs_kk[2],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_is[1],evecs_is[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_is[2],evecs_is[2],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_df[1],evecs_df[1],ε⁻¹,∂ε_∂ω,grid, normalized=false),grid;axind=1)
+plot_field(E⃗(kmags_df[2],evecs_df[2],ε⁻¹,∂ε_∂ω,grid, normalized=false),grid;axind=2)
+
+
+E_kk = E⃗
+plot_field(E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_kk[2],evecs_kk[2],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_is[1],evecs_is[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_is[2],evecs_is[2],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+plot_field(E⃗(kmags_df[1],evecs_df[1],ε⁻¹,∂ε_∂ω,grid),grid;axind=1)
+plot_field(E⃗(kmags_df[2],evecs_df[2],ε⁻¹,∂ε_∂ω,grid),grid;axind=2)
+
+
+function foo1(x::Vector{T})::Tuple{Vector{T},Vector{Vector{Complex{T}}}} where {T<:Real}
+    return 2*x, [x, x.^2, sin.(x)]
+end
+foo1(rand(4))
 
 E1kk = E⃗(kmags_kk[1],evecs_kk[1],ε⁻¹,∂ε_∂ω,grid)
 val_magmax(E1kk)
