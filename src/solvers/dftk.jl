@@ -35,14 +35,17 @@ mutable struct DFTK_LOBPCG <: AbstractEigensolver end
 #     residual_norms::Vector{T}
 # end
 
-function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
 	# x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
 	# howmany =	nev				# how many eigenvector/value pairs to find
 	# which	=	:SR				# :SR="Smallest Real" eigenvalues
 	# # evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
-	res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
-    copyto!(ms.H⃗,res.X)
-    copyto!(ms.ω²,res.λ)
+	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
+    res = LOBPCG(ms.M̂,copy(ms.H⃗),I,ms.P̂,tol,maxiter)
+    copy!(ms.H⃗,res.X)
+    copy!(ms.ω²,res.λ)
+    # copyto!(ms.H⃗,res.X)
+    # copyto!(ms.ω²,res.λ)
     # canonicalize_phase!(ms)
     # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
@@ -54,7 +57,7 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxi
 	# copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
 	# return real(evals_res), evecs_res
     # return real(ms.ω²), collect(eachcol(ms.H⃗))
-    return copy(real(res.λ)), [copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
+    return copy(real(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
 end
 
 ############################################################################################################################################

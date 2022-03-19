@@ -16,11 +16,14 @@ export IterativeSolversLOBPCG
 # """
 mutable struct IterativeSolversLOBPCG <: AbstractEigensolver end
 
-function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-    eigs_itr = LOBPCGIterator(ms.M̂,false,ms.H⃗, ms.P̂) # ,constraint)
+function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,eigind=1,maxiter=200,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
+    eigs_itr = LOBPCGIterator(ms.M̂,false,copy(ms.H⃗), ms.P̂) # ,constraint)
 	res = lobpcg!(eigs_itr;log,not_zeros=false,maxiter,tol)
-    copyto!(ms.H⃗,res.X)
-    copyto!(ms.ω²,res.λ)
+    # res = lobpcg(ms.M̂,false,copy(ms.H⃗);log,maxiter,tol,P=ms.P̂)
+    # copyto!(ms.H⃗,res.X)
+    # copyto!(ms.ω²,res.λ)
+    copy!(ms.H⃗,res.X)
+    copy!(ms.ω²,res.λ)
     # canonicalize_phase!(ms)
     # copyto!(res.X,ms.H⃗)
 
@@ -29,7 +32,7 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::IterativeSolversLOBPCG;nev=1,ei
 	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
 	# println("evals: $evals")
 	# return copy(real(ms.ω²)), copy.(eachcol(ms.H⃗))
-    real(copy(res.λ)), [copy(ev) for ev in eachcol(res.X)] #copy(res.X) #
+    real(copy(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy(res.X) #
 end
 
 

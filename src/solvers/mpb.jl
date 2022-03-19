@@ -3,18 +3,10 @@ export MPB_Solver, n_range #, mp, mpb, np
 
 mutable struct MPB_Solver <: AbstractEigensolver end
 
-# function solve_ω²(ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-# 	res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
-#     copyto!(ms.H⃗,res.X)
-#     copyto!(ms.ω²,res.λ)
-#     return copy(real(res.λ)), copy.(eachcol(res.X))
-# end
-
-# find_k signature (defined below):
-# find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",data_path=pwd(),overwrite=false,kwargs...)
-function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_Solver; nev=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,overwrite=false) where {ND,T<:Real}
-	ε = sliceinv_3x3(ε⁻¹)
-    ks,evecs = find_k(ω,ε,grid;num_bands=nev,overwrite)
+function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_Solver; nev=1,
+        k_tol=1e-8,eig_tol=1e-8,maxiter=100,log=false,f_filter=nothing,overwrite=false) where {ND,T<:Real}
+    ε = sliceinv_3x3(ε⁻¹)
+    ks,evecs = find_k(ω,ε,grid;num_bands=nev,overwrite,k_tol,eig_tol)
     return ks, evecs
 end
 
@@ -476,28 +468,28 @@ function ms_mpb(;resolution=10,
     eigensolver_flops=0,
     # is_eigensolver_davidson=false,
     eigensolver_nwork=3,
-    eigensolver_block_size=-11,
+    eigensolver_block_size=-11,                     # TODO: remember what negative block size means
     eigensolver_flags=68,
     use_simple_preconditioner=false,
     force_mu=false,
     mu_input_file="",
-    epsilon_input_file="",
-    mesh_size=3,
+    epsilon_input_file="",                          # always empty, we feed in pre-smoothed `ε` as `default_material`
+    mesh_size=3,                                    # auto set via `grid`, see below
     target_freq=0.0,
     tolerance=1.0e-7,
-    num_bands=1,
+    num_bands=1,                                    # set in solve_ω or solve_k via `nev`
     k_points=[],
     ensure_periodicity=true,
-    geometry=[],
-    geometry_lattice=pymeep.Lattice(),
+    geometry=[],                                    # always empty, we feed in pre-smoothed `ε` as `default_material`
+    geometry_lattice=pymeep.Lattice(),              # auto set via `grid`, see below
     geometry_center=pymeep.Vector3(0, 0, 0),
-    default_material=pymeep.Medium(epsilon=1),
-    dimensions=3,
+    default_material=pymeep.Medium(epsilon=1),      # normally set to my pre-smoothed `ε` data (to avoid further smoothing)
+    dimensions=3,                                   # legacy input field (AFAIU), now inferred from `ε` data format
     random_fields=false,
-    filename_prefix="",
+    filename_prefix="",                             # passed via equivalent `find_k` keyword arg
     deterministic=true,
     verbose=false,
-    parity=pymeep.NO_PARITY)
+    parity=pymeep.NO_PARITY)                        # should start to use this at some point...
     ms = pympb.ModeSolver(;
         resolution,
         is_negative_epsilon_ok,
@@ -634,59 +626,50 @@ function already_calculated(ω,filename_prefix,bands;data_path=pwd())::Bool
     already_calculated(filename_prefix,bands;data_path) && isapprox(read_k(filename_prefix;data_path)[2],ω)
 end
 
-function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num_bands=2,band_min=1,band_max=num_bands,filename_prefix="f01",
-    band_func=[pympb.fix_efield_phase],save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
-    parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),overwrite=false,kwargs...) where ND
+
+function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};num_bands=2,band_min=1,band_max=num_bands,eig_tol=1e-8,k_tol=1e-8,
+    k_dir=[0.,0.,1.],parity=pymeep.NO_PARITY,n_guess_factor=0.9,data_path=pwd(),filename_prefix="f01",overwrite=false,
+    save_evecs=true,save_efield=false,save_hfield=false,calc_polarization=false,calc_grp_vels=false,
+    band_func=[pympb.fix_efield_phase],kwargs...) where ND
+    # Create the set of functions applied to each solution (`band_func`)
     n_bands_out = band_max-band_min+1
-    # evecs = zeros(ComplexF64,(N(grid),2,n_bands_out))
-    evecs = PyReverseDims(zeros(ComplexF64,(N(grid),2,n_bands_out)))
+    evecs = PyReverseDims(zeros(ComplexF64,(N(grid),2,n_bands_out))) # zeros(ComplexF64,(N(grid),2,n_bands_out))
     if save_evecs
         push!(band_func,py"return_and_save_evecs"(evecs))
     else
         push!(band_func,py"return_evecs"(evecs))
     end
-
-    if save_efield
-        push!(band_func,pympb.output_efield)
-    end
-
-    if save_hfield
-        push!(band_func,pympb.output_hfield)
-    end
-
-    if calc_polarization
-        push!(band_func,py"output_dfield_energy")
-    end
-
-    if calc_grp_vels
-        push!(band_func,pympb.display_group_velocities)
-    end
-
+    save_efield && push!(band_func,pympb.output_efield)
+    save_hfield && push!(band_func,pympb.output_hfield)
+    calc_polarization && push!(band_func,py"output_dfield_energy")
+    calc_grp_vels && push!(band_func,pympb.display_group_velocities)
+    # Move into directory where output data will be stored
     init_path = pwd()
     cd(data_path)
     n_min, n_max = n_range(ε)
     n_guess = n_guess_factor * n_max
     kmags = open(log_fname(filename_prefix),"w") do logfile
         return redirect_stdout(logfile) do
-            ms = ms_mpb(
+            ms = ms_mpb(                    # create a pympb.modesolver object
                 ε,
                 grid;
                 filename_prefix,
                 num_bands,
+                tolerance=eig_tol,
                 kwargs...,
             )
-            ms.output_epsilon()
-            kmags = ms.find_k(
-                parity,         # parity (meep parity object)
-                ω,                    # ω at which to solve for k
-                1,                 # band_min (find k(ω) for bands
-                ms.num_bands,                 # band_max  band_min:band_max)
-                pymeep.Vector3(k_dir...),     # k direction to search
-                ms.tolerance,             # fractional k error tolerance
-                n_guess * ω,              # kmag_guess, |k| estimate
-                n_min * ω,                # kmag_min (find k in range
-                n_max * ω,               # kmag_max  kmag_min:kmag_max)
-                band_func...
+            ms.output_epsilon()             # save ε data in working directory
+            kmags = ms.find_k(              # run `pympb.solve_k`,  input variable names & meanings:
+                parity,                     #   `parity`:         mode field parity constraints (one or more meep parity objects)
+                ω,                          #   `ω`:              frequency at which to solve for |k|
+                band_min,                   #   `band_min`:       find |k|(ω) for bands `band_min`:`band_max`
+                band_max,                   #   `band_max`:       see previous
+                pymeep.Vector3(k_dir...),   #   `k`:              k⃗ direction in which to search
+                k_tol,                      #   `tol`:            |k| (absolute?) error tolerance   #   TODO: check if this is absolute or relative tolerance
+                n_guess * ω,                #   `kmag_guess`:,    |k| estimate
+                n_min * ω,                  #   `kmag_min`:       find |k| in range `kmag_min`:`kmag_max`
+                n_max * ω,                  #   `kmag_max`:       see previous
+                band_func...                #   `*band_func`:     set of functions applied to each (|k|,eigenvector) solution 
             )
             return kmags
         end
@@ -698,9 +681,9 @@ function _find_k(ω::Real,ε::AbstractArray,grid::Grid{ND};k_dir=[0.,0.,1.], num
     #### reshuffle spatial grid axes of returned mpb eigenvector data.... kind of confusing ####
     # I think the axis order of the returned eigenvector data, once passed through PyCall, is
     #       [ band_idx=1:num_bands, mn_idx=1:2, G_idx=1:N(grid) ]
-    # but reshaping the 1:N(grid) axis to mulitple axes 1:Nx,1:Ny(,1:Nz) requires reversing the grid order.
-    # ie. it starts out as Nz x Ny x Nx, and here we swap those around to be Nx x Ny x Nz 
-    # before re-flattening each band solution a vector
+    # but reshaping the 1:N(grid) axis to mulitple axes 1:Nx,1:Ny(,1:Nz) requires reversing the grid axis order.
+    # ie. it starts out as (Nz x Ny x Nx), and here we swap those around to be (Nx x Ny x Nz) 
+    # before re-flattening each band solution as a vector (an eigenvector of our HelmholtzOperator)
     evecs_out = vec.(copy.(collect(eachslice(permutedims(reshape(PyArray(evecs),(num_bands,2,reverse(size(grid))...)),(1,2,(reverse(1:ND).+2)...)),dims=1))))
     
     cd(init_path)
