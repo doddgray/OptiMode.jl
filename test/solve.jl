@@ -156,7 +156,7 @@ mats = [MgO_LiNbO₃,Si₃N₄,SiO₂,Vacuum];
 mat_vars = (:ω,)
 np_mats = length(mat_vars)
 f_ε_mats, f_ε_mats! = _f_ε_mats(mats,mat_vars) # # f_ε_mats, f_ε_mats! = _f_ε_mats(vcat(materials(sh1),Vacuum),(:ω,))
-ω               =   1.0
+ω               =   1.1 #1.0
 p               =   [ω, 2.0,0.8,0.1,0.1] #rand(4+np_mats);
 mat_vals        =   f_ε_mats(p[1:np_mats]);
 grid            =   Grid(6.,4.,256,128);
@@ -168,36 +168,83 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
 ε⁻¹             =   sliceinv_3x3(ε);
 
-kmags_mpb,evecs_mpb = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev=2,overwrite=true)
 
-# using KrylovKit
-# ms_kk = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-# kmags_kk,evecs_kk = solve_k(ms_kk,ω,KrylovKitEigsolve();nev=2)
-kmags_kk,evecs_kk = solve_k(ω,ε⁻¹,grid,KrylovKitEigsolve();nev=2,tol=1e-10)
 
-# using IterativeSolvers
-# ms_is = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-# kmags_is,evecs_is = solve_k(ms_is,ω,IterativeSolversLOBPCG();nev=2)
-kmags_is,evecs_is = solve_k(ω,ε⁻¹,grid,IterativeSolversLOBPCG();nev=2,tol=1e-10)
-
+# using KrylovKit, IterativeSolvers
 # using DFTK: LOBPCG
-# ms_df = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev=2, maxiter=200, tol=1e-8)
-# kmags_df,evecs_df = solve_k(ms_df,ω,DFTK_LOBPCG();nev=2)
-kmags_df,evecs_df = solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev=2,tol=1e-10)
 
+function solve_k_compare(ω,ε⁻¹,grid;nev=2,eig_tol,k_tol)
+    kmags_mpb,evecs_mpb = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev,eig_tol,k_tol,overwrite=true)
+    kmags_kk,evecs_kk   = solve_k(ω,ε⁻¹,grid,KrylovKitEigsolve();nev,eig_tol,k_tol)
+    kmags_is,evecs_is   = solve_k(ω,ε⁻¹,grid,IterativeSolversLOBPCG();nev,eig_tol,k_tol)
+    kmags_df,evecs_df   = solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev,eig_tol,k_tol)
+    kmags_all   =   hcat(kmags_mpb,kmags_kk,kmags_is,kmags_df)
+    evecs_all   =   hcat(evecs_mpb,evecs_kk,evecs_is,evecs_df)
+    Es_all      =   map((k,ev)->E⃗(k,ev,ε⁻¹,∂ε_∂ω,grid;normalized=false,canonicalize=false),kmags_all,evecs_all)
+    plot_fields_grid(permutedims(Es_all),grid;grid_xlabels=["mode $i" for i in 1:nev],
+        grid_ylabels=["MPB","KrylovKit","IterativeSolvers","DFTK"],)
+    # Evmms_all   =   map(val_magmax,Es_all)
+    return kmags_all, evecs_all, Es_all
+end
+
+
+nev, eig_tol, k_tol = 2, 1e-7, 1e-7
+kmags_mpb,evecs_mpb = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev,eig_tol,k_tol,overwrite=true)
+kmags_kk,evecs_kk   = solve_k(ω,ε⁻¹,grid,KrylovKitEigsolve();nev,eig_tol,k_tol)
+kmags_is,evecs_is   = solve_k(ω,ε⁻¹,grid,IterativeSolversLOBPCG();nev,eig_tol,k_tol)
+kmags_df,evecs_df   = solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev,eig_tol,k_tol)
 kmags_all   =   hcat(kmags_mpb,kmags_kk,kmags_is,kmags_df)
 evecs_all   =   hcat(evecs_mpb,evecs_kk,evecs_is,evecs_df)
-# evecs_all   =   hcat(evecs_mpb,collect(copy.(eachcol(evecs_kk))),collect(copy.(eachcol(evecs_is))),collect(copy.(eachcol(evecs_df))))
 Es_all      =   map((k,ev)->E⃗(k,ev,ε⁻¹,∂ε_∂ω,grid;normalized=false,canonicalize=false),kmags_all,evecs_all)
-Evmms_all   =   map(val_magmax,Es_all)
-solver_labels = ["MPB","KrylovKit","IterativeSolvers","DFTK"]
-plot_fields_grid(permutedims(Es_all),grid;grid_xlabels=["mode 1", "mode 2"],grid_ylabels=solver_labels)
+plot_fields_grid(permutedims(Es_all),grid;grid_xlabels=["mode $i" for i in 1:size(Es_all,1)],
+    grid_ylabels=["MPB","KrylovKit","IterativeSolvers","DFTK"],)
 
-isapprox(evecs_mpb[1],evecs_df[1],atol=1e-2)
+function ff1(ω,ε⁻¹)
+    kmags,evecs   = solve_k(ω,ε⁻¹,Grid(6.,4.,256,128),DFTK_LOBPCG();nev,eig_tol,k_tol)
+    return sum(kmags) + abs2(sum(sum(evecs)))
+end
+
+ff1(1.0,ε⁻¹)
+Zygote.gradient(ff1,1.0,ε⁻¹)
+
+function ff2(p)
+    mat_vals        =   f_ε_mats(p[1:np_mats]);
+    grid            =   Grid(6.,4.,256,128);
+    shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
+    sm1             =   smooth_ε(shapes,mat_vals,(1,2,3,4),grid);
+    ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
+    ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
+    # ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+    ε⁻¹             =   sliceinv_3x3(ε);
+    kmags,evecs   = solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev,eig_tol,k_tol)
+    # ngs = map((k,ev)->group_index(k,ev,first(p),ε⁻¹,∂ε_∂ω,grid),zip(kmags,evecs))
+    ng1 = group_index(first(kmags),first(evecs),first(p),ε⁻¹,∂ε_∂ω,grid)
+    return ng1
+end
+p = [1.0, 2.0,0.8,0.1,0.1]
+ff2(p)
+Zygote.gradient(ff2,p)
+
+using FiniteDiff
+FiniteDiff.finite_difference_gradient(
+    ff2,
+    p,
+    Val{:central},
+    Float64,
+    Val{false};
+    epsilon_factor=1e-3
+)
+
+isapprox(evecs_mpb[1],evecs_df[1],atol=1e-3)
 isapprox(evecs_is[1],evecs_df[1],atol=1e-10)
 
-isapprox(evecs_mpb[2],evecs_df[2],atol=1e-2)
+isapprox(evecs_mpb[2],evecs_df[2],atol=1e-3)
 isapprox(evecs_is[2],evecs_df[2],atol=1e-10)
+
+abs.( kmags_df .- kmags_mpb )
+abs.( kmags_is .- kmags_mpb )
+abs.( kmags_is .- kmags_df )
+abs.( kmags_is .- kmags_df )
 
 evecsc_all  =   map((k,ev)->canonicalize_phase(ev,k,ε⁻¹,∂ε_∂ω,grid),kmags_all,evecs_all)
 Es_all2     =   map((k,ev)->E⃗(k,ev,ε⁻¹,∂ε_∂ω,grid;normalized=false,canonicalize=false),kmags_all,evecsc_all)
@@ -205,13 +252,6 @@ Evmms_all2  =   map(val_magmax,Es_all2)
 
 using CairoMakie
 using Printf
-E1 = first(Es_all2)
-maxidx = argmax(abs2.(E1))
-maxidx[1]
-ax_magmax(E1)
-eachindex(grid)
-Z1 = E1[ax_magmax(E1),eachindex(grid)]
-
 function plot_fields_grid(fields_matrix,gr::Grid,field_fn=F->real(F[ax_magmax(F),eachindex(gr)]); cmap=:diverging_bkr_55_10_c35_n256,
     zero_based=true,zero_centered=true,grid_xlabels=nothing,grid_ylabels=nothing,label_base=["x","y"],label="E",
     xlim=nothing,ylim=nothing,xlabel="x (μm)",ylabel="x (μm)",fig_pixels=(600, 1200))
