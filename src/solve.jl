@@ -370,11 +370,12 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 	f_filter=nothing) where {ND,T<:Real} 
 	
-	ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
-	kmags,evecs = solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-	# kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-	@show omsq_solns = copy(ms.ω²)
-	@show domsq_dk_solns = copy(ms.ms.∂ω²∂k)
+	# ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
+	# kmags,evecs = solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+	# @show omsq_solns = copy(ms.ω²)
+	# @show domsq_dk_solns = copy(ms.ms.∂ω²∂k)
+	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+
 	# g⃗ = copy(ms.M̂.g⃗)
 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 	# 	mag_m_n(x,dropgrad(g⃗))
@@ -406,24 +407,24 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			# update_ε⁻¹(ms,ε⁻¹) #ε⁻¹)
 			println("\tsolve_k pullback for eigind=$eigind:")
 			println("\t\tω² (target): $(ω^2)")
-			println("\t\tω² (soln): $(omsq_solns[eigind])")
-			println("\t\tΔω² (soln): $(real(ω^2 - omsq_solns[eigind]))")
+			# println("\t\tω² (soln): $(omsq_solns[eigind])")
+			# println("\t\tΔω² (soln): $(real(ω^2 - omsq_solns[eigind]))")
 			
 			# ms.∂ω²∂k[eigind] = ∂ω²∂k
 			# copyto!(ms.H⃗, ev)
 			ms.H⃗[:,eigind] = copy(ev)
 			# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-			# λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
-			# λd =  similar(ms.M̂.d)
-			# λẽ = similar(ms.M̂.d)
+			λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
+			λd =  similar(ms.M̂.d)
+			λẽ = similar(ms.M̂.d)
 
-			println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
+			# println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
 			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
 			println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
 			# 
 			# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
 			# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-			(mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,ms.grid),k)
+			(mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
 
 			ev_grid = reshape(ev,(2,gridsize...))
 			# if typeof(k̄)==ZeroTangent()
@@ -432,12 +433,12 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			end
 			# if typeof(ēv) != ZeroTangent()
 			if !isa(ēv,AbstractZero)
-				λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
-				λd =  similar(ms.M̂.d)
-				λẽ = similar(ms.M̂.d)
+				# λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
+				# λd =  similar(ms.M̂.d)
+				# λẽ = similar(ms.M̂.d)
 				# solve_adj!(ms,ēv,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = ēv - dot(ev,ēv)*ev
 				# solve_adj!(λ⃗,ms.M̂,ēv,ω^2,ev,eigind;log=false)
-				λ⃗ = eig_adjt(ms.M̂, ω^2, x⃗, ᾱ, x̄; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
+				λ⃗ = eig_adjt(ms.M̂, ω^2, ev, 0.0, ēv; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
 				# solve_adj!(ms,ēv,ω^2,ev,eigind;log=false)
 				λ⃗ 	-= 	 dot(ev,λ⃗) * ev
 				λ	=	reshape(λ⃗,(2,gridsize...))
