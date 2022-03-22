@@ -527,43 +527,16 @@ mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,
 # mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
 # mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
 
-# Tullio version
-
-# function mag_m_n2(k⃗::SVector{3,T},g⃗::AbstractArray) where T <: Real
-# 	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
-# 	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
-# 	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
-# 	local ŷ = [0.; 1. ;0.]
-# 	local zxinds = [2; 1; 3]
-# 	local zxscales = [-1; 1. ;0.]
-# 	local xinds1 = [2; 3; 1]
-# 	local xinds2 = [3; 1; 2]
-# 	@tullio kpg[ix,iy,iz] := k⃗[a] - g⃗[a,ix,iy,iz] fastmath=false
-# 	@tullio mag[ix,iy,iz] := sqrt <| kpg[a,ix,iy,iz]^2 fastmath=false
-# 	@tullio nt[ix,iy,iz,a] := zxscales[a] * kpg[zxinds[a],ix,iy,iz] * g⃗ₜ_zero_mask[ix,iy,iz] + ŷ[a] * g⃗ₜ_zero_mask![ix,iy,iz]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
-# 	@tullio nmag[ix,iy,iz] := sqrt <| nt[a,ix,iy,iz]^2 fastmath=false
-# 	@tullio n[a,ix,iy,iz] := nt[a,ix,iy,iz] / nmag[ix,iy,iz] fastmath=false
-# 	@tullio mt[a,ix,iy,iz] := n[xinds1[a],ix,iy,iz] * kpg[xinds2[a],ix,iy,iz] - kpg[xinds1[a],ix,iy,iz] * n[xinds2[a],ix,iy,iz] nograd=(xinds1,xinds2) fastmath=false
-# 	@tullio mmag[ix,iy,iz] := sqrt <| mt[a,ix,iy,iz]^2 fastmath=false
-# 	@tullio m[a,ix,iy,iz] := mt[a,ix,iy,iz] / mmag[ix,iy,iz] fastmath=false
-# 	return mag, m, n
-# end
-
-# function mag_m_n2(kz::T,g⃗::AbstractArray) where T <: Real
-# 	mag_m_n2(SVector{3,T}(0.,0.,kz),g⃗)
-# end
-
-# mutating version with Zygote Buffer
-
-function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T<:Real,T2<:Real}
-	# for iz ∈ axes(g⃗,3), iy ∈ axes(g⃗,2), ix ∈ axes(g⃗,1) #, l in 0:0
+function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
+	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
+    T = promote_type(T1,T2)
 	local ẑ = SVector{3,T}(0.,0.,1.)
 	local ŷ = SVector{3,T}(0.,1.,0.)
-	n = Buffer(g⃗,size(g⃗))
-	m = Buffer(g⃗,size(g⃗))
-	mag = Buffer(zeros(T,size(g⃗)),size(g⃗))
-	@fastmath @inbounds for i ∈ eachindex(g⃗)
-		@inbounds kpg::SVector{3,T} = k⃗ - g⃗[i]
+	n = Buffer(zeros(SVector{3,T},2),size(g⃗s))
+	m = Buffer(zeros(SVector{3,T},2),size(g⃗s))
+	mag = Buffer(zeros(T,size(g⃗s)),size(g⃗s))
+	@fastmath @inbounds for i ∈ eachindex(g⃗s)
+		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
 		@inbounds mag[i] = norm(kpg)
 		@inbounds n[i] =  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
 		# @inbounds n[i] =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
@@ -572,88 +545,65 @@ function mag_m_n(k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T2}}) where {T
 	return copy(mag), copy(m), copy(n) # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(m))), HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,Float64,copy(n)))
 end
 
-# mutating version without Zygote Buffer
-# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-# 	T = promote_type(T1,T2)
-# 	local ẑ = SVector{3,T}(0,0,1)
-# 	local ŷ = SVector{3,T}(0,1,0)
-# 	n = similar(g⃗s,size(g⃗s))
-# 	m = similar(g⃗s,size(g⃗s))
-# 	mag = Array{T}(undef,size(g⃗s)) #similar(zeros(T,size(g⃗s)),size(g⃗s))
-# 	@fastmath @inbounds for i ∈ eachindex(g⃗s)
-# 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
-# 		@inbounds mag[i] = norm(kpg)
-# 		@inbounds n[i] =   ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-# 		@inbounds m[i] =  normalize( cross( n[i], kpg )  )
-# 	end
-# 	return mag, m, n
-# end
-
-# # map-based mag_m_n
-
-# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-#     T = promote_type(T1,T2)
-# 	local ẑ = SVector{3,T}(0,0,1)
-# 	local ŷ = SVector{3,T}(0,1,0)
-# 	magmn = mapreduce(hcat,g⃗s) do gg
-# 		kpg = k⃗ - gg
-# 		mag = norm(kpg)
-# 		n =  !iszero(kpg[1]) || !iszero(kpg[2])  ?  normalize( cross( ẑ, kpg ) ) : ŷ
-# 		m =  normalize( cross( n, kpg )  )
-#         return (mag,m,n) #vcat(mag,m,n)
-# 	end
-#     mag = reshape(magmn[1,:],size(g⃗s))
-#     m =  reinterpret(SVector{3,T},magmn[2:4,:])
-#     n =  reinterpret(SVector{3,T},magmn[5:7,:])
-#     # m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
-#     # n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
-#     return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
-# end
-
-# function mag_m_n_single(k⃗::SVector{3,T1},g::SVector{3,T2}) where {T1<:Real,T2<:Real}
-#     T = promote_type(T1,T2)
-#     local ẑ = SVector{3,T}(0,0,1)
-# 	local ŷ = SVector{3,T}(0,1,0)
-#     kpg = k⃗ - g
-# 	mag = norm(kpg)
-# 	n =   !iszero(kpg[1]) || !iszero(kpg[2]) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-# 	m =  normalize( cross( n, kpg )  )
-#     return vcat(mag,m,n)
-# end
-
-# map-based mag_mn version
-
-# function mag_mn5(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-#     T = promote_type(T1,T2)
-# 	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-#     mag = reshape(magmn[1,:],size(g⃗s))
-#     mn =  reshape(magmn[2:7,:],(3,2,size(g⃗s)...))
-#     # m = reshape(reinterpret(SVector{3,T},copy(magmn[2:4,:])),(3,size(g⃗s)...))
-#     # n = reshape(reinterpret(SVector{3,T},copy(magmn[5:7,:])),(3,size(g⃗s)...))
-#     # m   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[2:4,:])),size(g⃗s))
-#     # n   = reshape(reinterpret(reshape,SVector{3,T},copy(magmn[5:7,:])),size(g⃗s))
-#     return mag,mn
-# end
-
-# map-based mag_m_n with fn barrier
-# function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
-#     T = promote_type(T1,T2)
-# 	magmn = mapreduce(gg->mag_m_n_single(k⃗,gg),hcat,g⃗s) 
-#     mag = reshape(magmn[1,:],size(g⃗s))
-#     m =  reinterpret(SVector{3,T},magmn[2:4,:])
-#     n =  reinterpret(SVector{3,T},magmn[5:7,:])
-#     # m =  map(x->SVector{3,T}(x),eachcol(magmn[2:4,:]))
-#     # n =  map(x->SVector{3,T}(x),eachcol(magmn[5:7,:]))
-#     return mag, reshape(m,size(g⃗s)), reshape(n,size(g⃗s))
-# end
-
-
 function mag_m_n(kmag::T,g⃗::AbstractArray{SVector{3,T2}};k̂=SVector(0.,0.,1.)) where {T<:Real,T2<:Real}
 	k⃗ = kmag * k̂
 	mag_m_n(k⃗,g⃗)
 end
 
 mag_m_n(k::Real,grid::Grid) = mag_m_n(k, g⃗(grid))
+
+"""
+mag_m_n2 is a slower, Tullio.jl-based version of mag_m_n that allows forward and reverse-mode gradients w.r.t. grid size. Just leaving this here for now.
+"""
+function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2},2}) where {T1<:Real,T2<:Real}
+	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s[1:2,:,:];dims=1)[1,:,:] .> 0. );
+    T = promote_type(T1,T2)
+    g⃗s_flat = copy(reinterpret(reshape,T2,g⃗s))
+	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s_flat[1:2,:,:];dims=1)[1,:,:] .> 0. );
+	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+	local ŷ = [0.; 1. ;0.]
+	local zxinds = [2; 1; 3]
+	local zxscales = [-1; 1. ;0.]
+	local xinds1 = [2; 3; 1]
+	local xinds2 = [3; 1; 2]
+	@tullio kpg[a,ix,iy] := k⃗[a] - g⃗s_flat[a,ix,iy] fastmath=false
+	@tullio mag[ix,iy] := sqrt <| kpg[a,ix,iy]^2 fastmath=false
+	@tullio nt[a,ix,iy] := zxscales[a] * kpg[zxinds[a],ix,iy] * g⃗ₜ_zero_mask[ix,iy] + ŷ[a] * g⃗ₜ_zero_mask![ix,iy]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
+	@tullio nmag[ix,iy] := sqrt <| nt[a,ix,iy]^2 fastmath=false
+	@tullio n[a,ix,iy] := nt[a,ix,iy] / nmag[ix,iy] fastmath=false
+	@tullio mt[a,ix,iy] := n[xinds1[a],ix,iy] * kpg[xinds2[a],ix,iy] - kpg[xinds1[a],ix,iy] * n[xinds2[a],ix,iy] nograd=(xinds1,xinds2) fastmath=false
+	@tullio mmag[ix,iy] := sqrt <| mt[a,ix,iy]^2 fastmath=false
+	@tullio m[a,ix,iy] := mt[a,ix,iy] / mmag[ix,iy] fastmath=false
+	# return mag, m, n
+    return mag, reinterpret(reshape,SVector{3,T},m), reinterpret(reshape,SVector{3,T},n)
+end
+function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2},3}) where {T1<:Real,T2<:Real}
+	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
+    T = promote_type(T1,T2)
+    g⃗s_flat = copy(reinterpret(reshape,T2,g⃗s))
+	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s_flat[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
+	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+	local ŷ = [0.; 1. ;0.]
+	local zxinds = [2; 1; 3]
+	local zxscales = [-1; 1. ;0.]
+	local xinds1 = [2; 3; 1]
+	local xinds2 = [3; 1; 2]
+	@tullio kpg[a,ix,iy,iz] := k⃗[a] - g⃗s_flat[a,ix,iy,iz] fastmath=false
+	@tullio mag[ix,iy,iz] := sqrt <| kpg[a,ix,iy,iz]^2 fastmath=false
+	@tullio nt[a,ix,iy,iz] := zxscales[a] * kpg[zxinds[a],ix,iy,iz] * g⃗ₜ_zero_mask[ix,iy,iz] + ŷ[a] * g⃗ₜ_zero_mask![ix,iy,iz]  nograd=(zxscales,zxinds,ŷ,g⃗ₜ_zero_mask,g⃗ₜ_zero_mask!) fastmath=false
+	@tullio nmag[ix,iy,iz] := sqrt <| nt[a,ix,iy,iz]^2 fastmath=false
+	@tullio n[a,ix,iy,iz] := nt[a,ix,iy,iz] / nmag[ix,iy,iz] fastmath=false
+	@tullio mt[a,ix,iy,iz] := n[xinds1[a],ix,iy,iz] * kpg[xinds2[a],ix,iy,iz] - kpg[xinds1[a],ix,iy,iz] * n[xinds2[a],ix,iy,iz] nograd=(xinds1,xinds2) fastmath=false
+	@tullio mmag[ix,iy,iz] := sqrt <| mt[a,ix,iy,iz]^2 fastmath=false
+	@tullio m[a,ix,iy,iz] := mt[a,ix,iy,iz] / mmag[ix,iy,iz] fastmath=false
+	# return mag, m, n
+    return mag, reinterpret(reshape,SVector{3,T},m), reinterpret(reshape,SVector{3,T},n)
+end
+function mag_m_n2(kmag::T,g⃗::AbstractArray{SVector{3,T2}};k̂=SVector(0.,0.,1.)) where {T<:Real,T2<:Real}
+	k⃗ = kmag * k̂
+	mag_m_n2(k⃗,g⃗)
+end
+mag_m_n2(k::Real,grid::Grid) = mag_m_n2(k, g⃗(grid))
 
 """
 (māg,m̄,n̄) → k̄ map
@@ -676,33 +626,33 @@ function ∇ₖmag_m_n(ΔΩ,Ω;dk̂=SVector(0.,0.,1.))
 	return +( k̄_mag, k̄_m, k̄_n )
 end
 
-# function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
-# 	local ẑ = SVector(0.,0.,1.)
-# 	local ŷ = SVector(0.,1.,0.)
-# 	n_buf = Buffer(g⃗,size(g⃗))
-# 	m_buf = Buffer(g⃗,size(g⃗))
-# 	kpg_buf = Buffer(g⃗,size(g⃗))
-# 	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
-# 	@fastmath @inbounds for i ∈ eachindex(g⃗)
-# 		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
-# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
-# 		# @inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
-# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
-# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-# 	end
-# 	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
-# 	kp⃗g = copy(kpg_buf)
-# 	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
-# 		māg,m̄,n̄ = ΔΩ
-# 		mag,m⃗,n⃗ = Ω
-# 		ê_over_mag = cross.( kp⃗g, (dk̂,) ) ./ mag.^2
-# 		k̄ = sum( māg .* dot.( kp⃗g, (dk̂,) ) ./ mag )
-# 		k̄ -= sum( dot.( m̄ , cross.(m⃗, ê_over_mag ) ) )
-# 		k̄ -= sum( dot.( n̄ , cross.(n⃗, ê_over_mag ) ) )
-# 		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
-# 	end
-#     return (mag_m⃗_n⃗ , mag_m_n_pullback)
-# end
+function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
+	local ẑ = SVector(0.,0.,1.)
+	local ŷ = SVector(0.,1.,0.)
+	n_buf = Buffer(g⃗,size(g⃗))
+	m_buf = Buffer(g⃗,size(g⃗))
+	kpg_buf = Buffer(g⃗,size(g⃗))
+	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
+	@fastmath @inbounds for i ∈ eachindex(g⃗)
+		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
+		@inbounds mag_buf[i] = norm(kpg_buf[i])
+		# @inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
+		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+	end
+	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
+	kp⃗g = copy(kpg_buf)
+	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
+		māg,m̄,n̄ = ΔΩ
+		mag,m⃗,n⃗ = Ω
+		ê_over_mag = cross.( kp⃗g, (dk̂,) ) ./ mag.^2
+		k̄ = sum( māg .* dot.( kp⃗g, (dk̂,) ) ./ mag )
+		k̄ -= sum( dot.( m̄ , cross.(m⃗, ê_over_mag ) ) )
+		k̄ -= sum( dot.( n̄ , cross.(n⃗, ê_over_mag ) ) )
+		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
+	end
+    return (mag_m⃗_n⃗ , mag_m_n_pullback)
+end
 
 function mag_mn(k::SVector{3,T1},g::Grid{ND,T2}) where {T1<:Real,ND,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g⃗(g))
@@ -822,70 +772,70 @@ function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},m
 	return k̄_magmn
 end
 
-# function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
-# 	local ẑ = SVector{3}(0.,0.,1.)
-# 	local ŷ = SVector{3}(0.,1.,0.)
-# 	grid_size = size(g)
-# 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
-# 	@fastmath @inbounds for i ∈ eachindex(g)
-# 		@inbounds kpg_buf[i] = k⃗ - g[i]
-# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
-# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
-# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-# 	end
-# 	mag = copy(mag_buf)
-# 	m⃗	=	copy(m_buf)
-# 	n⃗	= copy(n_buf)
-# 	# kp⃗g = copy(kpg_buf)
-# 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
-# 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
-# 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
-# 	mn = hcat(m,n)
+function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
+	grid_size = size(g)
+	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	@fastmath @inbounds for i ∈ eachindex(g)
+		@inbounds kpg_buf[i] = k⃗ - g[i]
+		@inbounds mag_buf[i] = norm(kpg_buf[i])
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+	end
+	mag = copy(mag_buf)
+	m⃗	=	copy(m_buf)
+	n⃗	= copy(n_buf)
+	# kp⃗g = copy(kpg_buf)
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+	mn = hcat(m,n)
 	
-# 	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
-# 		māg,mn̄ = ΔΩ
-# 		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
-# 		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
-# 		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
-# 	end
-#     return ((mag, mn) , mag_mn_pullback)
-# end
+	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+		māg,mn̄ = ΔΩ
+		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
+	end
+    return ((mag, mn) , mag_mn_pullback)
+end
 
-# function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
-# 	local ẑ = SVector{3}(0.,0.,1.)
-# 	local ŷ = SVector{3}(0.,1.,0.)
-# 	k⃗ = kmag * dk̂
-# 	grid_size = size(g)
-# 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-# 	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
-# 	@fastmath @inbounds for i ∈ eachindex(g)
-# 		@inbounds kpg_buf[i] = k⃗ - g[i]
-# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
-# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
-# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-# 	end
-# 	mag = copy(mag_buf)
-# 	m⃗	=	copy(m_buf)
-# 	n⃗	= copy(n_buf)
-# 	# kp⃗g = copy(kpg_buf)
-# 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
-# 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
-# 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
-# 	mn = hcat(m,n)
+function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+	local ẑ = SVector{3}(0.,0.,1.)
+	local ŷ = SVector{3}(0.,1.,0.)
+	k⃗ = kmag * dk̂
+	grid_size = size(g)
+	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	@fastmath @inbounds for i ∈ eachindex(g)
+		@inbounds kpg_buf[i] = k⃗ - g[i]
+		@inbounds mag_buf[i] = norm(kpg_buf[i])
+		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+	end
+	mag = copy(mag_buf)
+	m⃗	=	copy(m_buf)
+	n⃗	= copy(n_buf)
+	# kp⃗g = copy(kpg_buf)
+	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+	mn = hcat(m,n)
 	
-# 	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
-# 		māg,mn̄ = ΔΩ
-# 		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
-# 		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
-# 		return ( NoTangent(), k̄, ZeroTangent() )
-# 	end
-#     return ((mag, mn) , mag_mn_pullback)
-# end
+	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+		māg,mn̄ = ΔΩ
+		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+		return ( NoTangent(), k̄, ZeroTangent() )
+	end
+    return ((mag, mn) , mag_mn_pullback)
+end
 
 """
 ################################################################################

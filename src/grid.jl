@@ -6,7 +6,8 @@
 ##############################################################################################
 """
 
-export Grid, δx, δy, δz, δV, xvals, yvals, zvals, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, Nranges, corners, vxlmin, vxlmax #, ∫dV
+export Grid, δx, δy, δz, δV, xvals, yvals, zvals, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes, 
+	Nranges, corners, vxlmin, vxlmax, my_fftfreq #, ∫dV
 export δ, x, y, z # TODO: remove these functions, their names are too short and likely to cause problems
 
 struct Grid{ND,T}
@@ -176,15 +177,22 @@ end
 @inline _fftaxes(gr::Grid{2}) = (2:3)
 @inline _fftaxes(gr::Grid{3}) = (2:4)
 
-function g⃗(gr::Grid{2,T})::Array{SVector{3, T}, 2} where T
-	[	SVector{3}(gx,gy,0.) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
-							   	gy in fftfreq(gr.Ny,gr.Ny/gr.Δy)		]
+"""
+fftfreq without special type for AD compatibility
+"""
+function my_fftfreq(n::Int,fs::Real)
+	iseven(n) ? [0:n÷2-1; -n÷2:-1]*fs/n	: [0:(n-1)÷2; -(n-1)÷2:-1]*fs/n
+end
+
+function g⃗(gr::Grid{2,T})::Array{SVector{3, T}, 2} where T<:Real
+	[	SVector{3,T}(gx,gy,0.) for  gx in my_fftfreq(gr.Nx,gr.Nx/gr.Δx),
+							   		gy in my_fftfreq(gr.Ny,gr.Ny/gr.Δy)		]
 end
 
 function g⃗(gr::Grid{3,T})::Array{SVector{3, T}, 3} where T<:Real
-	[	SVector{3}(gx,gy,gz) for   gx in fftfreq(gr.Nx,gr.Nx/gr.Δx),
-								gy in fftfreq(gr.Ny,gr.Ny/gr.Δy),
-							    gz in fftfreq(gr.Nz,gr.Nz/gr.Δz)		]
+	[	SVector{3,T}(gx,gy,gz) for  gx in my_fftfreq(gr.Nx,gr.Nx/gr.Δx),
+									gy in my_fftfreq(gr.Ny,gr.Ny/gr.Δy),
+							    	gz in my_fftfreq(gr.Nz,gr.Nz/gr.Δz)		]
 end
 
 # @non_differentiable g⃗(::Any)

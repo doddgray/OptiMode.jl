@@ -1,4 +1,4 @@
-using OptiMode, Test
+using OptiMode, Test, FFTW
 
 Δx  =   3.0
 Δy  =   4.0
@@ -31,3 +31,9 @@ gr3 =   Grid(Δx,Δy,Δz,Nx,Ny,Nz)
 # Test that `corners(g::Grid)` produces pixel/voxel corners which average to the corresponding grid points
 @test sum.(corners(gr2))./4 ≈ vec(x⃗(gr2))
 @test sum.(corners(gr3))./8 ≈ vec(x⃗(gr3))
+
+@test isapprox(fftfreq(gr.Nx,gr.Nx/gr.Δx),my_fftfreq(gr.Nx,gr.Nx/gr.Δx))
+@test isapprox(fftfreq((gr.Nx+1),(gr.Nx+1)/gr.Δx),my_fftfreq((gr.Nx+1),(gr.Nx+1)/gr.Δx))
+
+ff_sum2D(Dx_Dy) = sum(sum(g⃗(Grid(Dx_Dy[1],Dx_Dy[2],256,128))))
+@test Zygote.gradient(ff_sum2D,[6.0,4.0])[1] ≈ ForwardDiff.gradient(ff_sum2D,[6.0,4.0])

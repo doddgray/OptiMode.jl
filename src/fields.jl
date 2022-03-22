@@ -472,7 +472,7 @@ end
 
 function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
     mag,mn = mag_mn(k,grid)
-    om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1-(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
+    om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1+(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
 end
 
 # function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)

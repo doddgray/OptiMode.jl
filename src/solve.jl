@@ -106,6 +106,7 @@ function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T,evec_out::Vector{Comp
 	# ∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	∂ω²∂k = 2 * HMₖH(evec_out,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
+	ms.ω²[eigind] = evals[eigind]
 	# println("Δω²: $(Δω²)")
 	# println("∂ω²∂k: $(∂ω²∂k)")
     return Δω² , ( Δω² / ∂ω²∂k )
@@ -245,7 +246,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	end
 	# eī = reinterpret(reshape,SMatrix{3,3,T,9},reshape(copy(eīf),9,Nx,Ny))
 	eī = copy(eīf)
-	return eī # inv( (eps' + eps) / 2)
+	# return eī # inv( (eps' + eps) / 2)
+	return (real(eī) + permutedims(real(eī),(2,1,3,4)))/2.0
 end
 
 function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
@@ -368,10 +370,11 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 	f_filter=nothing) where {ND,T<:Real} 
 	
-	# ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
-	# kmags,evecs = solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-	
+	ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
+	kmags,evecs = solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+	# kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+	@show omsq_solns = copy(ms.ω²)
+	@show domsq_dk_solns = copy(ms.ms.∂ω²∂k)
 	# g⃗ = copy(ms.M̂.g⃗)
 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 	# 	mag_m_n(x,dropgrad(g⃗))
@@ -386,14 +389,14 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 	# println("\t\tk: $k")
 	# println("\t\t∂ω²∂k: $∂ω²∂k")
 	# ∂ω²∂k = copy(ms.∂ω²∂k[eigind])
-	# omsq_soln = copy(ms.ω²[eigind])
 	gridsize = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	ei_bar = zero(ε⁻¹)
-	ω_bar = zero(ω)
+	
 	# ε⁻¹_copy = copy(ε⁻¹)
 	# k = copy(k)
 	# Hv = copy(Hv)
 	function solve_k_pullback(ΔΩ)
+		ei_bar = zero(ε⁻¹)
+		ω_bar = zero(ω)
 		k̄mags, ēvecs = ΔΩ
 		for (eigind, k̄, ēv, k, ev) in zip(1:nev, k̄mags, ēvecs, kmags, evecs)
 			ms = ModeSolver(k, ε⁻¹, grid; nev, maxiter)
@@ -401,15 +404,22 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			println("k̄ (bar): $k̄")
 			# update_k!(ms,k)
 			# update_ε⁻¹(ms,ε⁻¹) #ε⁻¹)
-			# ms.ω²[eigind] = omsq_soln # ω^2
+			println("\tsolve_k pullback for eigind=$eigind:")
+			println("\t\tω² (target): $(ω^2)")
+			println("\t\tω² (soln): $(omsq_solns[eigind])")
+			println("\t\tΔω² (soln): $(real(ω^2 - omsq_solns[eigind]))")
+			
 			# ms.∂ω²∂k[eigind] = ∂ω²∂k
 			# copyto!(ms.H⃗, ev)
 			ms.H⃗[:,eigind] = copy(ev)
 			# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
-			λ⃗ = similar(ev)
-			λd =  similar(ms.M̂.d)
-			λẽ = similar(ms.M̂.d)
+			# λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
+			# λd =  similar(ms.M̂.d)
+			# λẽ = similar(ms.M̂.d)
+
+			println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
 			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+			println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
 			# 
 			# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
 			# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
@@ -418,18 +428,23 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			ev_grid = reshape(ev,(2,gridsize...))
 			# if typeof(k̄)==ZeroTangent()
 			if isa(k̄,AbstractZero)
-				k̄ = 0.
+				k̄ = 0.0
 			end
 			# if typeof(ēv) != ZeroTangent()
 			if !isa(ēv,AbstractZero)
+				λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
+				λd =  similar(ms.M̂.d)
+				λẽ = similar(ms.M̂.d)
 				# solve_adj!(ms,ēv,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = ēv - dot(ev,ēv)*ev
-				solve_adj!(λ⃗,ms.M̂,ēv,ω^2,ev,eigind;log=false)
+				# solve_adj!(λ⃗,ms.M̂,ēv,ω^2,ev,eigind;log=false)
+				λ⃗ = eig_adjt(ms.M̂, ω^2, x⃗, ᾱ, x̄; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
 				# solve_adj!(ms,ēv,ω^2,ev,eigind;log=false)
 				λ⃗ 	-= 	 dot(ev,λ⃗) * ev
 				λ	=	reshape(λ⃗,(2,gridsize...))
 				d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
 				λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 				ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
+				
 				# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
 				λd *=  ms.M̂.Ninv
 				λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
@@ -440,7 +455,7 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 				# n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,..])
 				māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
 				@show k̄ₕ_old = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
-				@show k̄ₕ = ∇ₖmag_m_n(
+				@show k̄ₕ = -∇ₖmag_m_n(
 					māg,
 					kx̄_m⃗.*ms.M̂.mag, # m̄,
 					kx̄_n⃗.*ms.M̂.mag, # n̄,
@@ -454,7 +469,8 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 				k̄ₕ = 0.0
 			end
 			# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω_bar and eīₖ
-			copyto!(λ⃗, ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev )
+			# copyto!(λ⃗, ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev )
+			λ⃗ = ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev
 			d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
 			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 			# ei_bar = eīₖ + eīₕ
