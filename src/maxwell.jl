@@ -58,7 +58,7 @@ function zx_tc(H::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,ix,iy,iz] := zxscales[a] * H[b,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds) # fastmath=false
-	return -zxH # -1im * zxH
+	return zxH #-zxH # -1im * zxH
 end
 
 """
@@ -68,7 +68,7 @@ function zx_ct(e⃗::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxe⃗[b,ix,iy,iz] := zxscales[a] * e⃗[a,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds)  # fastmath=false
-	return -zxe⃗ # -1im * zxe⃗
+	return zxe⃗ #-zxe⃗ # -1im * zxe⃗
 end
 
 """
@@ -90,7 +90,7 @@ end
 
 function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
@@ -100,7 +100,7 @@ function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m:
 end
 
 function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn)::T where T<:Real
-	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},mn::AbstractArray{T,5})::T where T<:Real
@@ -111,7 +111,7 @@ end
 
 function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
+	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
 function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
@@ -183,7 +183,8 @@ function kx_tc(H::AbstractArray{T,3},mn,mag) where T
 	kxscales = [1.; -1.]
 	kxinds = [2; 1]
     @tullio d[a,ix,iy] := kxscales[b] * H[kxinds[b],ix,iy] * mn[a,b,ix,iy] * mag[ix,iy] nograd=(kxscales,kxinds) # fastmath=false
-	return d # -1im * d
+	# return d # -1im * d
+	return d
 end
 
 """
@@ -193,7 +194,8 @@ function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
 	kxscales = [-1.; 1.]
     kxinds = [2; 1]
     @tullio H[b,ix,iy] := kxscales[b] * e⃗[a,ix,iy] * mn[a,kxinds[b],ix,iy] * mag[ix,iy] nograd=(kxinds,kxscales) # fastmath=false
-	return H # -1im * H
+	# return H # -1im * H
+	return H
 end
 
 """
@@ -203,7 +205,8 @@ function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,ix,iy] := zxscales[a] * H[b,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds) # fastmath=false
-	return -zxH # -1im * zxH
+	# return zxH #-zxH # -1im * zxH
+	return  zxH
 end
 
 """
@@ -213,7 +216,8 @@ function zx_ct(e⃗::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxe⃗[b,ix,iy] := zxscales[a] * e⃗[a,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds)  # fastmath=false
-	return -zxe⃗ # -1im * zxe⃗
+	# return zxe⃗ #-zxe⃗ # -1im * zxe⃗
+	return  zxe⃗
 end
 
 """
@@ -235,7 +239,7 @@ end
 
 function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
@@ -245,7 +249,7 @@ function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m:
 end
 
 function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn)::T where T<:Real
-	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
+	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
 function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real

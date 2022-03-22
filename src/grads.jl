@@ -5,9 +5,9 @@
 # @non_differentiable KDTree(::Any)
 
 
-# include("grad_lib/ForwardDiff.jl")
-include("grad_lib/StaticArrays.jl")
-# include("grad/solve.jl")
+# include("grads/ForwardDiff.jl")
+include("grads/StaticArrays.jl")
+include("grads/solve.jl")
 
 
 ##### Begin newly commented section

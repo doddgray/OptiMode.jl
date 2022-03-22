@@ -149,14 +149,16 @@ include("geometry.jl")
 include("cse.jl")
 include("epsilon_fns.jl")
 include("smooth.jl")
+include("maxwell.jl")
+include("fields.jl")
+include("solve.jl")
+
 include("grads.jl")
 
-include("maxwell.jl")
+
 
 # include("constraints.jl")
-include("fields.jl")
 
-include("solve.jl")
 # include("grads.jl")
 # include("explicit.jl")
 # include("io.jl")

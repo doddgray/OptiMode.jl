@@ -470,9 +470,20 @@ end
 ######################################################################################
 """
 
-function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
-    mag,mn = mag_mn(k,grid)
-    om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1+(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
+"""
+	`group_index(k::Real,evec,ω::Real,ε⁻¹,∂ε_∂ω,grid)`
+
+Calculate the modal group index `ng = d|k|/dω` from the 
+wavevector magnitude `k`, Helmholtz eigenvector `evec`, frequency `ω`, smoothed
+inverse dielectric tensor and first-order dispersion `ε⁻¹` and `∂ε_∂ω`, 
+and the corresponding spatial `grid<:Grid`.
+
+This function should be compatible with reverse-mode auto-differentiation.
+"""
+function group_index(k::Real,evec,ω,ε⁻¹,∂ε_∂ω,grid)
+    mag,mn = mag_mn(k,grid) 
+	return (ω + HMH(vec(evec), _dot( ε⁻¹, ∂ε_∂ω, ε⁻¹ ),mag,mn)/2) / HMₖH(vec(evec),ε⁻¹,mag,mn)
+	# note that this formula assumes (HMH(...), HMₖH(...))>0 (positive eigenvalues)
 end
 
 # function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
