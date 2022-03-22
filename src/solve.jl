@@ -213,13 +213,13 @@ end
 
 
 
-function ∇ₖmag_m_n(māg,m̄,n̄,mag,m⃗,n⃗;dk̂=SVector(0.,0.,1.))
-	kp̂g_over_mag = cross.(m⃗,n⃗)./mag
-	k̄_mag = sum( māg .* dot.( kp̂g_over_mag, (dk̂,) ) .* mag )
-	k̄_m = -sum( dot.( m̄ , cross.(m⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
-	k̄_n = -sum( dot.( n̄ , cross.(n⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
-	return +( k̄_mag, k̄_m, k̄_n )
-end
+# function ∇ₖmag_m_n(māg,m̄,n̄,mag,m⃗,n⃗;dk̂=SVector(0.,0.,1.))
+# 	kp̂g_over_mag = cross.(m⃗,n⃗)./mag
+# 	k̄_mag = sum( māg .* dot.( kp̂g_over_mag, (dk̂,) ) .* mag )
+# 	k̄_m = -sum( dot.( m̄ , cross.(m⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
+# 	k̄_n = -sum( dot.( n̄ , cross.(n⃗, cross.( kp̂g_over_mag, (dk̂,) ) ) ) )
+# 	return +( k̄_mag, k̄_m, k̄_n )
+# end
 
 
 
@@ -248,6 +248,32 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	return eī # inv( (eps' + eps) / 2)
 end
 
+function solve_adj!(ms::ModeSolver,H̄,eigind::Int)
+	ms.adj_itr = bicgstabl_iterator!(
+		ms.adj_itr.x,	# recycle previous soln as initial guess
+		ms.M̂ - real(ms.ω²)*I, # A
+		H̄ - ms.H⃗ * dot(ms.H⃗,H̄), # b,
+		3;	# l = number of GMRES iterations per CG iteration
+		Pl = ms.P̂) # left preconditioner
+	for (iteration, item) = enumerate(ms.adj_itr) end # iterate until convergence or until (iters > max_iters || mvps > max_mvps)
+	copyto!(ms.λ⃗,ms.adj_itr.x) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	# λ₀, ch = bicgstabl(
+	# 	ms.adj_itr.x,	# recycle previous soln as initial guess
+	# 	ms.M̂ - real(ms.ω²[eigind])*I, # A
+	# 	H̄[:,eigind] - ms.H⃗[:,eigind] * dot(ms.H⃗[:,eigind],H̄[:,eigind]), # b,
+	# 	3;	# l = number of GMRES iterations per CG iteration
+	# 	Pl = ms.P̂, # left preconditioner
+	# 	reltol = 1e-10,
+	# 	log=true,
+	# 	)
+	# copyto!(ms.λ⃗,λ₀) # copy soln. to ms.λ⃗ where other contributions/corrections can be accumulated
+	# println("\t\tAdjoint Problem for kz = $( ms.M̂.k⃗[3] ) ###########")
+	# println("\t\t\tadj converged?: $ch")
+	# println("\t\t\titrs, mvps: $(ch.iters), $(ch.mvps)")
+	# uplot(ch;name="log10( adj. prob. res. )")
+	return ms.λ⃗
+end
+
 function solve_adj!(λ⃗,M̂::HelmholtzMap,H̄,ω²,H⃗,eigind::Int;log=false)
 	# log=true
 	res = bicgstabl!(
@@ -255,9 +281,9 @@ function solve_adj!(λ⃗,M̂::HelmholtzMap,H̄,ω²,H⃗,eigind::Int;log=false)
 		M̂ - real(ω²)*I, # A
 		H̄ - H⃗ * dot(H⃗,H̄), # b,
 		2;	# l = number of GMRES iterations per CG iteration
-		# Pl = HelmholtzPreconditioner(M̂), # left preconditioner
+		Pl = HelmholtzPreconditioner(M̂), # left preconditioner
 		log,
-		abstol=1e-8,
+		abstol=1e-10,
 		max_mv_products=500
 		)
 	if log
@@ -270,6 +296,69 @@ function solve_adj!(λ⃗,M̂::HelmholtzMap,H̄,ω²,H⃗,eigind::Int;log=false)
 	# uplot(ch;name="log10( adj. prob. res. )")
 	# println("\t\t\tadj converged?: $ch")
 	# println("\t\t\titrs, mvps: $(ch.iters), $(ch.mvps)")
+	return λ⃗
+end
+
+
+using LinearMaps: ⊗
+export eig_adjt, linsolve, solve_adj!
+using IterativeSolvers: gmres
+function linsolve(Â, b⃗; x⃗₀=nothing, P̂=IterativeSolvers.Identity())
+	# x⃗ = isnothing(x⃗₀) ? randn(eltype(b⃗),first(size(b⃗))) : copy(x⃗₀)
+	# x⃗ = isnothing(x⃗₀) ? zero(b⃗) : copy(x⃗₀)
+
+	# return bicgstabl!(x⃗, Â, b⃗, 2; Pl=P̂, max_mv_products=5000)
+	# return bicgstabl!(x⃗, Â, b⃗, 2; Pl=P̂, max_mv_products=3000)
+	# bicgstabl(Â, b⃗, 3; Pl=P̂, max_mv_products=3000)
+	# cg(Â, b⃗; Pl=P̂, maxiter=3000)
+	# bicgstabl(Â, b⃗, 2; Pl=P̂, max_mv_products=10000)
+	gmres(Â, b⃗; Pl=P̂, maxiter=1000)
+end
+
+function rrule(::typeof(linsolve), Â, b⃗;
+		x⃗₀=nothing, P̂=IterativeSolvers.Identity())
+	x⃗ = linsolve(Â, b⃗; x⃗₀, P̂)
+	function linsolve_pullback(x̄)
+		λ⃗ = linsolve(Â', vec(x̄))
+		Ā = (-λ⃗) ⊗ x⃗'
+		return (NoTangent(), Ā, λ⃗)
+	end
+	return (x⃗, linsolve_pullback)
+end
+
+"""
+	eig_adjt(A, α, x⃗, ᾱ, x̄; λ⃗₀, P̂)
+
+Compute the adjoint vector `λ⃗` for a single eigenvalue/eigenvector pair (`α`,`x⃗`) of `Â` and
+sensitivities (`ᾱ`,`x̄`). It is assumed (but not checked) that ``Â ⋅ x⃗ = α x⃗``. `λ⃗` is the
+sum of two components,
+
+	``λ⃗ = λ⃗ₐ + λ⃗ₓ``
+
+where ``λ⃗ₐ = ᾱ x⃗`` and ``λ⃗ₓ`` correspond to `ᾱ` and `x̄`, respectively. When `x̄` is non-zero
+``λ⃗ₓ`` is computed by iteratively solving
+
+	``(Â - αÎ) ⋅ λ⃗ₓ = x̄ - (x⃗ ⋅ x̄)``
+
+An inital guess can be supplied for `λ⃗ₓ` via the keyword argument `λ⃗₀`, otherwise a random
+vector is used. A preconditioner `P̂` can also be supplied to improve convergeance.
+"""
+function eig_adjt(Â, α, x⃗, ᾱ, x̄; λ⃗₀=nothing, P̂=IterativeSolvers.Identity())
+	if iszero(x̄)
+		λ⃗ = iszero(ᾱ)	? zero(x⃗) : ᾱ * x⃗
+ 	else
+		λ⃗ₓ₀ = linsolve(
+			Â - α*I,
+		 	x̄ - x⃗ * dot(x⃗,x̄);
+			P̂,
+			# x⃗₀=λ⃗₀,
+		)
+		# λ⃗ -= x⃗ * dot(x⃗,λ⃗)	# re-orthogonalize λ⃗ w.r.t. x⃗, correcting for round-off err.
+		# λ⃗ += ᾱ * x⃗
+		λ⃗ₓ = λ⃗ₓ₀  - x⃗ * dot(x⃗,λ⃗ₓ₀)	# re-orthogonalize λ⃗ w.r.t. x⃗, correcting for round-off err.
+		λ⃗ = λ⃗ₓ + ᾱ * x⃗
+	end
+
 	return λ⃗
 end
 
@@ -308,13 +397,14 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 		k̄mags, ēvecs = ΔΩ
 		for (eigind, k̄, ēv, k, ev) in zip(1:nev, k̄mags, ēvecs, kmags, evecs)
 			ms = ModeSolver(k, ε⁻¹, grid; nev, maxiter)
-			# println("\tsolve_k_pullback:")
-			# println("k̄ (bar): $k̄")
+			println("\tsolve_k_pullback:")
+			println("k̄ (bar): $k̄")
 			# update_k!(ms,k)
 			# update_ε⁻¹(ms,ε⁻¹) #ε⁻¹)
 			# ms.ω²[eigind] = omsq_soln # ω^2
 			# ms.∂ω²∂k[eigind] = ∂ω²∂k
 			# copyto!(ms.H⃗, ev)
+			ms.H⃗[:,eigind] = copy(ev)
 			# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
 			λ⃗ = similar(ev)
 			λd =  similar(ms.M̂.d)
@@ -323,7 +413,8 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			# 
 			# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
 			# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-			
+			(mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,ms.grid),k)
+
 			ev_grid = reshape(ev,(2,gridsize...))
 			# if typeof(k̄)==ZeroTangent()
 			if isa(k̄,AbstractZero)
@@ -345,11 +436,11 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 				ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
 				kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ .* conj.(view(λ,2,axes(grid)...)) )
 				kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ .* conj.(view(λ,1,axes(grid)...)) )
-				m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,..])
-				n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,..])
+				# m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,..])
+				# n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,..])
 				māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-				# k̄ₕ = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
-				k̄ₕ = ∇ₖmag_m_n(
+				@show k̄ₕ_old = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+				@show k̄ₕ = ∇ₖmag_m_n(
 					māg,
 					kx̄_m⃗.*ms.M̂.mag, # m̄,
 					kx̄_n⃗.*ms.M̂.mag, # n̄,
@@ -368,7 +459,7 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 			# ei_bar = eīₖ + eīₕ
 			ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₖ # 
-			ω_bar +=  ( 2ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
+			@show ω_bar +=  ( 2ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
 			# if !(typeof(k)<:SVector)
 			# 	k̄_kx = k̄_kx[3]
 			# end

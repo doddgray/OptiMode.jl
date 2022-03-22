@@ -1624,3 +1624,53 @@ end
 # end
 
 
+
+
+# ## prototype backprop through NLsolve of PDE
+# # from https://github.com/JuliaNLSolvers/NLsolve.jl/issues/205
+
+# using NLsolve
+# using Zygote
+# using Zygote: @adjoint
+# using IterativeSolvers
+# using LinearMaps
+# using SparseArrays
+# using LinearAlgebra
+# using BenchmarkTools
+
+# # nlsolve maps f to the solution x of f(x) = 0
+# # We have ∂x = -(df/dx)^-1 ∂f, and so the adjoint is df = -(df/dx)^-T dx
+# @adjoint nlsolve(f, x0; kwargs...) =
+#     let result = nlsolve(f, x0; kwargs...)
+#         result, function(vresult)
+#             dx = vresult[].zero
+#             x = result.zero
+#             _, back_x = Zygote.pullback(f, x)
+
+#             JT(df) = back_x(df)[1]
+#             # solve JT*df = -dx
+#             L = LinearMap(JT, length(x0))
+#             df = gmres(L,-dx)
+
+#             _, back_f = Zygote.pullback(f -> f(x), f)
+#             return (back_f(df)[1], nothing, nothing)
+#         end
+#     end
+
+# const NN = 10000
+# const nonlin = 0.1
+# const A = spdiagm(0 => fill(10.0, NN), 1 => fill(-1.0, NN-1), -1 => fill(-1.0, NN-1))
+# const p0 = randn(NN)
+# f(x, p) = A*x + nonlin*x.^2 - p
+# solve_x(p) = nlsolve(x -> f(x, p), zeros(NN), method=:anderson, m=10).zero
+# obj(p) = sum(solve_x(p))
+
+# Zygote.refresh()
+# g_auto, = gradient(obj, p0)
+# g_analytic = gmres((A + Diagonal(2*nonlin*solve_x(p0)))', ones(NN))
+# display(g_auto)
+# display(g_analytic)
+# @show sum(abs.(g_auto - g_analytic))
+
+# @btime gradient(obj, p0);
+# @btime gmres((A + Diagonal(2*nonlin*solve_x(p0)))', ones(NN));

@@ -38,7 +38,7 @@ function kx_tc(H::AbstractArray{T,4},mn,mag) where T
 	kxscales = [1.; -1.]
 	kxinds = [2; 1]
     @tullio d[a,ix,iy,iz] := kxscales[b] * H[kxinds[b],ix,iy,iz] * mn[a,b,ix,iy,iz] * mag[ix,iy,iz] nograd=(kxscales,kxinds) # fastmath=false
-	return -1im * d
+	return d # -1im * d
 end
 
 """
@@ -48,7 +48,7 @@ function kx_ct(e⃗::AbstractArray{T,4},mn,mag) where T
 	kxscales = [-1.; 1.]
     kxinds = [2; 1]
     @tullio H[b,ix,iy,iz] := kxscales[b] * e⃗[a,ix,iy,iz] * mn[a,kxinds[b],ix,iy,iz] * mag[ix,iy,iz] nograd=(kxinds,kxscales) # fastmath=false
-	return -1im * H
+	return H # -1im * H
 end
 
 """
@@ -58,7 +58,7 @@ function zx_tc(H::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,ix,iy,iz] := zxscales[a] * H[b,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds) # fastmath=false
-	return -1im * zxH
+	return -zxH # -1im * zxH
 end
 
 """
@@ -68,7 +68,7 @@ function zx_ct(e⃗::AbstractArray{T,4},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxe⃗[b,ix,iy,iz] := zxscales[a] * e⃗[a,ix,iy,iz] * mn[zxinds[a],b,ix,iy,iz] nograd=(zxscales,zxinds)  # fastmath=false
-	return -1im * zxe⃗
+	return -zxe⃗ # -1im * zxe⃗
 end
 
 """
@@ -130,34 +130,34 @@ function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::Ab
 	HMH(Ha,ε⁻¹,mag,mn)
 end
 
-function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
-	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
-	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
-	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
-	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
-	return W / (2*real(P_z))
-end
+# function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
+# 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
+# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
+# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
+# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
+# 	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
+# 	return W / (2*real(P_z))
+# end
 
-function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
-	Nx,Ny,Nz = size(mag)
-	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
-	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
-end
+# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
+# 	Nx,Ny,Nz = size(mag)
+# 	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
+# 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
+# end
 
-function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
-	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
-	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
-	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
-	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
-	return W / (2*real(P_z))
-end
+# function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
+# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
+# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
+# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
+# 	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
+# 	return W / (2*real(P_z))
+# end
 
-function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
-	Nx,Ny,Nz = size(mag)
-	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
-	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
-end
+# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
+# 	Nx,Ny,Nz = size(mag)
+# 	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
+# 	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
+# end
 
 
 # 2D
@@ -183,7 +183,7 @@ function kx_tc(H::AbstractArray{T,3},mn,mag) where T
 	kxscales = [1.; -1.]
 	kxinds = [2; 1]
     @tullio d[a,ix,iy] := kxscales[b] * H[kxinds[b],ix,iy] * mn[a,b,ix,iy] * mag[ix,iy] nograd=(kxscales,kxinds) # fastmath=false
-	return -1im * d
+	return d # -1im * d
 end
 
 """
@@ -193,7 +193,7 @@ function kx_ct(e⃗::AbstractArray{T,3},mn,mag) where T
 	kxscales = [-1.; 1.]
     kxinds = [2; 1]
     @tullio H[b,ix,iy] := kxscales[b] * e⃗[a,ix,iy] * mn[a,kxinds[b],ix,iy] * mag[ix,iy] nograd=(kxinds,kxscales) # fastmath=false
-	return -1im * H
+	return H # -1im * H
 end
 
 """
@@ -203,7 +203,7 @@ function zx_tc(H::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxH[a,ix,iy] := zxscales[a] * H[b,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds) # fastmath=false
-	return -1im * zxH
+	return -zxH # -1im * zxH
 end
 
 """
@@ -213,7 +213,7 @@ function zx_ct(e⃗::AbstractArray{T,3},mn) where T
 	zxinds = [2; 1; 3]
 	zxscales = [-1.; 1.; 0.]
 	@tullio zxe⃗[b,ix,iy] := zxscales[a] * e⃗[a,ix,iy] * mn[zxinds[a],b,ix,iy] nograd=(zxscales,zxinds)  # fastmath=false
-	return -1im * zxe⃗
+	return -zxe⃗ # -1im * zxe⃗
 end
 
 """
@@ -275,34 +275,34 @@ function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::A
 	HMH(Ha,ε⁻¹,mag,mn)
 end
 
-function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
-	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
-	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
-	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
-	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
-	return W / (2*real(P_z))
-end
+# function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
+# 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
+# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
+# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
+# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
+# 	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
+# 	return W / (2*real(P_z))
+# end
 
-function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
-	Nx,Ny = size(mag)
-	Ha = reshape(Hₜ,(2,Nx,Ny))
-	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
-end
+# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
+# 	Nx,Ny = size(mag)
+# 	Ha = reshape(Hₜ,(2,Nx,Ny))
+# 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
+# end
 
-function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
-	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
-	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
-	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
-	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
-	return W / (2*real(P_z))
-end
+# function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
+# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
+# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
+# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
+# 	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
+# 	return W / (2*real(P_z))
+# end
 
-function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
-	Nx,Ny = size(mag)
-	Ha = reshape(Hₜ,(2,Nx,Ny))
-	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
-end
+# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+# 	Nx,Ny = size(mag)
+# 	Ha = reshape(Hₜ,(2,Nx,Ny))
+# 	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
+# end
 
 """
 ################################################################################
@@ -676,33 +676,33 @@ function ∇ₖmag_m_n(ΔΩ,Ω;dk̂=SVector(0.,0.,1.))
 	return +( k̄_mag, k̄_m, k̄_n )
 end
 
-function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
-	local ẑ = SVector(0.,0.,1.)
-	local ŷ = SVector(0.,1.,0.)
-	n_buf = Buffer(g⃗,size(g⃗))
-	m_buf = Buffer(g⃗,size(g⃗))
-	kpg_buf = Buffer(g⃗,size(g⃗))
-	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
-	@fastmath @inbounds for i ∈ eachindex(g⃗)
-		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
-		@inbounds mag_buf[i] = norm(kpg_buf[i])
-		# @inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
-		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
-		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-	end
-	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
-	kp⃗g = copy(kpg_buf)
-	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
-		māg,m̄,n̄ = ΔΩ
-		mag,m⃗,n⃗ = Ω
-		ê_over_mag = cross.( kp⃗g, (dk̂,) ) ./ mag.^2
-		k̄ = sum( māg .* dot.( kp⃗g, (dk̂,) ) ./ mag )
-		k̄ -= sum( dot.( m̄ , cross.(m⃗, ê_over_mag ) ) )
-		k̄ -= sum( dot.( n̄ , cross.(n⃗, ê_over_mag ) ) )
-		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
-	end
-    return (mag_m⃗_n⃗ , mag_m_n_pullback)
-end
+# function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
+# 	local ẑ = SVector(0.,0.,1.)
+# 	local ŷ = SVector(0.,1.,0.)
+# 	n_buf = Buffer(g⃗,size(g⃗))
+# 	m_buf = Buffer(g⃗,size(g⃗))
+# 	kpg_buf = Buffer(g⃗,size(g⃗))
+# 	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
+# 	@fastmath @inbounds for i ∈ eachindex(g⃗)
+# 		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
+# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
+# 		# @inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : SVector(-1.,0.,0.) # ŷ
+# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
+# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+# 	end
+# 	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
+# 	kp⃗g = copy(kpg_buf)
+# 	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
+# 		māg,m̄,n̄ = ΔΩ
+# 		mag,m⃗,n⃗ = Ω
+# 		ê_over_mag = cross.( kp⃗g, (dk̂,) ) ./ mag.^2
+# 		k̄ = sum( māg .* dot.( kp⃗g, (dk̂,) ) ./ mag )
+# 		k̄ -= sum( dot.( m̄ , cross.(m⃗, ê_over_mag ) ) )
+# 		k̄ -= sum( dot.( n̄ , cross.(n⃗, ê_over_mag ) ) )
+# 		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
+# 	end
+#     return (mag_m⃗_n⃗ , mag_m_n_pullback)
+# end
 
 function mag_mn(k::SVector{3,T1},g::Grid{ND,T2}) where {T1<:Real,ND,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g⃗(g))
@@ -822,70 +822,70 @@ function ∇ₖmag_mn(māg::AbstractArray{T1,3},mn̄,mag::AbstractArray{T2,3},m
 	return k̄_magmn
 end
 
-function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
-	local ẑ = SVector{3}(0.,0.,1.)
-	local ŷ = SVector{3}(0.,1.,0.)
-	grid_size = size(g)
-	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
-	@fastmath @inbounds for i ∈ eachindex(g)
-		@inbounds kpg_buf[i] = k⃗ - g[i]
-		@inbounds mag_buf[i] = norm(kpg_buf[i])
-		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
-		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-	end
-	mag = copy(mag_buf)
-	m⃗	=	copy(m_buf)
-	n⃗	= copy(n_buf)
-	# kp⃗g = copy(kpg_buf)
-	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
-	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
-	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
-	mn = hcat(m,n)
+# function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+# 	local ẑ = SVector{3}(0.,0.,1.)
+# 	local ŷ = SVector{3}(0.,1.,0.)
+# 	grid_size = size(g)
+# 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+# 	@fastmath @inbounds for i ∈ eachindex(g)
+# 		@inbounds kpg_buf[i] = k⃗ - g[i]
+# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
+# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+# 	end
+# 	mag = copy(mag_buf)
+# 	m⃗	=	copy(m_buf)
+# 	n⃗	= copy(n_buf)
+# 	# kp⃗g = copy(kpg_buf)
+# 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+# 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+# 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+# 	mn = hcat(m,n)
 	
-	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
-		māg,mn̄ = ΔΩ
-		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
-		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
-		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
-	end
-    return ((mag, mn) , mag_mn_pullback)
-end
+# 	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+# 		māg,mn̄ = ΔΩ
+# 		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+# 		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+# 		return ( NoTangent(), k̄*dk̂, ZeroTangent() )
+# 	end
+#     return ((mag, mn) , mag_mn_pullback)
+# end
 
-function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
-	local ẑ = SVector{3}(0.,0.,1.)
-	local ŷ = SVector{3}(0.,1.,0.)
-	k⃗ = kmag * dk̂
-	grid_size = size(g)
-	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
-	@fastmath @inbounds for i ∈ eachindex(g)
-		@inbounds kpg_buf[i] = k⃗ - g[i]
-		@inbounds mag_buf[i] = norm(kpg_buf[i])
-		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
-		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
-	end
-	mag = copy(mag_buf)
-	m⃗	=	copy(m_buf)
-	n⃗	= copy(n_buf)
-	# kp⃗g = copy(kpg_buf)
-	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
-	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
-	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
-	mn = hcat(m,n)
+# function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=SVector{3}(0.,0.,1.)) where {T1<:Real,T2<:Real}
+# 	local ẑ = SVector{3}(0.,0.,1.)
+# 	local ŷ = SVector{3}(0.,1.,0.)
+# 	k⃗ = kmag * dk̂
+# 	grid_size = size(g)
+# 	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
+# 	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+# 	@fastmath @inbounds for i ∈ eachindex(g)
+# 		@inbounds kpg_buf[i] = k⃗ - g[i]
+# 		@inbounds mag_buf[i] = norm(kpg_buf[i])
+# 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) :  ŷ
+# 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
+# 	end
+# 	mag = copy(mag_buf)
+# 	m⃗	=	copy(m_buf)
+# 	n⃗	= copy(n_buf)
+# 	# kp⃗g = copy(kpg_buf)
+# 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
+# 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
+# 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
+# 	mn = hcat(m,n)
 	
-	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
-		māg,mn̄ = ΔΩ
-		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
-		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
-		return ( NoTangent(), k̄, ZeroTangent() )
-	end
-    return ((mag, mn) , mag_mn_pullback)
-end
+# 	mag_mn_pullback(ΔΩ) = let mag=mag, mn=mn, dk̂=dk̂ # , kpg=kpg
+# 		māg,mn̄ = ΔΩ
+# 		# k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn,kpg;dk̂)
+# 		k̄ = ∇ₖmag_mn(māg,mn̄,mag,mn;dk̂)
+# 		return ( NoTangent(), k̄, ZeroTangent() )
+# 	end
+#     return ((mag, mn) , mag_mn_pullback)
+# end
 
 """
 ################################################################################

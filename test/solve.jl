@@ -207,11 +207,345 @@ end
 ff1(1.0,ε⁻¹)
 Zygote.gradient(ff1,1.0,ε⁻¹)
 
-function ff2(p)
+_adj(A::AbstractArray{<:Number,4}) = (At = permutedims(A,(2,1,3,4)); real(At) - 1.0im*imag(At))
+_adj(A::AbstractArray{<:Real,4}) = permutedims(A,(2,1,3,4))
+_herm(A::AbstractArray{<:Number,4}) = (A + _adj(A)) * 0.5
+_herm(ε)
+_herm(ε) ≈ ε
+_herm(∂ε_∂ω) ≈ ∂ε_∂ω
+
+function ff2(p;nev=2,eig_tol=1e-9,k_tol=1e-9)
+    # mat_vals        =   f_ε_mats([ω,]); #f_ε_mats(p[1:np_mats]);
+    # grid            =   Grid(6.,4.,256,128);
+    # shapes          =   geom1(p[2:5]);
+    # sm1             =   smooth_ε(shapes,mat_vals,(1,2,3,4),grid);
+    sm1             =   smooth_ε(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,256,128));
+    # sm1             =   Zygote.forwarddiff(p) do p
+    #     return smooth_ε(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,256,128))
+    # end
+    ε               =   real(copy(selectdim(sm1,3,1))); # sm1[:,:,1,:,:]  
+    ∂ε_∂ω           =   real(copy(selectdim(sm1,3,2))); # sm1[:,:,2,:,:]
+    # ε               =   _herm(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
+    # ∂ε_∂ω           =   _herm(selectdim(sm1,3,2)); # sm1[:,:,2,:,:]
+    # ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+    ε⁻¹             =   sliceinv_3x3(ε);
+    kmags,evecs   = solve_k(p[1],ε⁻¹,Grid(6.,4.,256,128),DFTK_LOBPCG();nev,eig_tol,k_tol)
+    # kmags,evecs   = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev,eig_tol,k_tol,overwrite=true)
+    # ngs = map((k,ev)->group_index(k,ev,first(p),ε⁻¹,∂ε_∂ω,grid),zip(kmags,evecs))
+    ng1 = group_index(kmags[1],first(evecs),p[1],ε⁻¹,∂ε_∂ω,Grid(6.,4.,256,128))
+    return ng1
+end
+p = [1.0, 2.0,0.8,0.1,0.1]
+ng11, gr_ng11_RM = Zygote.withgradient(ff2,p)
+using FiniteDiff
+gradFD2(fn,in;rs=1e-2)	=	FiniteDiff.finite_difference_gradient(fn,in;relstep=rs)
+gr_ff2_FD = gradFD2(ff2,p;rs=1e-3)
+
+##
+
+function ff3(p;nev=2,eig_tol=1e-9,k_tol=1e-9)
+    # p[1]
+    # mat_vals        =   f_ε_mats([ω,]);
+    # grid            =   Grid(6.,4.,256,128);
+    # shapes          =   geom1(p[2:5]);
+    # sm1             =   smooth_ε(shapes,mat_vals,(1,2,3,4),grid);
+    sm1             =   smooth_ε(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,256,128));
+    # sm1             =   Zygote.forwarddiff(p) do p
+    #     return smooth_ε(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,256,128))
+    # end
+    ε               =   real(copy(selectdim(sm1,3,1))); # sm1[:,:,1,:,:]  
+    ∂ε_∂ω           =   real(copy(selectdim(sm1,3,2))); # sm1[:,:,2,:,:]
+    # ε               =   _herm(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
+    # ∂ε_∂ω           =   _herm(selectdim(sm1,3,2)); # sm1[:,:,2,:,:]
+    # ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+    ε⁻¹             =   sliceinv_3x3(ε);
+    kmags,evecs   = solve_k(p[1],ε⁻¹,Grid(6.,4.,256,128),DFTK_LOBPCG();nev,eig_tol,k_tol)
+    # kmags,evecs   = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev,eig_tol,k_tol,overwrite=true)
+    # ngs = map((k,ev)->group_index(k,ev,first(p),ε⁻¹,∂ε_∂ω,grid),zip(kmags,evecs))
+    
+    n1 = kmags[1]/p[1]
+    ng1 = group_index(kmags[1],evecs[1],p[1],ε⁻¹,∂ε_∂ω,Grid(6.,4.,256,128))
+    return n1, ng1
+end
+p = [1.0, 2.0,0.8,0.1,0.1]
+(n1,ng1), n1_ng1_pb = Zygote.pullback(ff3,p)
+gr_n1_RM = n1_ng1_pb((1.0,nothing))
+gr_ng1_RM = n1_ng1_pb((nothing,1.0))
+gr_n1_FD = gradFD2(x->ff3(x)[1],p;rs=1e-3)
+gr_ng1_FD = gradFD2(x->ff3(x)[2],p;rs=1e-3)
+
+
+##
+#
+p = [1.0, 2.0,0.8,0.1,0.1]
+# mat_vals, mat_vals_pb  =   Zygote.pullback(p->f_ε_mats(p[1:np_mats]),p);
+# grid            =   Grid(6.,4.,256,128);
+# shapes, shapes_pb          =   Zygote.pullback(p->geom1(p[(np_mats+1):(np_mats+4)]),p);
+# sm1, sm1_pb             =   Zygote.pullback((shapes,mat_vals)->smooth_ε(shapes,mat_vals,(1,2,3,4),grid),shapes,mat_vals);
+sm1, sm1_pb             =   Zygote.pullback(p) do p
+    return smooth_ε(geom1(p[(np_mats+1):(np_mats+4)]),f_ε_mats(p[1:np_mats]),(1,2,3,4),Grid(6.,4.,256,128))
+end
+ε , ε_pb               =   Zygote.pullback(sm1->_herm(selectdim(sm1,3,1)),sm1); # sm1[:,:,1,:,:]                 
+∂ε_∂ω, ∂ε_∂ω_pb           =   Zygote.pullback(sm1->_herm(selectdim(sm1,3,2)),sm1); # sm1[:,:,2,:,:]
+ε⁻¹, ε⁻¹_pb             =   Zygote.pullback(sliceinv_3x3,ε);
+(kmags,evecs),kmags_evecs_pb   = Zygote.pullback((ω,ε⁻¹)->solve_k(ω,ε⁻¹,grid,DFTK_LOBPCG();nev=2,eig_tol=1e-10,k_tol=1e-12),p[1],ε⁻¹)
+ng1,ng1_pb = Zygote.pullback((kmags,evecs,p,ε⁻¹,∂ε_∂ω)->group_index(first(kmags),first(evecs),first(p),ε⁻¹,∂ε_∂ω,grid),kmags,evecs,p,ε⁻¹,∂ε_∂ω)
+
+ng12,ng12_pb = Zygote.pullback(kmags,evecs,p,ε⁻¹,∂ε_∂ω) do  kms,evs,pp,epsi,de_do
+    grid = Grid(6.,4.,256,128)
+    mag,mn = mag_mn(kms[1],grid)
+    om = pp[1]
+    return om / HMₖH(vec(evs[1]),epsi,mag,mn) * (1+(om/2)*HMH(evs[1], _dot( epsi, de_do, epsi ),mag,mn))
+end
+ng_z(evecs[1],1.0,ε⁻¹,∂ε_∂ω/2.,mag,mn)
+
+mag,mn = mag_mn(kmags[1],Grid(6.,4.,256,128))
+ms = ModeSolver(kmags[1], ε⁻¹,Grid(6.,4.,256,128); nev=2, maxiter=200)
+Mev = ms.M̂ * copy(evecs[1])
+Mev2 = vec(kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(reshape(evecs[1],(2,grid.Nx,grid.Ny)),mn,mag), (2:3) ), real(flat(ε⁻¹))), (2:3)),mn,mag))
+Mkev = vec(kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(reshape(evecs[1],(2,grid.Nx,grid.Ny)),mn), (2:3) ), real(flat(ε⁻¹))), (2:3)),mn,mag))
+dot(evecs[1],Mev)
+dot(evecs[1],Mev2)
+
+
+
+
+∂z_∂ng1 = 1.0
+∂z_∂kmags,∂z_∂evecs,∂z_∂p_1,∂z_∂ε⁻¹_1,∂z_∂_∂ε_∂ω  =  ng1_pb(∂z_∂ng1)
+∂z_∂kmags2,∂z_∂evecs2,∂z_∂p_12,∂z_∂ε⁻¹_12,∂z_∂_∂ε_∂ω2  =  ng12_pb(∂z_∂ng1)
+∂z_∂ω,∂z_∂ε⁻¹_2 = kmags_evecs_pb((∂z_∂kmags,∂z_∂evecs))
+∂z_∂p_2 = [∂z_∂ω, 0.0, 0.0, 0.0, 0.0  ]
+∂z_∂ε = ε⁻¹_pb(∂z_∂ε⁻¹_1 + ∂z_∂ε⁻¹_2)[1]
+∂z_∂sm1_1 = ε_pb(∂z_∂ε)[1]
+∂z_∂sm1_2 = ∂ε_∂ω_pb(∂z_∂_∂ε_∂ω)[1]
+∂z_∂p_3 = sm1_pb(∂z_∂sm1_1+∂z_∂sm1_2)[1]
+# ∂z_∂shapes,∂z_∂matvals = sm1_pb(∂z_∂sm1_1+∂z_∂sm1_2)
+# ∂z_∂p_3 = shapes_pb(∂z_∂shapes)[1]
+# ∂z_∂p_4 = mat_vals_pb(∂z_∂matvals)[1]
+@show ∂z_∂p = ∂z_∂p_1 + ∂z_∂p_2 + ∂z_∂p_3 
+##
+using OptiMode: HMₖH, ε⁻¹_bar, _H2d!, _d2ẽ!, mag_m_n, mag_mn, ∇ₖmag_m_n
+using IterativeSolvers
+using IterativeSolvers: bicgstabl!,bicgstabl,gmres,gmres!
+T = Float64
+ei_bar = zero(ε⁻¹)
+ω_bar = 0.0
+k = kmags[1]
+ev = evecs[1]
+k̄ = ∂z_∂kmags[1]
+ēv = ∂z_∂evecs[1]
+ms = ModeSolver(k, ε⁻¹,Grid(6.,4.,256,128); nev=2, maxiter=200)
+gridsize= size(ms.grid)
+λ⃗ = similar(ev)
+λd =  similar(ms.M̂.d)
+λẽ = similar(ms.M̂.d)
+∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+ev_grid = reshape(ev,(2,gridsize...))
+λ⃗ 	-= 	 dot(ev,λ⃗) * ev
+λ	=	reshape(λ⃗,(2,gridsize...))
+d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
+λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
+# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+λd *=  ms.M̂.Ninv
+λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
+ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ .* conj.(view(λ,2,axes(grid)...)) )
+kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ .* conj.(view(λ,1,axes(grid)...)) )
+m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,axes(grid)...])
+n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,axes(grid)...])
+māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+# k̄ₕ = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+k̄ₕ = -∇ₖmag_m_n(
+    māg,
+    kx̄_m⃗.*ms.M̂.mag, # m̄,
+    kx̄_n⃗.*ms.M̂.mag, # n̄,
+    ms.M̂.mag,
+    m⃗,
+    n⃗;
+    dk̂=SVector(0.,0.,1.), # dk⃗ direction
+)
+
+(mag2, m2, n2), mag_m_n_pb = Zygote.pullback(mag_m_n,k,ms.grid)
+mag2 ≈ ms.M̂.mag
+m2 ≈ m⃗
+n2 ≈ n⃗
+
+k̄ₕ2 = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1]
+
+sum(abs2,λ⃗)
+lm1_norm = dot(λ⃗,λ⃗)
+ω² = ω^2
+lm2 = similar(λ⃗)
+res2,ch2 = bicgstabl!(
+    lm2, # ms.adj_itr.x,	# recycle previous soln as initial guess
+    ms.M̂ - real(ω²)*I, # A
+    ēv - ev * dot(ev,ēv), # b,
+    3;	# l = number of GMRES iterations per CG iteration
+    Pl =ms.P̂, # Pl = HelmholtzPreconditioner(M̂), # left preconditioner
+    log=true,
+    abstol=1e-10,
+    max_mv_products=500
+)
+dot(lm2,λ⃗)
+dot(lm2,lm2)
+
+
+dot(λ⃗,λ⃗)
+dot(lm2,λ⃗)
+
+
+lm3 = eig_adjt(ms.M̂, ω^2, ev, 0.0, ēv; λ⃗₀=nothing, P̂=IterativeSolvers.Identity())
+dot(lm3,λ⃗)
+dot(lm3,lm3)
+##
+
+
+Zygote.gradient(ff2,p)[1] # [2.3832434960396154, 0.006884282902900199, 0.27005409524674673, 0.005702895939256883, 0.07660989286044446]
+
+# calculated group indicex gradients vs. tolerance (ff2(p), p=[1.0, 2.0,0.8,0.1,0.1])
+
+# Zygote:
+# [2.3832434960396154, 0.006884282902900199,  0.27005409524674673,  0.005702895939256883, 0.07660989286044446 ] # (nev=2,eig_tol=1e-7,k_tol=1e-7)
+# [2.3832434946779366, 0.006884285584123125,  0.2700541212712122,   0.005702897553505309, 0.0766099061958902  ] # (nev=2,eig_tol=1e-10,k_tol=1e-12)
+# [2.383243496305781, 0.006884289989421895, 0.2700541216897883, 0.005702898375538622, 0.07660990622163796 ]
+
+# FiniteDiff:
+# [2.321140491701845, -0.009794340997459905, -0.04992521416458118, -0.00837669524988982, -0.04320451457173746 ] # (rs=1e-3, nev=2,eig_tol=1e-10,k_tol=1e-12)
+# [2.321140350902695, -0.009794917577021778, -0.04992696425176745, -0.00837620506288772, -0.04320451103545508 ]
+
+using FiniteDiff
+gradFD2(fn,in;rs=1e-2)	=	FiniteDiff.finite_difference_gradient(fn,in;relstep=rs)
+gr_ff2_FD = gradFD2(ff2,p;rs=1e-2)
+gr_ff2_FD = gradFD2(ff2,p;rs=1e-3)
+gr_ff2_FD = gradFD2(ff2,p;rs=1e-5)
+# julia> gr_ff2_FD = gradFD2(ff2,p;rs=1e-2)
+#     5-element Vector{Float64}:
+#     2.3211544378370474
+#     -0.009810432807899616
+#     -0.049755946804519446
+#     -0.008401555884840484
+#     -0.04320452129880081
+
+# julia> gr_ff2_FD = gradFD2(ff2,p;rs=1e-3)
+#     5-element Vector{Float64}:
+#     2.3211404942358183
+#     -0.009794344028146718
+#     -0.04992515774993045
+#     -0.008376666784437603
+#     -0.04320450436190448
+
+function ff23(p)
     mat_vals        =   f_ε_mats(p[1:np_mats]);
     grid            =   Grid(6.,4.,256,128);
     shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
     sm1             =   smooth_ε(shapes,mat_vals,(1,2,3,4),grid);
+    # ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
+    # ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
+    # ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
+    # ε⁻¹             =   sliceinv_3x3(ε);
+    # out = sum(ε⁻¹) + sum(∂ε_∂ω)
+    out = sum(sm1)
+    return out
+end
+p = [1.0, 2.0,0.8,0.1,0.1]
+ff23(p)
+gr_ff23_RM = Zygote.gradient(ff23,p)[1]
+gr_ff23_FD = gradFD2(ff23,p;rs=1e-5)
+# julia> gr_ff2_FD = gradFD2(ff2,p;rs=1e-2)
+#     5-element Vector{Float64}:
+#     2.3211544378370474
+#     -0.009810432807899616
+#     -0.049755946804519446
+#     -0.008401555884840484
+#     -0.04320452129880081
+
+# julia> gr_ff2_FD = gradFD2(ff2,p;rs=1e-3)
+#     5-element Vector{Float64}:
+#     2.3211404942358183
+#     -0.009794344028146718
+#     -0.04992515774993045
+#     -0.008376666784437603
+#     -0.04320450436190448
+
+
+
+# Enzyme
+∂f_∂p = zero(p)
+autodiff(ff23,Duplicated(p,∂f_∂p))
+
+# ReverseDiff
+# create_array(
+#     ::Type{ReverseDiff.TrackedArray{Float64, Float64, 1, Vector{Float64}, Vector{Float64}}},
+#     ::Nothing, 
+#     ::Val{2},
+#     ::Val{(27, 4)},
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::Float64,
+#     ::Float64,
+#     ::Float64,
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing},
+#     ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::ReverseDiff.TrackedReal{Float64, Float64, Nothing}, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64, ::Float64)
+# rrule(::typeof(Code.create_array), A::Type{<:AbstractArray}, T, u::Val{j}, d::Val{dims}, elems...)
+
+# ReverseDiff.@grad_from_chainrules f(x::TrackedReal, y::TrackedArray)
+# ReverseDiff.@grad_from_chainrules f(x::TrackedReal, y::Array)
+# ReverseDiff.@grad_from_chainrules f(x::Real, y::TrackedArray)
+
+#
+
+
+##
+p = [0.0,0.0,2.0,2.0,-1.1,0.1]
+b = Box(SVector{2}(p[1:2]),SVector{2}(p[3:4]))
+x = SVector{2,Float64}(p[5:6])
+ax = inv(b.p)  # axes: columns are unit vectors
+# p_rownorm = map(norm,eachrow(bx.p))
+@tullio p_rownorm[i] := b.p[i,j]^2 |> sqrt
+@tullio n0[i,j] := b.p[i,j] / p_rownorm[i] # normalize
+SVector{2,Float64}( @tullio p_rownorm[i] := b.p[i,j]^2 |> sqrt )
+n1 = SMatrix{2,2,Float64}( n0 )
+copysign.(one(eltype(d)),d)
+# d= Array(b.p * (x - b.c))
+d = b.p * (x - b.c)
+cosθ = SVector{2,Float64}(diag(n0*ax))
+# n = n0 .* SMatrix{1,2, Float64}([1.0 -1.0]) # ignore_derivatives( copysign.(one(eltype(d)),d) )
+d_signs = copysign.(one(eltype(d)),d)
+n = n1 .* d_signs 
+
+
+##
+
+function ff3(p)
+    # mat_vals        =   f_ε_mats(p[1:np_mats]);
+    grid            =   Grid(6.,4.,256,128);
+    # shapes          =   geom1(p[(np_mats+1):(np_mats+4)]);
+    # sm1             =   smooth_ε(shapes,mat_vals,(1,2,3,4),grid);
+    sm1             =   Zygote.forwarddiff(p) do p
+        return smooth_ε(geom1(p[2:5]),f_ε_mats(p[1:1]),(1,2,3,4),Grid(6.,4.,256,128))
+    end
     ε               =   copy(selectdim(sm1,3,1)); # sm1[:,:,1,:,:]  
     ∂ε_∂ω           =   copy(selectdim(sm1,3,2)); # sm1[:,:,2,:,:] 
     # ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
@@ -222,8 +556,8 @@ function ff2(p)
     return ng1
 end
 p = [1.0, 2.0,0.8,0.1,0.1]
-ff2(p)
-Zygote.gradient(ff2,p)
+ff3(p)
+Zygote.gradient(ff3,p)
 
 using FiniteDiff
 FiniteDiff.finite_difference_gradient(

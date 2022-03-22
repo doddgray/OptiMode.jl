@@ -1,4 +1,4 @@
-export find_k, group_index, load_evecs, load_epsilon, save_epsilon, DEFAULT_MPB_LOGPATH, DEFAULT_MPB_EPSPATH
+export find_k, load_evecs, load_epsilon, save_epsilon, DEFAULT_MPB_LOGPATH, DEFAULT_MPB_EPSPATH
 export MPB_Solver, n_range #, mp, mpb, np
 
 mutable struct MPB_Solver <: AbstractEigensolver end
@@ -726,37 +726,37 @@ function find_k(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND};
     return find_k(ω,eps,grid; kwargs...)
 end
 
-function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
-    mag,mn = mag_mn(k,grid)
-    om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1-(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
-end
+# function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
+#     mag,mn = mag_mn(k,grid)
+#     om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1-(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
+# end
 
-function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
-    [ group_index(ks[bidx],evecs[bidx],om,ε⁻¹,∂ε∂ω,grid) for bidx=1:num_bands ]
-end
+# function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
+#     [ group_index(ks[bidx],evecs[bidx],om,ε⁻¹,∂ε∂ω,grid) for bidx=1:num_bands ]
+# end
 
-function group_index(ks::AbstractMatrix,evecs,om,ε⁻¹,∂ε∂ω,grid)
-    [ group_index(ks[fidx,bidx],evecs[fidx,bidx],om[fidx],ε⁻¹[fidx],∂ε∂ω[fidx],grid) for fidx=1:nω,bidx=1:num_bands ]
-end
+# function group_index(ks::AbstractMatrix,evecs,om,ε⁻¹,∂ε∂ω,grid)
+#     [ group_index(ks[fidx,bidx],evecs[fidx,bidx],om[fidx],ε⁻¹[fidx],∂ε∂ω[fidx],grid) for fidx=1:nω,bidx=1:num_bands ]
+# end
 
-function group_index(ω::Real,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; kwargs...) where {ND,TF<:Function}
-    eps, epsi = copy.(getproperty.(smooth(ω,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,)))
-    deps_dom = ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),ω)
-    k,evec = find_k(ω,eps,grid; kwargs...)
-    return group_index(k,evec,ω,epsi,deps_dom,grid)
-end
+# function group_index(ω::Real,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; kwargs...) where {ND,TF<:Function}
+#     eps, epsi = copy.(getproperty.(smooth(ω,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,)))
+#     deps_dom = ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),ω)
+#     k,evec = find_k(ω,eps,grid; kwargs...)
+#     return group_index(k,evec,ω,epsi,deps_dom,grid)
+# end
 
-function group_index(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; worker_pool=default_worker_pool(),filename_prefix="",data_path=pwd(), kwargs...) where {ND,TF<:Function}
-    nω = length(ω)
-    prefixes = [ lstrip(join((filename_prefix,(@sprintf "f%02i" fidx)),"."),'.') for fidx=1:nω ]
-    eps_epsi = [ copy.(getproperty.(smooth(om,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,))) for om in ω ]
-    deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ω ]
-    ngs = progress_pmap(worker_pool,ω,eps_epsi,deps_dom,prefixes) do om, e_ei, de_do, prfx
-        kmags,evecs= find_k(om,e_ei[1],grid; filename_prefix=prfx, data_path, kwargs...)
-        return group_index(kmags,evecs,om,e_ei[2],de_do,grid)
-    end
-    return transpose(hcat(ngs...))
-end
+# function group_index(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; worker_pool=default_worker_pool(),filename_prefix="",data_path=pwd(), kwargs...) where {ND,TF<:Function}
+#     nω = length(ω)
+#     prefixes = [ lstrip(join((filename_prefix,(@sprintf "f%02i" fidx)),"."),'.') for fidx=1:nω ]
+#     eps_epsi = [ copy.(getproperty.(smooth(om,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,))) for om in ω ]
+#     deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ω ]
+#     ngs = progress_pmap(worker_pool,ω,eps_epsi,deps_dom,prefixes) do om, e_ei, de_do, prfx
+#         kmags,evecs= find_k(om,e_ei[1],grid; filename_prefix=prfx, data_path, kwargs...)
+#         return group_index(kmags,evecs,om,e_ei[2],de_do,grid)
+#     end
+#     return transpose(hcat(ngs...))
+# end
 
 function find_k_dom(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND};dom=1e-4,data_path=pwd(),kwargs...) where {ND,TF<:Function}
 

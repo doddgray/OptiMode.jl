@@ -70,7 +70,7 @@ function smooth_ε_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}})
 	elseif iszero(ps[3])
         sidx1   =   ps[1]
         sidx2   =   ps[2]
-        xyz     =   sum(crnrs)/NC # sum(crnrs)/NC
+        xyz     =   sum(crnrs) / NC # sum(crnrs)/NC
         r₀_n⃗    =   surfpt_nearby(xyz, shapes[sidx1])
         r₀      =   first(r₀_n⃗)
         n⃗       =   last(r₀_n⃗)

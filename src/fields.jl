@@ -7,8 +7,8 @@
 """
 
 export unflat, _d2ẽ!, _H2d!, _H2e!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z
-export normE!, Ex_norm, Ey_norm, val_magmax, ax_magmax, idx_magmax,
-		 canonicalize_phase, canonicalize_phase! # , mn
+export normE!, Ex_norm, Ey_norm, val_magmax, ax_magmax, idx_magmax, group_index,
+		 canonicalize_phase, canonicalize_phase!
 # export _cross, _cross_x, _cross_y, _cross_z, _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
 # export _outer
  #, slice_inv 	# stuff to get rid of soon
@@ -312,7 +312,7 @@ end
 function E⃗(k,evec::AbstractArray{Complex{T}},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; canonicalize=true, normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	evec_gridshape = reshape(evec,(2,size(grid)...))
 	magmn = mag_mn(k,grid)
-	E0 = 1im * ε⁻¹_dot( fft( kx_tc( evec_gridshape,last(magmn),first(magmn)), (2:1+ND) ), ε⁻¹)
+	E0 = ε⁻¹_dot( fft( kx_tc( evec_gridshape,last(magmn),first(magmn)), (2:1+ND) ), ε⁻¹)
 	
 	if canonicalize
 		phase_factor = cis(-angle(val_magmax(E0)))
@@ -462,9 +462,45 @@ end
 #
 # end
 
+"""
+######################################################################################
+#
+#		methods for calculating the group index from a mode field
+#
+######################################################################################
+"""
 
+function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
+    mag,mn = mag_mn(k,grid)
+    om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1-(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
+end
 
+# function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
+#     [ group_index(ks[bidx],evecs[bidx],om,ε⁻¹,∂ε∂ω,grid) for bidx=1:num_bands ]
+# end
 
+# function group_index(ks::AbstractMatrix,evecs,om,ε⁻¹,∂ε∂ω,grid)
+#     [ group_index(ks[fidx,bidx],evecs[fidx,bidx],om[fidx],ε⁻¹[fidx],∂ε∂ω[fidx],grid) for fidx=1:nω,bidx=1:num_bands ]
+# end
+
+# function group_index(ω::Real,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; kwargs...) where {ND,TF<:Function}
+#     eps, epsi = copy.(getproperty.(smooth(ω,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,)))
+#     deps_dom = ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),ω)
+#     k,evec = find_k(ω,eps,grid; kwargs...)
+#     return group_index(k,evec,ω,epsi,deps_dom,grid)
+# end
+
+# function group_index(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; worker_pool=default_worker_pool(),filename_prefix="",data_path=pwd(), kwargs...) where {ND,TF<:Function}
+#     nω = length(ω)
+#     prefixes = [ lstrip(join((filename_prefix,(@sprintf "f%02i" fidx)),"."),'.') for fidx=1:nω ]
+#     eps_epsi = [ copy.(getproperty.(smooth(om,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,))) for om in ω ]
+#     deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ω ]
+#     ngs = progress_pmap(worker_pool,ω,eps_epsi,deps_dom,prefixes) do om, e_ei, de_do, prfx
+#         kmags,evecs= find_k(om,e_ei[1],grid; filename_prefix=prfx, data_path, kwargs...)
+#         return group_index(kmags,evecs,om,e_ei[2],de_do,grid)
+#     end
+#     return transpose(hcat(ngs...))
+# end
 
 
 """
