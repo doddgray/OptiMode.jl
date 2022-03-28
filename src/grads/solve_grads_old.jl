@@ -556,65 +556,68 @@ function rrule(::typeof(solve_ω²), ms::ModeSolver{ND,T},k::Union{T,SVector{3,T
 end
 
 
-"""
-function mapping |H⟩ ⤇ ( (∂M/∂k)ᵀ + ∂M/∂k )|H⟩
-"""
-function Mₖᵀ_plus_Mₖ(H⃗::AbstractVector{Complex{T}},k,ε⁻¹,grid) where T<:Real
-	Ns = size(grid)
-	# g⃗s = g⃗(grid)
-	# mag,m⃗,n⃗ = mag_m_n(k,g⃗s)
-	mag,m⃗,n⃗ = mag_m_n(k,grid)
-	H = reshape(H⃗,(2,Ns...))
-	mn = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
-	X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3) ), mn, mag )
-	Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)), mn )
-	vec(X + Y)
-end
+# """
+# function mapping |H⟩ ⤇ ( (∂M/∂k)ᵀ + ∂M/∂k )|H⟩
+# """
+# function Mₖᵀ_plus_Mₖ(H⃗::AbstractVector{Complex{T}},k,ε⁻¹,grid) where T<:Real
+# 	Ns = size(grid)
+# 	# g⃗s = g⃗(grid)
+# 	# mag,m⃗,n⃗ = mag_m_n(k,g⃗s)
+# 	mag,m⃗,n⃗ = mag_m_n(k,grid)
+# 	H = reshape(H⃗,(2,Ns...))
+# 	mn = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+# 	X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3) ), mn, mag )
+# 	Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)), mn )
+# 	vec(X + Y)
+# end
 
-"""
-solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
-"""
-function ∂ω²∂k_adj(M̂::HelmholtzMap,ω²,H⃗,H̄;eigind=1,log=false)
-	res = bicgstabl(
-		M̂ - real(ω²)*I, # A
-		H̄ - H⃗ * dot(H⃗,H̄), # b,
-		3;	# l = number of GMRES iterations per CG iteration
-		# Pl = HelmholtzPreconditioner(M̂), # left preconditioner
-		log,
-		)
-end
+# """
+# solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
+# """
+# function ∂ω²∂k_adj(M̂::HelmholtzMap,ω²,H⃗,H̄;eigind=1,log=false)
+# 	res = bicgstabl(
+# 		M̂ - real(ω²)*I, # A
+# 		H̄ - H⃗ * dot(H⃗,H̄), # b,
+# 		3;	# l = number of GMRES iterations per CG iteration
+# 		# Pl = HelmholtzPreconditioner(M̂), # left preconditioner
+# 		log,
+# 		)
+# end
 
 """
 pull back sensitivity w.r.t. ∂ω²∂k = 2⟨H|∂M/∂k|H⟩ to corresponding
 k̄ (scalar) and nn̄g⁻¹ (tensor field) sensitivities
 """
-function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArray{T2,N2},grid::Grid{ND};eigind=1) where {T<:Real,ND,T2<:Real,N2}
+function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},ε⁻¹::AbstractArray{T2,N2},grid::Grid{ND};eigind=1) where {T<:Real,ND,T2<:Real,N2}
 	# Setup
-	local 	zxtc_to_mn = SMatrix{3,3}(	[	0 	-1	  0
+	local 	zxtc_to_mn = SMatrix{3,3,T}(	[	0 	-1	  0
 											1 	 0	  0
 											0 	 0	  0	  ]	)
 
-	local 	kxtc_to_mn = SMatrix{2,2}(	[	0 	-1
+	local 	kxtc_to_mn = SMatrix{2,2,T}(	[	0 	-1
 											1 	 0	  ]	)
 
-	g⃗s, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
-		Ninv 		= 		1. / N(grid)
-		Ns			=		size(grid)
-		g⃗s = g⃗(grid)
-		d0 = randn(Complex{T}, (3,Ns...))
-		𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
-		𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
-		return (g⃗s,Ninv,Ns,𝓕,𝓕⁻¹)
-	end
+	# g⃗s, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
+	Ninv 		= 		1. / N(grid)
+	Ns			=		size(grid)
+	g⃗s = g⃗(grid)
+	d0 = randn(Complex{T}, (3,Ns...))
+	𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
+	𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
+		# return (g⃗s,Ninv,Ns,𝓕,𝓕⁻¹)
+	# end
 	mag, m⃗, n⃗  = mag_m_n(k,g⃗s)
 	H = reshape(H⃗,(2,Ns...))
 	Hsv = reinterpret(reshape, SVector{2,Complex{T}}, H )
 
 	#TODO: Banish this quadruply re(shaped,interpreted) m,n,mns format back to hell
 	# mns = mapreduce(x->reshape(flat(x),(1,3,size(x)...)),vcat,(m⃗,n⃗))
-	m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
-	n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
-	mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
+	# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
+	# mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	m = real(reinterpret(reshape,T,m⃗))
+	n = real(reinterpret(reshape,T,n⃗))
+	mns = cat(reshape(m,(3,1,Ns...)),reshape(n,(3,1,Ns...));dims=2)
 
 	### calculate k̄ contribution from M̄ₖ ( from ⟨H|M̂ₖ|H⟩ )
 	Ā₁		=	conj.(Hsv)
@@ -622,10 +625,10 @@ function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArr
 		reshape,
 		SVector{3,Complex{T}},
 		# reshape(
-		# 	𝓕⁻¹ * nngsp * 𝓕 * zxtcsp * vec(H),
+		# 	𝓕⁻¹ * epssp * 𝓕 * zxtcsp * vec(H),
 		# 	(3,size(gr)...),
 		# 	),
-		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(nng⁻¹)),
+		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(ε⁻¹)),
 		)
 	Ā 	= 	Ā₁  .*  transpose.( Ā₂ )
 	m̄n̄_Ā = transpose.( (kxtc_to_mn,) .* real.(Ā) )
@@ -633,7 +636,7 @@ function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArr
 	n̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (2,) )
 	māg_Ā = dot.(n⃗, n̄_Ā) + dot.(m⃗, m̄_Ā)
 
-	# # diagnostic for nngī accuracy
+	# # diagnostic for epsī accuracy
 	# B̄₁_old = reinterpret(
 	# 	reshape,
 	# 	SVector{3,Complex{T}},
@@ -650,29 +653,29 @@ function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArr
 	# B̄_oldf = copy(flat(B̄_old))
 	# println("sum(B̄_oldf): $(sum(B̄_oldf))")
 	# println("maximum(B̄_oldf): $(maximum(B̄_oldf))")
-	# # end diagnostic for nngī accuracy
+	# # end diagnostic for epsī accuracy
 
 	B̄₁ = 𝓕 * kx_tc( conj.(H) ,mns,mag)
 	B̄₂ = 𝓕 * zx_tc( H * Ninv ,mns)
 	@tullio B̄[a,b,i,j] := B̄₁[a,i,j] * B̄₂[b,i,j] + B̄₁[b,i,j] * B̄₂[a,i,j]   #/2 + real(B̄₁[b,i,j] * B̄₂[a,i,j])/2
 
-	# # diagnostic for nngī accuracy
+	# # diagnostic for epsī accuracy
 	#
 	# # println("sum(B̄): $(sum(real(B̄)))")
 	# # println("maximum(B̄): $(maximum(real(B̄)))")
 	# B̄_herm = real(B̄)/2
 	# println("sum(B̄_herm): $(sum(B̄_herm))")
 	# println("maximum(B̄_herm): $(maximum(B̄_herm))")
-	# # end diagnostic for nngī accuracy
+	# # end diagnostic for epsī accuracy
 
 	C̄₁ = reinterpret(
 		reshape,
 		SVector{3,Complex{T}},
 		# reshape(
-		# 	𝓕⁻¹ * nngsp * 𝓕 * kxtcsp * -vec(H),
+		# 	𝓕⁻¹ * epssp * 𝓕 * kxtcsp * -vec(H),
 		# 	(3,size(gr)...),
 		# 	),
-		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * -kx_tc( H * Ninv, mns, mag) , nng⁻¹),
+		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * -kx_tc( H * Ninv, mns, mag) , ε⁻¹),
 		)
 	C̄₂ =   conj.(Hsv)
 	C̄ 	= 	C̄₁  .*  transpose.( C̄₂ )
@@ -681,7 +684,7 @@ function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArr
 	n̄_C̄ = 		view.( m̄n̄_C̄, (1:3,), (2,) )
 
 	# Accumulate gradients and pull back
-	nngī 	=  real(B̄)/2 #( B̄ .+ transpose.(B̄) ) ./ 2
+	epsī 	=  real(B̄)/2 #( B̄ .+ transpose.(B̄) ) ./ 2
 	k̄	 	= ∇ₖmag_m_n(
 						māg_Ā, 				# māg total
 						m̄_Ā.*mag .+ m̄_C̄, 	  # m̄  total
@@ -690,136 +693,17 @@ function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArr
 						m⃗,
 						n⃗,
 					)
-	# H̄ = Mₖᵀ_plus_Mₖ(H⃗,k,nng⁻¹,grid)
-	# Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), nng⁻¹), (2:3)), mns )
-	# X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), nng⁻¹), (2:3) ), mns, mag )
+	# H̄ = Mₖᵀ_plus_Mₖ(H⃗,k,ε⁻¹,grid)
+	# Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), ε⁻¹), (2:3)), mns )
+	# X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), ε⁻¹), (2:3) ), mns, mag )
 
-	# nngif = real(flat(nng⁻¹))
-	X = -kx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_tc(H,mns)		, nng⁻¹), mns, mag )
-	Y =  zx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_tc(H,mns,mag)	, nng⁻¹), mns )
+	# epsif = real(flat(ε⁻¹))
+	X = -kx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_tc(H,mns)		, ε⁻¹), mns, mag )
+	Y =  zx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_tc(H,mns,mag)	, ε⁻¹), mns )
 	H̄ = vec(X + Y) * Ninv
-	return k̄, H̄, nngī
-	# return k̄, H̄, reinterpret(SMatrix{3,3,Float64,9},reshape( nngī ,9*128,128))
+	return k̄, H̄, epsī
+	# return k̄, H̄, reinterpret(SMatrix{3,3,Float64,9},reshape( epsī ,9*128,128))
 end
-
-"""
-pull back sensitivity w.r.t. ng_z = ∂kz/∂ω = ⟨E|(nng+ε)|E⟩ / ∫dA 2Re( conj(E) × H)⋅ẑ ) to corresponding
-k̄ (scalar) and nn̄g⁻¹ (tensor field) sensitivities
-"""
-function ∇ng_z(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArray{T2,N2},grid::Grid{ND};eigind=1) where {T<:Real,ND,T2<:Real,N2}
-	# Setup
-	local 	kxtc_to_mn = SMatrix{3,3}(	[	0 	-1	  0
-											1 	 0	  0
-											0 	 0	  0	  ]	)
-
-	local 	kxtc_to_mn = SMatrix{2,2}(	[	0 	-1
-											1 	 0	  ]	)
-
-	g⃗s, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
-		Ninv 		= 		1. / N(grid)
-		Ns			=		size(grid)
-		g⃗s = g⃗(grid)
-		d0 = randn(Complex{T}, (3,Ns...))
-		𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
-		𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
-		return (g⃗s,Ninv,Ns,𝓕,𝓕⁻¹)
-	end
-	mag, m⃗, n⃗  = mag_m_n(k,g⃗s)
-	H = reshape(H⃗,(2,Ns...))
-	Hsv = reinterpret(reshape, SVector{2,Complex{T}}, H )
-
-	#TODO: Banish this quadruply re(shaped,interpreted) m,n,mns format back to hell
-	# mns = mapreduce(x->reshape(flat(x),(1,3,size(x)...)),vcat,(m⃗,n⃗))
-	m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
-	n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
-	mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
-
-	### calculate k̄ contribution from M̄ₖ ( from ⟨H|M̂ₖ|H⟩ )
-	Ā₁		=	conj.(Hsv)
-	Ā₂ = reinterpret(
-		reshape,
-		SVector{3,Complex{T}},
-		# reshape(
-		# 	𝓕⁻¹ * nngsp * 𝓕 * zxtcsp * vec(H),
-		# 	(3,size(gr)...),
-		# 	),
-		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(nng⁻¹)),
-		)
-	Ā 	= 	Ā₁  .*  transpose.( Ā₂ )
-	m̄n̄_Ā = transpose.( (kxtc_to_mn,) .* real.(Ā) )
-	m̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (1,) )
-	n̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (2,) )
-	māg_Ā = dot.(n⃗, n̄_Ā) + dot.(m⃗, m̄_Ā)
-
-	# # diagnostic for nngī accuracy
-	# B̄₁_old = reinterpret(
-	# 	reshape,
-	# 	SVector{3,Complex{T}},
-	# 	# 𝓕  *  kxtcsp	 *	vec(H),
-	# 	𝓕 * kx_tc( conj.(H) ,mns,mag),
-	# 	)
-	# B̄₂_old = reinterpret(
-	# 	reshape,
-	# 	SVector{3,Complex{T}},
-	# 	# 𝓕  *  zxtcsp	 *	vec(H),
-	# 	𝓕 * zx_tc( H * Ninv ,mns),
-	# 	)
-	# B̄_old 	= 	 SMatrix{3,3,Float64,9}.(real.(Hermitian.(  B̄₁_old  .*  transpose.( B̄₂_old )  )) )
-	# B̄_oldf = copy(flat(B̄_old))
-	# println("sum(B̄_oldf): $(sum(B̄_oldf))")
-	# println("maximum(B̄_oldf): $(maximum(B̄_oldf))")
-	# # end diagnostic for nngī accuracy
-
-	B̄₁ = 𝓕 * kx_tc( conj.(H) ,mns,mag)
-	B̄₂ = 𝓕 * zx_tc( H * Ninv ,mns)
-	@tullio B̄[a,b,i,j] := B̄₁[a,i,j] * B̄₂[b,i,j] + B̄₁[b,i,j] * B̄₂[a,i,j]   #/2 + real(B̄₁[b,i,j] * B̄₂[a,i,j])/2
-
-	# # diagnostic for nngī accuracy
-	#
-	# # println("sum(B̄): $(sum(real(B̄)))")
-	# # println("maximum(B̄): $(maximum(real(B̄)))")
-	# B̄_herm = real(B̄)/2
-	# println("sum(B̄_herm): $(sum(B̄_herm))")
-	# println("maximum(B̄_herm): $(maximum(B̄_herm))")
-	# # end diagnostic for nngī accuracy
-
-	C̄₁ = reinterpret(
-		reshape,
-		SVector{3,Complex{T}},
-		# reshape(
-		# 	𝓕⁻¹ * nngsp * 𝓕 * kxtcsp * -vec(H),
-		# 	(3,size(gr)...),
-		# 	),
-		𝓕⁻¹ * ε⁻¹_dot(  𝓕 * -kx_tc( H * Ninv, mns, mag) , nng⁻¹),
-		)
-	C̄₂ =   conj.(Hsv)
-	C̄ 	= 	C̄₁  .*  transpose.( C̄₂ )
-	m̄n̄_C̄ = 			 (zxtc_to_mn,) .* real.(C̄)
-	m̄_C̄ = 		view.( m̄n̄_C̄, (1:3,), (1,) )
-	n̄_C̄ = 		view.( m̄n̄_C̄, (1:3,), (2,) )
-
-	# Accumulate gradients and pull back
-	nngī 	=  real(B̄)/2 #( B̄ .+ transpose.(B̄) ) ./ 2
-	k̄	 	= ∇ₖmag_m_n(
-						māg_Ā, 				# māg total
-						m̄_Ā.*mag .+ m̄_C̄, 	  # m̄  total
-						n̄_Ā.*mag .+ n̄_C̄,	  # n̄  total
-						mag,
-						m⃗,
-						n⃗,
-					)
-	# H̄ = Mₖᵀ_plus_Mₖ(H⃗,k,nng⁻¹,grid)
-	# Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), nng⁻¹), (2:3)), mns )
-	# X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), nng⁻¹), (2:3) ), mns, mag )
-
-	# nngif = real(flat(nng⁻¹))
-	X = -kx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_tc(H,mns)		, nng⁻¹), mns, mag )
-	Y =  zx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_tc(H,mns,mag)	, nng⁻¹), mns )
-	H̄ = vec(X + Y) * Ninv
-	return k̄, H̄, nngī
-	# return k̄, H̄, reinterpret(SMatrix{3,3,Float64,9},reshape( nngī ,9*128,128))
-end
-
 
 # nng = inv.(nnginv)
 # ε = inv.(ε⁻¹)
@@ -875,57 +759,27 @@ end
 solve the adjoint sensitivity problem corresponding to ∂ω²∂k = <H|∂M/∂k|H>
 """
 # function ∂²ω²∂k²(ω,ε⁻¹,nng⁻¹,k,Hv,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
-function ∂²ω²∂k²(ω,p,geom_fn,k,Hv,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
-
-	# nng⁻¹, nnginv_pb = Zygote.pullback(nngₛ⁻¹,ω,geom,grid)
-	# ε⁻¹, epsi_pb = Zygote.pullback(εₛ⁻¹,ω,geom,grid)
-
-	# ngvd = ngvdₛ(ω,geom,grid)
-	# nng⁻¹, nnginv_pb = Zygote.pullback(x->nngₛ⁻¹(x,geom,grid),ω)
-	# ε⁻¹, epsi_pb = Zygote.pullback(x->εₛ⁻¹(x,geom,grid),ω)
-
-	# nng⁻¹, nnginv_pb = Zygote._pullback(Zygote.Context(),x->nngₛ⁻¹(x,dropgrad(geom),dropgrad(grid)),ω)
-	# ε⁻¹, epsi_pb = Zygote._pullback(Zygote.Context(),x->εₛ⁻¹(x,dropgrad(geom),dropgrad(grid)),ω)
-
-	# ε, nng, ngvd = εₛ_nngₛ_ngvdₛ(ω,geom,grid)
-	# nng⁻¹ = inv.(nng)
-	# ε⁻¹ = inv.(ε)
-
-	mag,m⃗,n⃗ = mag_m_n(k,grid)
-
-	ei,ei_pb = Zygote.pullback(ω) do ω
-		ε⁻¹,nng,nng⁻¹ = deepcopy(smooth(ω,p,(:fεs,:fnn̂gs,:fnn̂gs),[true,false,true],geom_fn,grid));
-		return ε⁻¹
+function calc_∂²ω²∂k²(p,geom_fn,f_ε_mats,k,Hv,grid::Grid{ND,T};eigind=1,log=true) where {ND,T<:Real}
+	ω = p[1]
+	(ε,ε⁻¹,nng,nng⁻¹,ngvd), eps_data_pb = Zygote.pullback(ω) do ω
+		ε_data          =   smooth_ε(geom_fn(p[2:5]),f_ε_mats([ω,]),(1,2,3,4),grid); # TODO: automate unpacking of dielectric data into (ε, ∂ε_∂ω, ∂²ε_∂ω²)
+		ε               =   copy(selectdim(ε_data,3,1)); # ε_data[:,:,1,:,:]  
+		∂ε_∂ω           =   copy(selectdim(ε_data,3,2)); # ε_data[:,:,2,:,:] 
+		∂²ε_∂ω²         =   copy(selectdim(ε_data,3,3)); # ε_data[:,:,3,:,:] 
+		ε⁻¹             =   sliceinv_3x3(ε);
+		nng             =   (ω * ∂ε_∂ω) + ε     # for backwards compatiblity with (nng,ngvd) dispersion tensor old convention
+		nng⁻¹             =   sliceinv_3x3(nng);
+		ngvd            =   2 * ∂ε_∂ω  +  ω * ∂²ε_∂ω² # I think ngvd = ∂/∂ω( nng ) = ∂/∂ω
+		return ε,ε⁻¹,nng,nng⁻¹,ngvd
 	end
 
-	nngi,nngi_pb = Zygote.pullback(ω) do ω
-		ε⁻¹,nng,nng⁻¹ = deepcopy(smooth(ω,p,(:fεs,:fnn̂gs,:fnn̂gs),[true,false,true],geom_fn,grid));
-		return nng⁻¹
-	end
-
-	ngvd0,ngvd_pb = Zygote.pullback(ω) do ω
-		# ngvd,nng2,nngi2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs,:fnn̂gs),[false,false,true],geom_fn,grid,volfrac_smoothing));
-		ngvd,nng2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs),[false,false],geom_fn,grid,volfrac_smoothing));
-		return ngvd
-	end
-	nng20,nng2_pb = Zygote.pullback(ω) do ω
-		# ngvd,nng2,nngi2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs,:fnn̂gs),[false,false,true],geom_fn,grid,volfrac_smoothing));
-		ngvd,nng2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs),[false,false],geom_fn,grid,volfrac_smoothing));
-		return nng2
-	end
-
-	nngi2,nngi2_pb = Zygote.pullback(ω) do ω
-		# ngvd,nng2,nngi2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs,:fnn̂gs),[false,false,true],geom_fn,grid,volfrac_smoothing));
-		ngvd,nngi2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs),[false,true],geom_fn,grid,volfrac_smoothing));
-		return nngi2
-	end
-
-	ε,ε⁻¹,nng,nng⁻¹ = deepcopy(smooth(ω,p,(:fεs,:fεs,:fnn̂gs,:fnn̂gs),[false,true,false,true],geom_fn,grid));
-	ngvd,nng2 = deepcopy(smooth(ω,p,(:fnĝvds,:fnn̂gs),[false,false],geom_fn,grid,volfrac_smoothing));
+	
 
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	mag,m⃗,n⃗ = mag_m_n(k,grid)
-	∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	# mag,m⃗,n⃗ = mag_m_n(k,grid)
+	# ∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	mag,mns = mag_mn(k,grid)
+	∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,real(mag),real(mns))
 	k̄, H̄, nngī  = ∇HMₖH(k,Hv,nng⁻¹,grid; eigind)
 	( _, _, om̄₁, eī₁ ) = ∇solve_k(	  (k̄,H̄),
 									 	(k,Hv),
@@ -955,20 +809,23 @@ function ∂²ω²∂k²(ω,p,geom_fn,k,Hv,grid::Grid{ND,T};eigind=1,log=true) w
 	# println("om̄_nd: $(om̄_nd)")
 
 
-	nngis = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(nng⁻¹,(9,128,128))))
-	eis = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(ε⁻¹,(9,128,128))))
-	ngvds = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(ngvd,(9,128,128))))
-	dnngi_dom_s = -(nngis.^2 ) .* ( ω*(eis.*inv.(nngis).^2 .- inv.(nngis)) .+ ngvds)
-	dnngi_dom_sr = copy(flat(dnngi_dom_s))
-	om̄₂2 = dot(herm(nngī), dnngi_dom_sr)
-	println("om̄₂2: $(om̄₂2)")
+	# nngis = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(nng⁻¹,(9,128,128))))
+	# eis = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(ε⁻¹,(9,128,128))))
+	# ngvds = copy(reinterpret(reshape,SMatrix{3,3,Float64,9},reshape(ngvd,(9,128,128))))
+	# dnngi_dom_s = -(nngis.^2 ) .* ( ω*(eis.*inv.(nngis).^2 .- inv.(nngis)) .+ ngvds)
+	# dnngi_dom_sr = copy(flat(dnngi_dom_s))
+	# om̄₂2_old = dot(herm(nngī), dnngi_dom_sr)
+	# println("om̄₂2_old: $(om̄₂2_old)")
+	
+	# om̄₂2_old = dot(herm(nngī), -1*_dot(nng⁻¹, ngvd, nng⁻¹))
+	# println("om̄₂2: $(om̄₂2)")
 
 
 	#######
 
 	# calculate and print neff = k/ω, ng = ∂k/∂ω, gvd = ∂²k/∂ω²
 	Hₜ = reshape(Hv,(2,Ns...))
-	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+	# mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
 	EE = 1im * ε⁻¹_dot( fft( kx_tc( Hₜ,mns,mag), (2:1+ND) ), ε⁻¹)
 	HH = fft(tc(kx_ct( ifft( EE, (2:1+ND) ), mns,mag), mns),(2:1+ND) ) / ω
 	EEs = copy(reinterpret(reshape,SVector{3,ComplexF64},EE))
@@ -978,7 +835,8 @@ function ∂²ω²∂k²(ω,p,geom_fn,k,Hv,grid::Grid{ND,T};eigind=1,log=true) w
 	WW = dot(EE,_dot((ε+nng),EE))
 	ng = WW / PP
 
-	∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	# ∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
+	∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,real(mag),real(mns))
 	neff = k / ω
 	# ng = 2 * ω / ∂ω²∂k_disp # HMₖH(H⃗,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗))) # ng = ∂k/∂ω
 	gvd = 2 / ∂ω²∂k_disp - ω * 4 / ∂ω²∂k_disp^2 * om̄ #( ng / ω ) * ( 1. - ( ng * om̄ ) )
@@ -992,8 +850,15 @@ function ∂²ω²∂k²(ω,p,geom_fn,k,Hv,grid::Grid{ND,T};eigind=1,log=true) w
 	# nngī2 = copy(reinterpret(SMatrix{3,3,T,9},copy(reshape( nngī , 9*Ns[1], Ns[2:end]...))))
 	# nngī_herm = (real.(nngī2) .+ transpose.(real.(nngī2)) ) ./ 2
 	# eī_herm = (real.(eī₁) .+ transpose.(real.(eī₁)) ) ./ 2
-	om̄₂_pb = nngi_pb(herm(nngī))[1] #nngī2)
-	om̄₃_pb = ei_pb(herm(eī₁))[1] #eī₁)
+	
+	# om̄₂_pb = nngi_pb(herm(nngī))[1] #nngī2)
+	# om̄₃_pb = ei_pb(herm(eī₁))[1] #eī₁)
+	
+	# (ε,ε⁻¹,nng,nng⁻¹,ngvd), eps_data_pb
+	
+	om̄₂_pb = eps_data_pb((nothing,nothing,nothing,herm(nngī),nothing))[1] #nngī2)
+	om̄₃_pb = eps_data_pb((nothing,herm(eī₁),nothing,nothing,nothing))[1] #eī₁)
+
 	println("om̄₁: $(om̄₁)")
 	println("om̄₂_pb: $(om̄₂_pb)")
 	println("om̄₃_pb: $(om̄₃_pb)")
@@ -1044,9 +909,13 @@ function neff_ng_gvd(ω,ε,ε⁻¹,nng,nng⁻¹,ngvd,k,Hv,grid::Grid{ND,T};eigin
 	# calculate om̄ = ∂²ω²/∂k²
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
-	m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,m⃗)))
-	n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,n⃗)))
-	∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,mag,m,n)
+	# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,m⃗)))
+	# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64}(reinterpret(reshape,Float64,n⃗)))
+	m = real(reinterpret(reshape,T,m⃗))
+	n = real(reinterpret(reshape,T,n⃗))
+	mns = cat(reshape(m,(3,1,Ns...)),reshape(n,(3,1,Ns...));dims=2)
+	# ∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,mag,m,n)
+	∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,mag,mns)
 	k̄, H̄, nngī  = ∇HMₖH(k,Hv,nng⁻¹,grid; eigind)
 	( _, _, om̄₁, eī₁ ) = ∇solve_k(	  (k̄,H̄),
 									 	(k,Hv),
@@ -1061,13 +930,13 @@ function neff_ng_gvd(ω,ε,ε⁻¹,nng,nng⁻¹,ngvd,k,Hv,grid::Grid{ND,T};eigin
 	om̄₃ = dot(herm(eī₁), ∂ε⁻¹_∂ω(ε,ε⁻¹,nng,ω))
 	om̄ = om̄₁ + om̄₂ + om̄₃
 	# calculate and return neff = k/ω, ng = ∂k/∂ω, gvd = ∂²k/∂ω²
-	∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,mag,m,n)
+	∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,mag,mn)
 	neff = k / ω
 	# ng = 2 * ω / ∂ω²∂k_disp # HMₖH(H⃗,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗))) # ng = ∂k/∂ω
 	gvd = 2 / ∂ω²∂k_disp - ω * 4 / ∂ω²∂k_disp^2 * om̄ #( ng / ω ) * ( 1. - ( ng * om̄ ) )
 
 	Hₜ = reshape(Hv,(2,Ns...))
-	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
+	# mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
 	EE = 1im * ε⁻¹_dot( fft( kx_tc( Hₜ,mns,mag), (2:1+ND) ), ε⁻¹)
 	HH = inv(ω) * fft(tc(kx_ct( ifft( EE, (2:1+ND) ), mns,mag), mns),(2:1+ND) )
 	EEs = copy(reinterpret(reshape,SVector{3,Complex{T}},EE))
@@ -1101,21 +970,22 @@ end
 # end
 
 function ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid::Grid{ND,T}) where {ND,T<:Real}
-	Nranges, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
-		Ninv 		= 		1. / N(grid)
-		Ns			=		size(grid)
-		# g⃗s = g⃗(grid)
-		Nranges		=		eachindex(grid)
-		d0 = randn(Complex{T}, (3,Ns...))
-		𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
-		𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
-		return (Nranges,Ninv,Ns,𝓕,𝓕⁻¹)
-	end
-	mag, m⃗, n⃗  = mag_m_n(k,grid)
-	# mns = vcat(reshape(flat(m⃗),(1,3,Ns...)),reshape(flat(n⃗),(1,3,Ns...)))
-	m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
-	n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
-	mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	# Nranges, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
+	Ninv 		= 		1. / N(grid)
+	Ns			=		size(grid)
+	# g⃗s = g⃗(grid)
+	Nranges		=		eachindex(grid)
+	d0 = randn(Complex{T}, (3,Ns...))
+	𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
+	𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
+		# return (Nranges,Ninv,Ns,𝓕,𝓕⁻¹)
+	# end
+	# mag, m⃗, n⃗  = mag_m_n(k,grid)
+	# # mns = vcat(reshape(flat(m⃗),(1,3,Ns...)),reshape(flat(n⃗),(1,3,Ns...)))
+	# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
+	# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
+	# mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	mag, mns = mag_mn(k,grid)
 	H = reshape(H⃗,(2,Ns...))
 	λ = reshape(λ⃗,(2,Ns...))
 	d 	= 	𝓕 * kx_tc( H , mns, mag ) * Ninv
@@ -1131,12 +1001,26 @@ function ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid::Grid{ND,T}) where {ND,T<:Real}
 	m̄_kx = real.( λẽ_sv .* conj.(view(H,2,Nranges...)) .+ ẽ_sv .* conj.(view(λ,2,Nranges...)) )	#NB: m̄_kx and n̄_kx would actually
 	n̄_kx =  -real.( λẽ_sv .* conj.(view(H,1,Nranges...)) .+ ẽ_sv .* conj.(view(λ,1,Nranges...)) )	# be these quantities mulitplied by mag, I do that later because māg is calc'd with m̄/mag & n̄/mag
 	māg_kx = dot.(n⃗, n̄_kx) + dot.(m⃗, m̄_kx)
-	k̄		= ∇ₖmag_m_n(
+
+	# mag2, m⃗, n⃗  = mag_m_n(k,grid)
+	# m̄n_kx = cat(
+	# 	reshape(reinterpret(reshape,T,m̄_kx),(3,1,size(grid)...)), 
+	# 	reshape(reinterpret(reshape,T,n̄_kx),(3,1,size(grid)...));
+	# 	dims=2
+	# )
+
+	@show k̄		= ∇ₖmag_m_n(
 				māg_kx, 		# māg total
 				m̄_kx.*mag, 	# m̄  total
 				n̄_kx.*mag,	  	# n̄  total
 				mag, m⃗, n⃗,
 			)
+
+	# @show k̄_new		= ∇ₖmag_mn(
+	# 		māg_kx, 		# māg total
+	# 		m̄n_kx*mag,	  	# mn̄  total
+	# 		mag, mns,
+	# 	)
 	return k̄, eī
 end
 
@@ -1204,15 +1088,18 @@ function ∇solve_k(ΔΩ, Ω, ∂ω²∂k, ω, ε⁻¹, grid::Grid{ND,T}; eigind
 	# end
 	Ninv 		= 		1. / N(grid)
 	Ns			=		size(grid)
-	M̂ = HelmholtzMap(k,ε⁻¹,dropgrad(grid))
+	M̂ = HelmholtzMap(k,ε⁻¹,grid) # dropgrad(grid))
 	Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
-	g⃗s = g⃗(dropgrad(grid))
-	mag,m⃗,n⃗ = mag_m_n(k,grid)
-	# mn = vcat(reshape(flat(m⃗),(1,3,Ns...)),reshape(flat(n⃗),(1,3,Ns...)))
-	m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
-	n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
-	mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	# Nranges = eachindex(grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
+	# g⃗s = g⃗(dropgrad(grid))
+	# mag,m⃗,n⃗ = mag_m_n(k,grid)
+	# # mn = vcat(reshape(flat(m⃗),(1,3,Ns...)),reshape(flat(n⃗),(1,3,Ns...)))
+	# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
+	# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
+	# mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	mag,mns = mag_mn(k,grid)
+	λ⃗₀0 = randn(eltype(Hv), size(Hv) )
+    λ⃗₀ = normalize(λ⃗₀0 - Hv*dot(Hv,λ⃗₀0))
 	if !iszero(H̄)
 		# solve_adj!(λ⃗,M̂,H̄,ω^2,Hv,eigind)
 		λ⃗	= eig_adjt(
@@ -1221,8 +1108,8 @@ function ∇solve_k(ΔΩ, Ω, ∂ω²∂k, ω, ε⁻¹, grid::Grid{ND,T}; eigind
 				Hv, 					 		 # x⃗
 				0.0, 							# ᾱ
 				H̄;								 # x̄
-				λ⃗₀,
-				# P̂	= HelmholtzPreconditioner(M̂),
+				# λ⃗₀=λ⃗₀,
+				P̂	= HelmholtzPreconditioner(M̂),
 			)
 		k̄ₕ, eīₕ = ∇M̂(k,ε⁻¹,λ⃗,Hv,grid)
 	else

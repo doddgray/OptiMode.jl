@@ -481,16 +481,27 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 				# solve_adj!(λ⃗,ms.M̂,ēv,ω^2,ev,eigind;log=false)
 				λ⃗ = eig_adjt(ms.M̂, ω^2, ev, 0.0, ēv; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
 				# solve_adj!(ms,ēv,ω^2,ev,eigind;log=false)
+				
+				@show val_magmax(λ⃗)
+				@show dot(ev,λ⃗)
+
 				λ⃗ 	-= 	 dot(ev,λ⃗) * ev
 				λ	=	reshape(λ⃗,(2,gridsize...))
 				d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
 				λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 				ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
 				
+				@show val_magmax(ei_bar)
+
 				# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
 				λd *=  ms.M̂.Ninv
 				λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
 				ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+				
+				@show val_magmax(λẽ)
+				@show val_magmax(reinterpret(reshape,Complex{T},ẽ))
+			
+				
 				kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ .* conj.(view(λ,2,axes(grid)...)) )
 				kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ .* conj.(view(λ,1,axes(grid)...)) )
 				# m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,..])
@@ -515,6 +526,10 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			λ⃗ = ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev
 			d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
 			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+			
+			λd2 = copy(λd)
+			@show val_magmax(λd2)
+			
 			# ei_bar = eīₖ + eīₕ
 			ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₖ # 
 			@show ω_bar +=  ( 2ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  #2ω * k̄ₖ / ms.∂ω²∂k[eigind]

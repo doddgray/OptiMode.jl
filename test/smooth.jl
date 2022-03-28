@@ -168,6 +168,60 @@ sm1             =   smooth_ε(shapes,mat_vals,minds,grid);
 ∂²ε_∂ω²         =   copy(selectdim(sm1,3,3)); # sm1[:,:,3,:,:] 
 ε⁻¹             =   sliceinv_3x3(ε);
 
+#############################
+
+
+@test herm(ε) ≈ ε
+@test herm(ε⁻¹) ≈ ε⁻¹
+@test herm(∂ε_∂ω) ≈ ∂ε_∂ω
+@test _dot(ε⁻¹, ε) ≈ reshape(repeat([1,0,0,0,1,0,0,0,1],N(grid)),(3,3,size(grid)...))
+
+## Test that `∂ε_∂ω` & `∂²ε_∂ω²` data are accurate frequency derivatives of smoothed dielectric tensor `ε`
+function ff_eps1(p;Dx=6.0,Dy=4.0,Nx=256,Ny=256)
+    grid            =   Grid(Dx,Dy,Nx,Ny)
+    ω               =   p[1]
+    sm1             =   smooth_ε(geom1(p[2:5]),f_ε_mats([ω,]),(1,2,3,4),grid);
+    ε               =   real(herm(copy(selectdim(sm1,3,1)))); 
+    return  ε
+end
+
+function ff_deps1(p;Dx=6.0,Dy=4.0,Nx=256,Ny=256)
+    grid            =   Grid(Dx,Dy,Nx,Ny)
+    ω               =   p[1]
+    sm1             =   smooth_ε(geom1(p[2:5]),f_ε_mats([ω,]),(1,2,3,4),grid);
+    ∂ε_∂ω           =   real(herm(copy(selectdim(sm1,3,2)))); 
+    return  ∂ε_∂ω
+end
+
+function ff_ddeps1(p;Dx=6.0,Dy=4.0,Nx=256,Ny=256)
+    grid            =   Grid(Dx,Dy,Nx,Ny)
+    ω               =   p[1]
+    sm1             =   smooth_ε(geom1(p[2:5]),f_ε_mats([ω,]),(1,2,3,4),grid);
+    ∂²ε_∂ω²         =   real(herm(copy(selectdim(sm1,3,3))));
+    return     ∂²ε_∂ω²
+end
+
+p = [1.1,2.0,0.8,0.1,0.1]
+
+eps1,deps1,ddeps1 = map(ff->ff(p),(ff_eps1,ff_deps1,ff_ddeps1))
+deps1_FD,ddeps1_FD,dddeps1_FD = map((ff_eps1,ff_deps1,ff_ddeps1)) do ff
+    FiniteDiff.finite_difference_derivative(oo->ff([oo,p[2:5]...]),p[1])
+end
+
+@test deps1_FD ≈ deps1
+@test ddeps1_FD ≈ ddeps1
+
+
+
+
+
+
+
+
+
+
+########################################################
+
 kmags_mpb,evecs_mpb = solve_k(ω,ε⁻¹,grid,MPB_Solver();nev=2,overwrite=true)
 
 # using KrylovKit
