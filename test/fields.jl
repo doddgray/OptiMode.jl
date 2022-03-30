@@ -6,6 +6,71 @@ using LinearAlgebra, StaticArrays, FFTW, GeometryPrimitives, OptiMode, Test
 using ChainRules, Zygote, FiniteDifferences, ForwardDiff, FiniteDiff
 # using CairoMakie
 
+function geom11p(p::AbstractVector{T}) where {T<:Real}  # fully-etched ridge_wg, Polygon core
+    wₜₒₚ        =   p[1]
+    t_core      =   p[2]
+    θ           =   p[3]
+    edge_gap    =   0.5
+    mat_core    =   1
+    mat_subs    =   2
+    Δx          =   6.0
+    Δy          =   4.0
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	verts = SMatrix{4,2,T}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(verts,mat_core)
+    ax = SMatrix{2,2,T}( [      1.     0.   ;   0.     1.      ] )
+	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
+	return (core,b_subs)
+end
+
+function geom11b(p::AbstractVector{T}) where {T<:Real}  # fully-etched ridge_wg, Box core
+    wₜₒₚ        =   p[1]
+    t_core      =   p[2]
+    edge_gap    =   0.5
+    mat_core    =   1
+    mat_subs    =   2
+    Δx          =   6.0
+    Δy          =   4.0
+    t_subs = (Δy -t_core - edge_gap )/2.
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.	
+    ax = SMatrix{2,2,T}( [      1.     0.   ;   0.     1.      ] )
+	b_core = GeometryPrimitives.Box( SVector{2,T}([0. , 0.]), SVector{2,T}([wₜₒₚ, t_core ]),	ax,	mat_subs, )
+    b_subs = GeometryPrimitives.Box( SVector{2,T}([0. , c_subs_y]), SVector{2,T}([Δx - edge_gap, t_subs ]),	ax,	mat_core, )
+	return (b_core,b_subs)
+end
+
+function geom12p(p::AbstractVector{T}) where {T<:Real}  # partially-etched ridge_wg, Polygon core
+    wₜₒₚ        =   p[1]
+    t_core      =   p[2]
+    θ           =   p[3]
+    t_slab      =   p[4]
+    edge_gap    =   0.5
+    mat_core    =   1
+    mat_slab    =   2
+    mat_subs    =   3
+    Δx          =   6.0
+    Δy          =   4.0
+    t_subs = (Δy -t_core - edge_gap )/2. - t_slab
+    c_subs_y = -Δy/2. + edge_gap/2. + t_subs/2.
+	c_slab_y = -Δy/2. + edge_gap/2. + t_subs + t_slab/2.
+    wt_half = wₜₒₚ / 2
+    wb_half = wt_half + ( t_core * tan(θ) )
+    tc_half = t_core / 2
+	t_unetch = t_core * ( 1. - etch_frac	)	# unetched thickness remaining of top layer
+	c_unetch_y = -Δy/2. + edge_gap/2. + t_subs + t_slab + t_unetch/2.
+	verts = SMatrix{4,2,T}(   wt_half,     -wt_half,     -wb_half,    wb_half, tc_half,     tc_half,    -tc_half,      -tc_half )
+    core = GeometryPrimitives.Polygon(verts,mat_core)
+    ax = SMatrix{2,2,T}( [      1.     0.   ;   0.     1.      ] )
+	# b_unetch = GeometryPrimitives.Box( [0. , c_unetch_y], [Δx - edge_gap, t_unetch ],	ax,	mat_core )
+	b_slab = GeometryPrimitives.Box( SVector{2}([0. , c_slab_y]), SVector{2}([Δx - edge_gap, t_slab ]),	ax, mat_slab, )
+	b_subs = GeometryPrimitives.Box( SVector{2}([0. , c_subs_y]), SVector{2}([Δx - edge_gap, t_subs ]),	ax,	mat_subs, )
+	return (core,b_slab,b_subs)
+end
+
 function geom1(p)  # slab_loaded_ridge_wg
     wₜₒₚ        =   p[1]
     t_core      =   p[2]
