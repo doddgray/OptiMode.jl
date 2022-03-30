@@ -151,9 +151,10 @@ include("epsilon_fns.jl")
 include("smooth.jl")
 include("maxwell.jl")
 include("fields.jl")
+include("grads.jl")
 include("solve.jl")
 
-include("grads.jl")
+
 
 
 

@@ -3,7 +3,7 @@ using LinearAlgebra, StaticArrays, Tullio, ChainRulesCore, LinearMaps, Iterative
 using LinearMaps: ⊗
 using IterativeSolvers: gmres, lobpcg, lobpcg!
 
-export ε⁻¹_bar, herm, eig_adjt, my_linsolve, solve_adj!
+export ε⁻¹_bar, herm, eig_adjt, my_linsolve, solve_adj!, ng_gvd_E
 
 # export ε⁻¹_bar!, ε⁻¹_bar, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ, ∂²ω²∂k², herm,
 #      ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!, 
@@ -404,111 +404,133 @@ function solve_adj!(λ⃗,M̂::HelmholtzMap,H̄,ω²,H⃗,eigind::Int;log=false)
 	return λ⃗
 end
 
+"""
+	ng_gvd_E(ω,k,ev,ε⁻¹,∂ε_∂ω,∂²ε_∂ω²,grid)
 
+Calculate the modal group index `ng`, group velocity dispersion `gvd` and real-space electric-field `E` for a single mode solution at frequency `ω`.
+The mode solution is input as a wavenumber `k` and eigenvector `ev`, as retured by `solve_k(ω,ε⁻¹,...)`. 
 
+The modal group index `ng` = ∂|k|/∂ω is calculated directly from the mode field and smoothed dielectric dispersion `∂ε_∂ω`.
+
+The modal group velocity dispersion `gvd` = ∂ng/∂ω = ∂²|k|/∂ω² is calculated by solving the adjoint problem for the eigenmode solution.
+
+The electric field `E` is calculated along the way and is frequently useful, so it is returned as well.
+"""
+function ng_gvd_E(ω,k,ev,ε⁻¹,∂ε_∂ω,∂²ε_∂ω²,grid::Grid{2,T};dk̂=SVector{3,T}(0.0,0.0,1.0),adj_tol=1e-8) where T<:Real
+    fftax               =   _fftaxes(grid)      
+    evg                 =   reshape(ev,(2,size(grid)...))					# eigenvector, reshaped to (2,size(grid)...)
+    Ninv                =   inv(1.0 * length(grid))
+    mag,mn              =   mag_mn(k,grid)
+    local one_mone      =   [1.0, -1.0]
+    D                   =   fft( kx_tc(evg,mn,mag), fftax )
+    E                   =   _dot(ε⁻¹, D) #ε⁻¹_dot(D, ε⁻¹)
+    H                   =   ω * fft( tc(evg,mn), fftax )
+    inv_HMkH            =   inv( -real( dot(evg , zx_ct( ifft( E, fftax ), mn ) ) ) )	# ⟨ev|∂M̂/∂k|ev⟩⁻¹ = dω²/dk 
+    deps_E              =   _dot(∂ε_∂ω,E)                                   # (∂ε/∂ω)|E⟩
+    epsi_deps_E         =   _dot(ε⁻¹,deps_E)                                # (ε⁻¹)(∂ε/∂ω)|E⟩ = (∂(ε⁻¹)/∂ω)|D⟩
+    Fi_epsi_deps_E      =   ifft( epsi_deps_E, fftax )                      # 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
+    kx_Fi_epsi_deps_E   =   kx_ct( Fi_epsi_deps_E , mn, mag  )              # [(k⃗+g⃗)×]cₜ ⋅ 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
+    EdepsiE             =   real( dot(evg,kx_Fi_epsi_deps_E) )              # ⟨E|∂ε/∂ω|E⟩ = ⟨D|∂(ε⁻¹)/∂ω|D⟩
+    ng                  =   (ω + EdepsiE/2) * inv_HMkH						# modal group index, ng = d|k|/dω = ( 2ω + ⟨E|∂ε/∂ω|E⟩ ) / 2⟨ev|∂M̂/∂k|ev⟩ = (Energy density) / (Poynting flux)
+    ∂ng_∂EdepsiE        =   inv_HMkH/2
+    ∂ng_∂HMkH           =   -(ω + EdepsiE/2) * inv_HMkH^2
+    ### ∇⟨ev|∂M̂/∂k|ev⟩ ###
+    H̄ =  _cross(dk̂, E) * ∂ng_∂HMkH * Ninv / ω 
+    Ē =  _cross(H,dk̂)  * ∂ng_∂HMkH * Ninv / ω 
+    𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),fftax)
+    𝓕⁻¹_H̄ = bfft( H̄ ,fftax)
+    ### ∇solve_k ###
+    M̂,P̂ = Zygote.ignore() do
+        M̂ = HelmholtzMap(k,ε⁻¹,grid)
+        P̂	= HelmholtzPreconditioner(M̂)
+        return M̂,P̂
+    end
+    λ⃗	= eig_adjt(
+        M̂,								 																		 # Â : operator or Matrix for which Â⋅x⃗ = αx⃗, here Â is the Helmholtz Operator M̂ = [∇× ε⁻¹ ∇×]
+        ω^2, 																									# α	: primal eigenvalue, here α = ω²
+        ev, 					 																				# x⃗ : primal eigenvector, here x⃗ = `ev` is the magnetic field in a plane wave basis (transverse polarization only) 
+        0.0, 																									# ᾱ : sensitivity w.r.t eigenvalue, here this is always zero for ∇solve_k adjoint
+        (2 * ∂ng_∂EdepsiE) * vec(kx_Fi_epsi_deps_E) + vec(kx_ct(𝓕⁻¹_ε⁻¹_Ē,mn,mag)) + ω*vec(ct(𝓕⁻¹_H̄,mn));		# x̄ : sensitivity w.r.t eigenvector, here x̄ =	∂ng/∂ev = ∂ng/∂⟨E|∂ε/∂ω|E⟩ * ∂⟨E|∂ε/∂ω|E⟩/∂ev + ∂ng/∂⟨ev|∂M̂/∂k|ev⟩ * ∂⟨ev|∂M̂/∂k|ev⟩/∂ev 
+        P̂=P̂,																									  # P̂ : left preconditioner, here a cheaper-to-compute approximation of M̂⁻¹
+    )
+    λ = reshape( λ⃗, (2,size(grid)...) )
+    λd = fft( kx_tc( λ, mn, mag ), fftax ) #* Ninv
+    λẽ  =   ifft( _dot( ε⁻¹, λd ), fftax ) 
+    ẽ 	 =   ifft( E, fftax )
+    @tullio 𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ[i,j,ix,iy] :=  conj(𝓕⁻¹_ε⁻¹_Ē)[i,ix,iy] * reverse(evg;dims=1)[j,ix,iy] 
+    ∂ng_∂kx           =  reverse( real(_outer( (2 * ∂ng_∂EdepsiE)*Fi_epsi_deps_E - λẽ, evg)) - real(_outer(ẽ, λ)) ,dims=2) + real(𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ)
+    @tullio ∂ng_∂mag[ix,iy] :=  ∂ng_∂kx[i,j,ix,iy] * mn[i,j,ix,iy] * one_mone[j] nograd=one_mone
+    @tullio ∂ng_∂mn[i,j,ix,iy] :=  ∂ng_∂kx[i,j,ix,iy] * mag[ix,iy] * one_mone[j] +   ω*real(_outer(𝓕⁻¹_H̄,evg))[i,j,ix,iy]   nograd=one_mone
+    ∂ng_∂k	=	∇ₖmag_mn(real(∂ng_∂mag),real(∂ng_∂mn),mag,mn)
+    gvd  =	( ∂ng_∂EdepsiE * Ninv ) * dot( ∂²ε_∂ω², real(herm(_outer(E,E))) ) + inv_HMkH * ( ω * ∂ng_∂k + 1.0 ) -
+		dot( 
+			∂ε_∂ω,
+			_dot( 
+				ε⁻¹, 
+				real( _outer(  ( 2 * ∂ng_∂EdepsiE * Ninv ) * deps_E + Ē - Ninv*(λd + fft( kx_tc( ( ∂ng_∂k * inv_HMkH/2 ) * evg  , mn, mag ), fftax ) ), D ) ),
+				ε⁻¹,
+			)
+		)
+    return ng, gvd, E
+end
 
 function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 	f_filter=nothing) where {ND,T<:Real} 
-	
-	# ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
-	# kmags,evecs = solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-	# @show omsq_solns = copy(ms.ω²)
-	# @show domsq_dk_solns = copy(ms.ms.∂ω²∂k)
 	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
-
 	# g⃗ = copy(ms.M̂.g⃗)
 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 	# 	mag_m_n(x,dropgrad(g⃗))
 	# end
-
-	# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	# Nranges = eachindex(ms.grid) #(1:NN for NN in Ns) # 1:Nx, 1:Ny, 1:Nz for 3D, 1:Nx, 1:Ny for 2D
-	# println("\tsolve_k:")
-	# println("\t\tω² (target): $(ω^2)")
-	# println("\t\tω² (soln): $(ms.ω²[eigind])")
-	# println("\t\tΔω² (soln): $(real(ω^2 - ms.ω²[eigind]))")
-	# println("\t\tk: $k")
-	# println("\t\t∂ω²∂k: $∂ω²∂k")
-	# ∂ω²∂k = copy(ms.∂ω²∂k[eigind])
 	gridsize = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-	
 	# ε⁻¹_copy = copy(ε⁻¹)
-	# k = copy(k)
-	# Hv = copy(Hv)
 	function solve_k_pullback(ΔΩ)
 		ei_bar = zero(ε⁻¹)
 		ω_bar = zero(ω)
 		k̄mags, ēvecs = ΔΩ
 		for (eigind, k̄, ēv, k, ev) in zip(1:nev, k̄mags, ēvecs, kmags, evecs)
 			ms = ModeSolver(k, ε⁻¹, grid; nev, maxiter)
-			println("\tsolve_k_pullback:")
-			println("k̄ (bar): $k̄")
-			# update_k!(ms,k)
-			# update_ε⁻¹(ms,ε⁻¹) #ε⁻¹)
-			println("\tsolve_k pullback for eigind=$eigind:")
-			println("\t\tω² (target): $(ω^2)")
-			# println("\t\tω² (soln): $(omsq_solns[eigind])")
-			# println("\t\tΔω² (soln): $(real(ω^2 - omsq_solns[eigind]))")
-			
-			# ms.∂ω²∂k[eigind] = ∂ω²∂k
-			# copyto!(ms.H⃗, ev)
 			ms.H⃗[:,eigind] = copy(ev)
 			# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
 			λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
 			λd =  similar(ms.M̂.d)
 			λẽ = similar(ms.M̂.d)
-
-			# println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
 			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
-			println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
-			# 
-			# ∂ω²∂k = ms.∂ω²∂k[eigind] # copy(ms.∂ω²∂k[eigind])
-			# Ns = size(ms.grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-			(mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
-
+			# println("\tsolve_k_pullback:")
+			# println("k̄ (bar): $k̄")
+			# println("\tsolve_k pullback for eigind=$eigind:")
+			# println("\t\tω² (target): $(ω^2)")
+			# # println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
+			# println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
+			# (mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
 			ev_grid = reshape(ev,(2,gridsize...))
-			# if typeof(k̄)==ZeroTangent()
 			if isa(k̄,AbstractZero)
 				k̄ = 0.0
 			end
-			# if typeof(ēv) != ZeroTangent()
 			if !isa(ēv,AbstractZero)
-				# λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
-				# λd =  similar(ms.M̂.d)
-				# λẽ = similar(ms.M̂.d)
 				# solve_adj!(ms,ēv,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = ēv - dot(ev,ēv)*ev
-				# solve_adj!(λ⃗,ms.M̂,ēv,ω^2,ev,eigind;log=false)
 				λ⃗ = eig_adjt(ms.M̂, ω^2, ev, 0.0, ēv; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
-				# solve_adj!(ms,ēv,ω^2,ev,eigind;log=false)
-				
-				@show val_magmax(λ⃗)
-				@show dot(ev,λ⃗)
-
+				# @show val_magmax(λ⃗)
+				# @show dot(ev,λ⃗)
 				λ⃗ 	-= 	 dot(ev,λ⃗) * ev
 				λ	=	reshape(λ⃗,(2,gridsize...))
 				d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
 				λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 				ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
-				
-				@show val_magmax(ei_bar)
-
-				# back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+				# @show val_magmax(ei_bar)
+				### back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
 				λd *=  ms.M̂.Ninv
 				λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
 				ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
-				
-				@show val_magmax(λẽ)
-				@show val_magmax(reinterpret(reshape,Complex{T},ẽ))
-			
-				
+				# @show val_magmax(λẽ)
+				# @show val_magmax(reinterpret(reshape,Complex{T},ẽ))
 				kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ .* conj.(view(λ,2,axes(grid)...)) )
 				kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ .* conj.(view(λ,1,axes(grid)...)) )
-				# m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,..])
-				# n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,..])
+				m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,axes(grid)...])
+				n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,axes(grid)...])
 				māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-				@show k̄ₕ_old = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
-				@show k̄ₕ = -∇ₖmag_m_n(
+				# @show k̄ₕ_old = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+				k̄ₕ = -∇ₖmag_m_n(
 					māg,
 					kx̄_m⃗.*ms.M̂.mag, # m̄,
 					kx̄_n⃗.*ms.M̂.mag, # n̄,
@@ -517,28 +539,19 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 					n⃗;
 					dk̂=SVector(0.,0.,1.), # dk⃗ direction
 				)
+				# @show k̄ₕ
 			else
 				# eīₕ = zero(ε⁻¹)#fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
 				k̄ₕ = 0.0
 			end
 			# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω_bar and eīₖ
-			# copyto!(λ⃗, ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev )
 			λ⃗ = ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev
 			d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
-			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
-			
-			λd2 = copy(λd)
-			@show val_magmax(λd2)
-			
-			# ei_bar = eīₖ + eīₕ
-			ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₖ # 
-			@show ω_bar +=  ( 2ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  #2ω * k̄ₖ / ms.∂ω²∂k[eigind]
-			# if !(typeof(k)<:SVector)
-			# 	k̄_kx = k̄_kx[3]
-			# end
-			# ms.ω_bar = 2ω * ( k̄_kx  / ms.∂ω²∂k[eigind] ) # = 2ω * ω²̄
+			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )			
+			ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₖ # epsinv_bar = eīₖ + eīₕ
+			ω_bar +=  ( 2*ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  
+			# @show ω_bar
 		end
-
 		return (NoTangent(), ω_bar , ei_bar,ZeroTangent(),NoTangent())
 	end
 	return ((kmags, evecs), solve_k_pullback)

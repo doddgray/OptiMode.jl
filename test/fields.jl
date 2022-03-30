@@ -395,6 +395,11 @@ function ng_AD_steps()
     
     @show ∂ng_∂p_geom
 
+    ∂ng_∂mag_1_AD = copy(∂ng_∂mag_1)
+    ∂ng_∂mn_1_AD = copy(∂ng_∂mn_1)    
+    ∂ng_∂mag_2_AD = copy(∂ng_∂mag_2)
+    ∂ng_∂mn_2_AD = copy(∂ng_∂mn_2)
+
     println("#######################################################################################")
     println("#######################################################################################")
     println("")
@@ -415,12 +420,14 @@ function ng_AD_steps()
     @show val_magmax(∂ng_∂evg_1)
     @show val_magmax(∂ng_∂mag_1)
     @show val_magmax(∂ng_∂mn_1)
-    @show ∂ng_∂k_1 = mag_mn_pb(( ∂ng_∂mag_1, ∂ng_∂mn_1))[1]
+    @show ∂ng_∂k_1 = mag_mn_pb(( ∂ng_∂mag_1, ∂ng_∂mn_1))[1][1]
 
     @show val_magmax(∂ng_∂ε⁻¹_2)
     ∂ng_∂evg_2 = first(∂ng_∂evecs_2)
     @show val_magmax(∂ng_∂evg_2)
-    @show ∂ng_∂k_2 = mag_mn_pb(( ∂ng_∂mag_2, ∂ng_∂mn_2))[1]
+    @show val_magmax(∂ng_∂mag_2)
+    @show val_magmax(∂ng_∂mn_2)
+    @show ∂ng_∂k_2 = mag_mn_pb(( ∂ng_∂mag_2, ∂ng_∂mn_2))[1][1]
 
     @show ∂ng_∂k = ∂ng_∂k_1 + ∂ng_∂k_2
 
@@ -450,64 +457,57 @@ function ng_AD_steps()
 	
     ev  =   evecs[1]
     evg =   reshape(ev,(2,size(grid)...))
-    
     T = Float64
     Ninv                =   inv(1.0 * length(grid))
     dk̂                  =   SVector(0.,0.,1.)
     mag2,m⃗,n⃗           =    mag_m_n(k,grid)
-
+    one_mone = [1.0, -1.0]
     D                   =   fft( kx_tc(evg,mn,mag), fftax )
     E                   =   _dot(ε⁻¹, D) #ε⁻¹_dot(D, ε⁻¹)
-    # HMkH_1            =   HMₖH(ev,ε⁻¹,mag,mn)
-    # HMkH_2            =   -real( dot(evg , kx_ct( ifft( _dot(ε⁻¹, fft( zx_tc(evg,mn), fftax ) ), fftax ), mn, mag )  )  )
-    # HMkH_3            =   -real( dot(evg , zx_ct( ifft( _dot(ε⁻¹, fft( kx_tc(evg,mn,mag), fftax ) ), fftax ), mn  )  )  )
-    # HMkH_4            =   -real( dot(evg , zx_ct( ifft( E, fftax ), mn  )  )  )
-    # HMkH_5            =   -real( dot(evg , zx_ct( bfft( E, fftax ), mn  )  )  ) * Ninv
+    H                   =   ω * fft( tc(ev_grid,mn), fftax )
     HMkH                =   -real( dot(evg , zx_ct( ifft( E, fftax ), mn  )  )  )
     inv_HMkH            =   inv(HMkH)
-
+    
     deps_E              =   _dot(∂ε_∂ω,E)                                   # (∂ε/∂ω)|E⟩
     epsi_deps_E         =   _dot(ε⁻¹,deps_E)                                # (ε⁻¹)(∂ε/∂ω)|E⟩ = (∂(ε⁻¹)/∂ω)|D⟩
     Fi_epsi_deps_E      =   ifft( epsi_deps_E, fftax )                      # 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
     kx_Fi_epsi_deps_E   =   kx_ct( Fi_epsi_deps_E , mn, mag  )              # [(k⃗+g⃗)×]cₜ ⋅ 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
     EdepsiE             =   real( dot(evg,kx_Fi_epsi_deps_E) )              # ⟨E|∂ε/∂ω|E⟩ = ⟨D|∂(ε⁻¹)/∂ω|D⟩
-    # EdepsiE_1         =   HMH(vec(ev), _dot( ε⁻¹, ∂ε_∂ω, ε⁻¹ ),mag,mn)
-    # EdepsiE_2         =   real(_expect(∂ε_∂ω,E)) * Ninv
-    # EdepsiE_3         =   real( dot(D,epsi_deps_E) ) * Ninv
-    # EdepsiE_4         =   real( dot(evg,kx_Fi_epsi_deps) )
-
     ng                  =   (ω + EdepsiE/2) * inv_HMkH
-
-    ng_RM
-
+    
     ∂ng_∂ω_1            =   inv_HMkH
     ∂ng_∂EdepsiE        =   inv_HMkH/2
     ∂ng_∂HMkH           =   -(ω + EdepsiE/2) * inv_HMkH^2
-
-    ∂ng_∂∂ε_∂ω          =   _outer(E,E) * ∂ng_∂EdepsiE
-    ∂ng_∂ε⁻¹_1          =   2 * herm(_outer(deps_E,D)) * ∂ng_∂EdepsiE
-    ∂ng_∂evg_1          =   2 * kx_Fi_epsi_deps_E * ∂ng_∂EdepsiE
-
-    ∂ng_∂kx_1           =  real(_outer(Fi_epsi_deps_E, evg)) * ∂ng_∂EdepsiE
-    @tullio ∂ng_∂mag_1[ix,iy] := conj(reverse(∂ng_∂kx_1,dims=2))[i,j,ix,iy] * mn[i,j,ix,iy] 
-    @tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] 
+    
+    ∂ng_∂∂ε_∂ω          =   _outer(E,E) * Ninv * ∂ng_∂EdepsiE
+    ∂ng_∂ε⁻¹_1          =   herm(_outer(deps_E,D)) * Ninv * 2 * ∂ng_∂EdepsiE
+    ∂ng_∂evg_1          =   kx_Fi_epsi_deps_E * 2 * ∂ng_∂EdepsiE
+    ∂ng_∂kx_1           =  real(_outer(Fi_epsi_deps_E, evg)) * 2 * ∂ng_∂EdepsiE
+    @tullio ∂ng_∂mag_1[ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mn[i,j,ix,iy] * one_mone[j]  nograd=one_mone
+    @tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] * one_mone[j]  nograd=one_mone
     ∂ng_∂k_1            =   ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
-
-    # ∂ng_∂ε⁻¹_2          =   2 * herm(_outer(deps_E,D)) * ∂ng_∂EdepsiE
-    # ∂ng_∂evg_2          =   2 * kx_Fi_epsi_deps_E * ∂ng_∂EdepsiE
-
-    # ∂ng_∂kx_2           =  real(_outer(Fi_epsi_deps_E, evg)) * ∂ng_∂EdepsiE
-    # @tullio ∂ng_∂mag_1[ix,iy] := conj(reverse(∂ng_∂kx_1,dims=2))[i,j,ix,iy] * mn[i,j,ix,iy] 
-    # @tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] 
-    # ∂ng_∂k_1            =   ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
-
-    ∂ng_∂k_2, ∂ng_∂evg_2, ∂ng_∂ε⁻¹_2 = ∇HMₖH(k,evg,ε⁻¹,grid) .* ∂ng_∂HMkH
-    # ∂ng_∂evg_2          =   (-2 * ng * inv_HMkH) * _cross(dk̂, E)
+    
+    ### ∇HMₖH ###
+    H̄ =  _cross(dk̂, E) * ∂ng_∂HMkH * Ninv / ω 
+    Ē =  _cross(H,dk̂)  * ∂ng_∂HMkH * Ninv / ω 
+    # om̄₁₂ = dot(H,H̄) / ω
+    𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),fftax)
+    𝓕⁻¹_H̄ = bfft( H̄ ,fftax)
+    @tullio 𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ[i,j,ix,iy] :=  conj(𝓕⁻¹_ε⁻¹_Ē)[i,ix,iy] * reverse(evg;dims=1)[j,ix,iy] * one_mone[j] nograd=one_mone
+    @tullio ∂ng_∂mn_2[i,j,ix,iy] := mag[ix,iy] * real(𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ)[i,j,ix,iy]   +   ω*real(_outer(𝓕⁻¹_H̄,evg))[i,j,ix,iy]  
+    @tullio ∂ng_∂mag_2[ix,iy] := mn[a,b,ix,iy] * real(𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ)[a,b,ix,iy]
+    
+    @test real(∂ng_∂mn_2_AD[:,1,:,:]) ≈ real(∂ng_∂mn_2[:,1,:,:])
+    @test real(∂ng_∂mn_2_AD[:,2,:,:]) ≈ real(∂ng_∂mn_2[:,2,:,:])
+    ∂ng_∂k_2 = ∇ₖmag_mn(real(∂ng_∂mag_2),real(∂ng_∂mn_2),mag,mn)
+    ∂ng_∂evg_2 = ( kx_ct(𝓕⁻¹_ε⁻¹_Ē,mn,mag) + ω*ct(𝓕⁻¹_H̄,mn) ) 
+    ∂ng_∂ε⁻¹_2 = real( herm( _outer(Ē,D) ) ) 
+    ### end ∇HMₖH ###
 
     ### ∇solve_k ###
     k̄ = ∂ng_∂k_1 + ∂ng_∂k_2
 
-    ∂ng_∂evg = vec(∂ng_∂evg_1) + ∂ng_∂evg_2
+    ∂ng_∂evg = vec(∂ng_∂evg_1) + vec(∂ng_∂evg_2)
     @show val_magmax(∂ng_∂evg_1)
     @show val_magmax(∂ng_∂evg_2)
     @show val_magmax(∂ng_∂evg)
@@ -528,11 +528,11 @@ function ng_AD_steps()
     @show dot(ev,λ⃗)
 
     λ = reshape( λ⃗, (2,size(grid)...) )
-    λd = fft( kx_tc( λ, mn, mag ), fftax )
+    λd = fft( kx_tc( λ, mn, mag ), fftax ) #* Ninv
     
     @show val_magmax(λd)
     
-    ∂ng_∂ε⁻¹_31 = ε⁻¹_bar(vec(D), vec( λd ) , size(grid)...)
+    ∂ng_∂ε⁻¹_31 = ε⁻¹_bar(vec(D), vec( λd ) , size(grid)...) * Ninv
 
     @show val_magmax(∂ng_∂ε⁻¹_31)
 
@@ -554,12 +554,18 @@ function ng_AD_steps()
                 mag, m⃗, n⃗; 
                 dk̂=SVector(0.,0.,1.), # dk⃗ direction
             )
-    λd2 = fft( kx_tc( ( (k̄ + k̄ₕ ) / ( 2 * HMkH ) ) * evg  , mn, mag ), fftax )  # 2 * HMkH = ∂ω²∂k
+    λd2 = fft( kx_tc( ( (k̄ + k̄ₕ ) / ( 2 * HMkH ) ) * evg  , mn, mag ), fftax ) * Ninv  # 2 * HMkH = ∂ω²∂k
     
 	@show val_magmax(λd2)
     
     ∂ng_∂ε⁻¹_32 = ε⁻¹_bar(vec(D), vec( λd2 ) , size(grid)...)
+
+    @show val_magmax(∂ng_∂ε⁻¹_32)
+
     ∂ng_∂ε⁻¹_3 = ∂ng_∂ε⁻¹_31 + ∂ng_∂ε⁻¹_32
+
+    @show val_magmax(∂ng_∂ε⁻¹_3)
+
     @show ∂ng_∂ω_2 =  ω * (k̄ + k̄ₕ ) / HMkH 
     ### end ∇solve_k ###
     ∂ng_∂ε = _dot( -ε⁻¹, (∂ng_∂ε⁻¹_1 + ∂ng_∂ε⁻¹_2 + ∂ng_∂ε⁻¹_3), ε⁻¹ )
@@ -567,7 +573,8 @@ function ng_AD_steps()
     @show ∂ng_∂ω                                                =   ∂ng_∂ω_1 + ∂ng_∂ω_2 + ∂ng_∂ω_3
     @show ∂ng_∂p_geom
 
-    
+    println("")
+    println("")
 
     @show ∂ng_∂EdepsiE
     @show ∂ng_∂HMkH
@@ -578,10 +585,12 @@ function ng_AD_steps()
     @show val_magmax(∂ng_∂evg_1)
     @show val_magmax(∂ng_∂mag_1)
     @show val_magmax(∂ng_∂mn_1)
-    @show ∂ng_∂k_1 = mag_mn_pb(( ∂ng_∂mag_1, ∂ng_∂mn_1))[1][1]
+    @show ∂ng_∂k_1  # = mag_mn_pb(( ∂ng_∂mag_1, ∂ng_∂mn_1))[1][1]
 
     @show val_magmax(∂ng_∂ε⁻¹_2)
     @show val_magmax(∂ng_∂evg_2)
+    @show val_magmax(∂ng_∂mag_2)
+    @show val_magmax(∂ng_∂mn_2)
     @show ∂ng_∂k_2
 
     @show ∂ng_∂k = ∂ng_∂k_1 + ∂ng_∂k_2
@@ -595,9 +604,114 @@ function ng_AD_steps()
     @show ∂ng_∂ω_3
 
     return nothing
+    # return ∂ng_∂mag_1_AD, ∂ng_∂mn_1_AD, ∂ng_∂mag_2_AD, ∂ng_∂mn_2_AD, ∂ng_∂mag_1, ∂ng_∂mn_1, ∂ng_∂mag_2, ∂ng_∂mn_2
 end
 
 ng_AD_steps()
+
+# ∂ng_∂mag_1_AD, ∂ng_∂mn_1_AD, ∂ng_∂mag_2_AD, ∂ng_∂mn_2_AD, ∂ng_∂mag_1, ∂ng_∂mn_1, ∂ng_∂mag_2, ∂ng_∂mn_2 = ng_AD_steps()
+
+###############################################################################################################################
+###############################################################################################################################
+
+##
+
+@show val_magmax(real(∂ng_∂mag_1_AD)) # val_magmax(∂ng_∂mag_1_AD)
+@show val_magmax(real(∂ng_∂mn_1_AD)) # val_magmax(∂ng_∂mn_1_AD)
+@show val_magmax(real(∂ng_∂mag_2_AD)) # val_magmax(∂ng_∂mag_2_AD)
+@show val_magmax(real(∂ng_∂mn_2_AD)) # val_magmax(∂ng_∂mn_2_AD)
+@show ∂ng_∂k_1_AD = ∇ₖmag_mn(real(∂ng_∂mag_1_AD),real(∂ng_∂mn_1_AD),mag,mn)
+@show ∂ng_∂k_2_AD = ∇ₖmag_mn(real(∂ng_∂mag_2_AD),real(∂ng_∂mn_2_AD),mag,mn)
+
+@show val_magmax(∂ng_∂mag_1)
+@show val_magmax(∂ng_∂mn_1)
+@show val_magmax(∂ng_∂mag_2)
+@show val_magmax(∂ng_∂mn_2)
+@show ∂ng_∂k_1 = ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
+@show ∂ng_∂k_2 = ∇ₖmag_mn(∂ng_∂mag_2,∂ng_∂mn_2,mag,mn)
+
+# real(∂ng_∂mag_1_AD)[1:10,1:10]
+# real(∂ng_∂mag_1)[1:10,1:10]
+# real(∂ng_∂mag_1_AD-∂ng_∂mag_1)[1:10,1:10]
+@test real(∂ng_∂mag_1_AD) ≈ ∂ng_∂mag_1
+
+# real(∂ng_∂mn_1_AD)[:,1,1:4,1:4]
+# real(∂ng_∂mn_1)[:,1,1:4,1:4]
+# real(∂ng_∂mn_1_AD-∂ng_∂mn_1)[:,1,1:4,1:4]
+@test real(∂ng_∂mn_1_AD[:,1,:,:]) ≈ ∂ng_∂mn_1[:,1,:,:]
+
+# real(∂ng_∂mn_1_AD)[:,2,1:4,1:4]
+# real(∂ng_∂mn_1)[:,2,1:4,1:4]
+# real(∂ng_∂mn_1_AD - ∂ng_∂mn_1)[:,2,1:4,1:4]
+@test real(∂ng_∂mn_1_AD[:,2,:,:]) ≈ ∂ng_∂mn_1[:,2,:,:]
+
+# real(∂ng_∂mag_2_AD)[1:10,1:10]
+# real(∂ng_∂mag_2)[1:10,1:10]
+# real(∂ng_∂mag_2_AD-∂ng_∂mag_2)[1:10,1:10]
+@test real(∂ng_∂mag_2_AD) ≈ ∂ng_∂mag_2
+
+
+real(∂ng_∂mn_2_AD)[:,1,1:4,1:4]
+real(∂ng_∂mn_2)[:,1,1:4,1:4]
+real(∂ng_∂mn_2_AD-∂ng_∂mn_2)[:,1,1:4,1:4]
+# wrong
+
+real(∂ng_∂mn_2_AD)[:,2,1:4,1:4]
+real(∂ng_∂mn_2)[:,2,1:4,1:4]
+real(∂ng_∂mn_2_AD + ∂ng_∂mn_2)[:,2,1:4,1:4]
+## wrong
+ev  =   evecs[1]
+evg =   reshape(ev,(2,size(grid)...))
+T = Float64
+Ninv                =   inv(1.0 * length(grid))
+dk̂                  =   SVector(0.,0.,1.)
+mag2,m⃗,n⃗           =    mag_m_n(k,grid)
+one_mone = [1.0, -1.0]
+D                   =   fft( kx_tc(evg,mn,mag), fftax )
+E                   =   _dot(ε⁻¹, D) #ε⁻¹_dot(D, ε⁻¹)
+H                   =   ω * fft( tc(ev_grid,mn), fftax )
+HMkH                =   -real( dot(evg , zx_ct( ifft( E, fftax ), mn  )  )  )
+inv_HMkH            =   inv(HMkH)
+
+deps_E              =   _dot(∂ε_∂ω,E)                                   # (∂ε/∂ω)|E⟩
+epsi_deps_E         =   _dot(ε⁻¹,deps_E)                                # (ε⁻¹)(∂ε/∂ω)|E⟩ = (∂(ε⁻¹)/∂ω)|D⟩
+Fi_epsi_deps_E      =   ifft( epsi_deps_E, fftax )                      # 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
+kx_Fi_epsi_deps_E   =   kx_ct( Fi_epsi_deps_E , mn, mag  )              # [(k⃗+g⃗)×]cₜ ⋅ 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
+EdepsiE             =   real( dot(evg,kx_Fi_epsi_deps_E) )              # ⟨E|∂ε/∂ω|E⟩ = ⟨D|∂(ε⁻¹)/∂ω|D⟩
+ng                  =   (ω + EdepsiE/2) * inv_HMkH
+
+∂ng_∂ω_1            =   inv_HMkH
+∂ng_∂EdepsiE        =   inv_HMkH/2
+∂ng_∂HMkH           =   -(ω + EdepsiE/2) * inv_HMkH^2
+
+∂ng_∂∂ε_∂ω          =   _outer(E,E) * Ninv * ∂ng_∂EdepsiE
+∂ng_∂ε⁻¹_1          =   herm(_outer(deps_E,D)) * Ninv * 2 * ∂ng_∂EdepsiE
+∂ng_∂evg_1          =   kx_Fi_epsi_deps_E * 2 * ∂ng_∂EdepsiE
+∂ng_∂kx_1           =  real(_outer(Fi_epsi_deps_E, evg)) * 2 * ∂ng_∂EdepsiE
+@tullio ∂ng_∂mag_1[ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mn[i,j,ix,iy] * one_mone[j]  nograd=one_mone
+@tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] * one_mone[j]  nograd=one_mone
+∂ng_∂k_1            =   ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
+
+### ∇HMₖH ###
+H̄ =  _cross(dk̂, E) * ∂ng_∂HMkH * Ninv / ω 
+Ē =  _cross(H,dk̂)  * ∂ng_∂HMkH * Ninv / ω 
+# om̄₁₂ = dot(H,H̄) / ω
+𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),fftax)
+𝓕⁻¹_H̄ = bfft( H̄ ,fftax)
+@tullio 𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ[i,j,ix,iy] :=  conj(𝓕⁻¹_ε⁻¹_Ē)[i,ix,iy] * reverse(evg;dims=1)[j,ix,iy] * one_mone[j] nograd=one_mone
+@tullio ∂ng_∂mn_2[i,j,ix,iy] := mag[ix,iy] * real(𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ)[i,j,ix,iy]   +   ω*real(_outer(𝓕⁻¹_H̄,evg))[i,j,ix,iy]  
+@tullio ∂ng_∂mag_2[ix,iy] := mn[a,b,ix,iy] * real(𝓕⁻¹_ε⁻¹_Ē_x_evgᵀ)[a,b,ix,iy]
+
+@test real(∂ng_∂mn_2_AD[:,1,:,:]) ≈ real(∂ng_∂mn_2[:,1,:,:])
+@test real(∂ng_∂mn_2_AD[:,2,:,:]) ≈ real(∂ng_∂mn_2[:,2,:,:])
+∂ng_∂k_2 = ∇ₖmag_mn(real(∂ng_∂mag_2),real(∂ng_∂mn_2),mag,mn)
+∂ng_∂evg_2 = ( kx_ct(𝓕⁻¹_ε⁻¹_Ē,mn,mag) + ω*ct(𝓕⁻¹_H̄,mn) ) 
+∂ng_∂ε⁻¹_2 = real( herm( _outer(Ē,D) ) ) 
+##
+@tullio outer1[i,j,ix,iy] := conj(evg)[j,ix,iy]*𝓕⁻¹_H̄[i,ix,iy]
+outer2 = _outer(𝓕⁻¹_H̄,evg)
+outer1 ≈ outer2
+##
 
 ###############################################################################################################################
 ###############################################################################################################################
