@@ -199,104 +199,90 @@ end
 # end
 
 
+function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
+	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
+	f_filter=nothing) where {ND,T<:Real} 
+	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+	# g⃗ = copy(ms.M̂.g⃗)
+	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
+	# 	mag_m_n(x,dropgrad(g⃗))
+	# end
+	gridsize = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
+	# ε⁻¹_copy = copy(ε⁻¹)
+	function solve_k_pullback(ΔΩ)
+		ei_bar = zero(ε⁻¹)
+		ω_bar = zero(ω)
+		k̄mags, ēvecs = ΔΩ
+		for (eigind, k̄, ēv, k, ev) in zip(1:nev, k̄mags, ēvecs, kmags, evecs)
+			ms = ModeSolver(k, ε⁻¹, grid; nev, maxiter)
+			ms.H⃗[:,eigind] = copy(ev)
+			# replan_ffts!(ms)	# added  to check if this enables pmaps to work without crashing
+			λ⃗ = randn(eltype(ev),size(ev)) # similar(ev)
+			λd =  similar(ms.M̂.d)
+			λẽ = similar(ms.M̂.d)
+			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
+			# println("\tsolve_k_pullback:")
+			# println("k̄ (bar): $k̄")
+			# println("\tsolve_k pullback for eigind=$eigind:")
+			# println("\t\tω² (target): $(ω^2)")
+			# # println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
+			# println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
+			# (mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
+			ev_grid = reshape(ev,(2,gridsize...))
+			if isa(k̄,AbstractZero)
+				k̄ = 0.0
+			end
+			if !isa(ēv,AbstractZero)
+				# solve_adj!(ms,ēv,eigind) 												# overwrite ms.λ⃗ with soln to (M̂ + ω²I) λ⃗ = ēv - dot(ev,ēv)*ev
+				λ⃗ = eig_adjt(ms.M̂, ω^2, ev, 0.0, ēv; λ⃗₀=randn(eltype(ev),size(ev)), P̂=ms.P̂)
+				# @show val_magmax(λ⃗)
+				# @show dot(ev,λ⃗)
+				λ⃗ 	-= 	 dot(ev,λ⃗) * ev
+				λ	=	reshape(λ⃗,(2,gridsize...))
+				d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
+				λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
+				ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
+				# @show val_magmax(ei_bar)
+				### back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
+				λd *=  ms.M̂.Ninv
+				λẽ_sv = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(λẽ , λd  ,ms ) )
+				ẽ = reinterpret(reshape, SVector{3,Complex{T}}, _d2ẽ!(ms.M̂.e,ms.M̂.d,ms) )
+				# @show val_magmax(λẽ)
+				# @show val_magmax(reinterpret(reshape,Complex{T},ẽ))
+				kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ .* conj.(view(λ,2,axes(grid)...)) )
+				kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ .* conj.(view(λ,1,axes(grid)...)) )
+				m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,axes(grid)...])
+				n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,axes(grid)...])
+				māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
+				# @show k̄ₕ_old = -mag_m_n_pb(( māg, kx̄_m⃗.*ms.M̂.mag, kx̄_n⃗.*ms.M̂.mag ))[1] # m̄ = kx̄_m⃗ .* mag, n̄ = kx̄_n⃗ .* mag, #NB: not sure why this is needs to be negated, inputs match original version
+				k̄ₕ = -∇ₖmag_m_n(
+					māg,
+					kx̄_m⃗.*ms.M̂.mag, # m̄,
+					kx̄_n⃗.*ms.M̂.mag, # n̄,
+					ms.M̂.mag,
+					m⃗,
+					n⃗;
+					dk̂=SVector(0.,0.,1.), # dk⃗ direction
+				)
+				# @show k̄ₕ
+			else
+				# eīₕ = zero(ε⁻¹)#fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
+				k̄ₕ = 0.0
+			end
+			# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω_bar and eīₖ
+			λ⃗ = ( (k̄ + k̄ₕ ) / ∂ω²∂k ) * ev
+			d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
+			λd = _H2d!(λd,reshape(λ⃗,(2,gridsize...)),ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )			
+			ei_bar += ε⁻¹_bar(vec(ms.M̂.d), vec(λd), gridsize...) # eīₖ # epsinv_bar = eīₖ + eīₕ
+			ω_bar +=  ( 2*ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  
+			# @show ω_bar
+		end
+		return (NoTangent(), ω_bar , ei_bar,ZeroTangent(),NoTangent())
+	end
+	return ((kmags, evecs), solve_k_pullback)
+end
 
 
-
-
-# ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
-# 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
-# 	f_filter=nothing) where {ND,T<:Real} 
-
-# function solve_disp(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND};kguess=nothing,Hguess=nothing,dk̂=SVector(0.0,0.0,1.0),nev=1,eigind=1,maxiter=500,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function} # output type ::Tuple{T,T,T,Vector{Complex{T}}}
-
-# function solve_disp(ω::Real,ε::AbstractArray{<:Real},∂ε_∂ω::AbstractArray{<:Real},∂²ε_∂ω²::AbstractArray{<:Real},
-# 	grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,max_eigsolves=60,maxiter=500,k_tol=1e-8,eig_tol=1e-8,
-# 	log=false,kguess=nothing,Hguess=nothing,dk̂=SVector(0.0,0.0,1.0),log=false,f_filter=nothing) where {ND,T<:Real}
-# 	ε⁻¹             =   sliceinv_3x3(ε);
-# 	kmags,evecs   	=	solve_k(ω,ε⁻¹,grid,solver;nev,eig_tol,k_tol)
-# 	ngs 			=	map((k,ev)->group_index(k,ev,ω,ε⁻¹,∂ε_∂ω,grid),kmags,evecs) 
-# 	neffs = inv(ω) * kmags
-
-# 	# # calculate effective group index `ng`
-# 	# Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-# 	# Ninv 		= 		1. / N(grid)
-# 	# mag,m⃗,n⃗ = mag_m_n(k,grid)
-# 	# m = flat(m⃗)
-# 	# n = flat(n⃗)
-# 	# mns = copy(vcat(reshape(m,1,3,Ns...),reshape(n,1,3,Ns...)))
-#     # Hₜ = reshape(Hv,(2,Ns...))
-# 	# D = 1im * fft( kx_tc( Hₜ,mns,mag), _fftaxes(grid) )
-# 	# E = ε⁻¹_dot( D, ε⁻¹)
-# 	# # E = 1im * ε⁻¹_dot( fft( kx_tc( Hₜ,mns,mag), (2:1+ND) ), ε⁻¹)
-# 	# # H = inv(ω) * fft(tc(kx_ct( ifft( E, (2:1+ND) ), mns,mag), mns),(2:1+ND) )
-# 	# H = fft( tc(Hₜ,mns), (2:3) ) * (-1im * ω)
-# 	# P = 2*real(_sum_cross_z(conj(E),H))    # integrated Poyting flux parallel to ẑ: P = ∫dA S⃗⋅ẑ
-# 	# # W = dot(E,_dot((ε+nng),E))             # energy density per unit length
-# 	# W = real(dot(E,_dot(nng,E))) + (N(grid)* (ω^2))     # energy density per unit length
-# 	# ng = real( W / P )
-
-# 	# calculate GVD = ∂(ng) / ∂ω = (∂²k)/(∂ω²)
-# 	W̄ = inv(P)
-# 	om̄₁₁ = 2*ω * N(grid) * W̄
-# 	nnḡ = _outer(E,E) * W̄
-# 	# H̄ = (-2*ng*W̄) * _cross(repeat([0.,0.,1.],outer=(1,Ns...)), E)
-# 	# Ē = 2W̄*( _dot(nng,E) - ng * _cross(H,repeat([0.,0.,1.],outer=(1,Ns...))) )
-# 	H̄ = (-2*ng*W̄) * _cross(dk̂, E)
-# 	Ē = 2W̄*( _dot(nng,E) - ng * _cross(H,dk̂) )
-# 	om̄₁₂ = dot(H,H̄) / ω
-# 	om̄₁ = om̄₁₁ + om̄₁₂
-# 	# eī₁ = _outer(Ē,D) ####################################
-# 	𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),(2:3))
-# 	𝓕⁻¹_H̄ = bfft( H̄ ,(2:3))
-# 	H̄ₜ = 1im*( kx_ct(𝓕⁻¹_ε⁻¹_Ē,mns,mag) + ω*ct(𝓕⁻¹_H̄,mns) )
-# 	local one_mone = [1.0im, -1.0im]
-# 	@tullio 𝓕⁻¹_ε⁻¹_Ē_xHₜᵀ[i,j,ix,iy] := one_mone[i] * reverse(Hₜ;dims=1)[i,ix,iy] * conj(𝓕⁻¹_ε⁻¹_Ē)[j,ix,iy] nograd=one_mone
-# 	∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,mag,m,n)
-
-# 	##### grad solve k
-# 	# solve_adj!(λ⃗,M̂,H̄,ω^2,H⃗,eigind)
-# 	M̂2 = HelmholtzMap(k,ε⁻¹,grid)
-# 	λ⃗	= eig_adjt(
-# 		M̂2,								 # Â
-# 		ω^2, 							# α
-# 		Hv, 					 		 # x⃗
-# 		0.0, 							# ᾱ
-# 		vec(H̄ₜ);								 # x̄
-# 		# λ⃗₀,
-# 		P̂	= HelmholtzPreconditioner(M̂2),
-# 	)
-# 	### k̄ₕ, eīₕ = ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid)
-# 	λ = reshape(λ⃗,(2,Ns...))
-# 	λd 	= 	fft(kx_tc( λ , mns, mag ),_fftaxes(grid))
-# 	# eīₕ	 = 	 ε⁻¹_bar(vec(D * (Ninv * -1.0im)), vec(λd), Ns...) ##########################
-# 	λẽ  =   bfft(ε⁻¹_dot(λd , ε⁻¹),_fftaxes(grid))
-# 	ẽ 	 =   bfft(E * -1.0im,_fftaxes(grid))
-# 	@tullio mn̄s_kx0[i,j,ix,iy] := -1.0im * one_mone[i] * reverse(conj(Hₜ);dims=1)[i,ix,iy] * (Ninv*λẽ)[j,ix,iy] + -1.0im * one_mone[i] * reverse(conj(λ);dims=1)[i,ix,iy] * (Ninv*ẽ)[j,ix,iy]  nograd=one_mone
-# 	# @tullio mn̄s_kx0[i,j,ix,iy] := -1.0im * one_mone[i] * reverse(conj(Hₜ);dims=1)[i,ix,iy] * λẽ[j,ix,iy] + -1.0im * one_mone[i] * reverse(conj(λ);dims=1)[i,ix,iy] * ẽ[j,ix,iy]  nograd=one_mone
-# 	# @tullio mn̄s_kx0[i,j,ix,iy] := -1.0im * one_mone[i] * reverse(conj(Hₜ);dims=1)[i,ix,iy] * λẽ[j,ix,iy] + -1.0im * one_mone[i] * reverse(conj(λ);dims=1)[i,ix,iy] * ẽ[j,ix,iy]  nograd=one_mone
-# 	@tullio mn̄s[i,j,ix,iy] := mag[ix,iy] * (mn̄s_kx0-conj(𝓕⁻¹_ε⁻¹_Ē_xHₜᵀ))[i,j,ix,iy]  + 1im*ω*conj(Hₜ)[i,ix,iy]*𝓕⁻¹_H̄[j,ix,iy]
-# 	@tullio māg[ix,iy] := mns[a,b,ix,iy] * (mn̄s_kx0-conj(𝓕⁻¹_ε⁻¹_Ē_xHₜᵀ))[a,b,ix,iy]
-# 	# k̄ = ∇ₖmag_mn(māg,mn̄s,mag,mns)
-# 	@tullio kp̂g_over_mag[i,ix,iy] := m[mod(i-2),ix,iy] * n[mod(i-1),ix,iy] / mag[ix,iy] - m[mod(i-1),ix,iy] * n[mod(i-2),ix,iy] / mag[ix,iy] (i in 1:3)
-# 	kp̂g_over_mag_x_dk̂ = _cross(kp̂g_over_mag,dk̂)
-# 	@tullio k̄_mag := māg[ix,iy] * mag[ix,iy] * kp̂g_over_mag[j,ix,iy] * dk̂[j]
-# 	@tullio k̄_mn := -conj(mn̄s)[imn,i,ix,iy] * mns[imn,mod(i-2),ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-1),ix,iy] + conj(mn̄s)[imn,i,ix,iy] * mns[imn,mod(i-1),ix,iy] * kp̂g_over_mag_x_dk̂[mod(i-2),ix,iy] (i in 1:3)
-# 	k̄ = k̄_mag + k̄_mn
-# 	### \ k̄ₕ, eīₕ = ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid)
-
-# 	# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω̄ and eīₖ
-# 	λₖ  = ( k̄ / ∂ω²∂k_nd ) * Hₜ #reshape(λ⃗ₖ, (2,Ns...))
-# 	λdₖ	=	fft(kx_tc( λₖ , mns, mag ),_fftaxes(grid))
-# 	# eīₖ = ε⁻¹_bar(vec(D* (Ninv * -1.0im)), vec(λdₖ), Ns...) ####################################
-# 	om̄₂  =  2ω * k̄ / ∂ω²∂k_nd
-# 	##### \grad solve k
-# 	om̄₃ = dot(herm(nnḡ), ngvd)
-# 	om̄₄ = dot( herm(_outer(Ē+(λd+λdₖ)*(Ninv * -1.0im),D) ), ∂ε⁻¹_∂ω(ε,ε⁻¹,nng,ω))
-# 	# @show om̄₄_old = dot( ( eīₖ + eīₕ + eī₁ ), ∂ε⁻¹_∂ω(ε,ε⁻¹,nng,ω))
-# 	gvd = real( om̄₁ + om̄₂ + om̄₃ + om̄₄ )
-
-# 	return ( neff, ng, gvd, E )
-# end
 
 
 
