@@ -3,7 +3,7 @@ using LinearAlgebra, StaticArrays, Tullio, ChainRulesCore, LinearMaps, Iterative
 using LinearMaps: ⊗
 using IterativeSolvers: gmres, lobpcg, lobpcg!
 
-export ε⁻¹_bar, herm, eig_adjt, my_linsolve, solve_adj!, ng_gvd_E, ng_gvd
+export ε⁻¹_bar, herm, herm_back, eig_adjt, my_linsolve, solve_adj!, ng_gvd_E, ng_gvd
 
 # export ε⁻¹_bar!, ε⁻¹_bar, ∂ω²∂k_adj, Mₖᵀ_plus_Mₖ, ∂²ω²∂k², herm,
 #      ∇ₖmag_m_n, ∇HMₖH, ∇M̂, ∇solve_k, ∇solve_k!, solve_adj!, 
@@ -26,6 +26,17 @@ function herm(A::AbstractArray{T,5}) where {T<:Number}
 end
 
 
+function herm_back(∂z_∂A::AbstractArray{T,4}) where {T<:Number}
+	half_diag = [ 0.5 1.0 1.0 ; 1.0 0.5 1.0 ; 1.0 1.0 0.5 ]
+	@tullio ∂z_∂A_herm[i,j,ix,iy] := ∂z_∂A[i,j,ix,iy]*half_diag[i,j] + conj(∂z_∂A)[j,i,ix,iy]*half_diag[i,j] nograd=half_diag
+	return ∂z_∂A_herm
+end
+
+function herm_back(∂z_∂A::AbstractArray{T,5}) where {T<:Number}
+	half_diag = [ 0.5 1.0 1.0 ; 1.0 0.5 1.0 ; 1.0 1.0 0.5 ]
+	@tullio ∂z_∂A_herm[i,j,ix,iy,iz] := ∂z_∂A[i,j,ix,iy,iz]*half_diag[i,j] + conj(∂z_∂A)[j,i,ix,iy,iz]*half_diag[i,j] nograd=half_diag
+	return ∂z_∂A_herm
+end
 
 
 """
@@ -196,7 +207,112 @@ end
 
 
 
+function ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid::Grid{ND,T}) where {ND,T<:Real}
+	# Nranges, Ninv, Ns, 𝓕, 𝓕⁻¹ = Zygote.ignore() do
+	Ninv 		= 		1. / N(grid)
+	Ns			=		size(grid)
+	# g⃗s = g⃗(grid)
+	Nranges		=		eachindex(grid)
+	d0 = randn(Complex{T}, (3,Ns...))
+	𝓕	 =	plan_fft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place FFT operator 𝓕
+	𝓕⁻¹ =	plan_bfft(d0,_fftaxes(grid),flags=FFTW.PATIENT) # planned out-of-place iFFT operator 𝓕⁻¹
+		# return (Nranges,Ninv,Ns,𝓕,𝓕⁻¹)
+	# end
+	# mag, m⃗, n⃗  = mag_m_n(k,grid)
+	# # mns = vcat(reshape(flat(m⃗),(1,3,Ns...)),reshape(flat(n⃗),(1,3,Ns...)))
+	# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
+	# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
+	# mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
+	mag, mns = mag_mn(k,grid)
+	H = reshape(H⃗,(2,Ns...))
+	λ = reshape(λ⃗,(2,Ns...))
+	d 	= 	𝓕 * kx_tc( H , mns, mag ) * Ninv
+	λd 	= 	𝓕 * kx_tc( λ , mns, mag )
+	eī	 = 	 ε⁻¹_bar(vec(d), vec(λd), Ns...)
+	eif = ε⁻¹ #flat(ε⁻¹)
+	# eif = reshape(reinterpret(reshape,T,ε⁻¹),3,3,Ns...) #flat(ε⁻¹)
+	# eif = reshape(reinterpret(T,ε⁻¹),3,3,Ns...)
+	λẽ  =   𝓕⁻¹ * ε⁻¹_dot(λd * Ninv, real(eif)) #flat(ε⁻¹)) # _d2ẽ!(λẽ , λd  ,M̂ )
+	ẽ 	 =   𝓕⁻¹ * ε⁻¹_dot(d        , real(eif)) #flat(ε⁻¹)) # _d2ẽ!(M̂.e,M̂.d,M̂)
+	λẽ_sv  = reinterpret(reshape, SVector{3,Complex{T}}, λẽ )
+	ẽ_sv 	= reinterpret(reshape, SVector{3,Complex{T}}, ẽ )
+	m̄_kx = real.( λẽ_sv .* conj.(view(H,2,Nranges...)) .+ ẽ_sv .* conj.(view(λ,2,Nranges...)) )	#NB: m̄_kx and n̄_kx would actually
+	n̄_kx =  -real.( λẽ_sv .* conj.(view(H,1,Nranges...)) .+ ẽ_sv .* conj.(view(λ,1,Nranges...)) )	# be these quantities mulitplied by mag, I do that later because māg is calc'd with m̄/mag & n̄/mag
+	māg_kx = dot.(n⃗, n̄_kx) + dot.(m⃗, m̄_kx)
 
+	# mag2, m⃗, n⃗  = mag_m_n(k,grid)
+	# m̄n_kx = cat(
+	# 	reshape(reinterpret(reshape,T,m̄_kx),(3,1,size(grid)...)), 
+	# 	reshape(reinterpret(reshape,T,n̄_kx),(3,1,size(grid)...));
+	# 	dims=2
+	# )
+
+	k̄		= ∇ₖmag_m_n(
+				māg_kx, 		# māg total
+				m̄_kx.*mag, 	# m̄  total
+				n̄_kx.*mag,	  	# n̄  total
+				mag, m⃗, n⃗,
+			)
+
+	# @show k̄_new		= ∇ₖmag_mn(
+	# 		māg_kx, 		# māg total
+	# 		m̄n_kx*mag,	  	# mn̄  total
+	# 		mag, mns,
+	# 	)
+	return k̄, eī
+end
+
+function rrule(::typeof(HelmholtzMap), kz::T, ε⁻¹, grid::Grid; shift=0.) where {T<:Real}
+	function HelmholtzMap_pullback(M̄)
+		if M̄ isa AbstractZero
+			k̄	= ZeroTangent()
+			eī = ZeroTangent()
+		else
+			λ⃗ = -M̄.maps[1].lmap
+			H⃗ = M̄.maps[2].lmap'
+			k̄, eī = ∇M̂(kz,ε⁻¹,λ⃗,H⃗,grid)
+		end
+
+		return (NoTangent(), k̄, eī, ZeroTangent())
+	end
+	return HelmholtzMap(kz, ε⁻¹, grid; shift), HelmholtzMap_pullback
+end
+
+
+# function rrule(T::Type{<:LinearMaps.LinearCombination{Complex{T1}}},As::Tuple{<:HelmholtzMap,<:LinearMaps.UniformScalingMap}) where T1<:Real
+# 	function LinComb_Helmholtz_USM_pullback(M̄)
+# 		# return (NoTangent(), (M̄, M̄))
+# 		return (NoTangent(), Composite{Tuple{LinearMap,LinearMap}}(M̄, M̄))
+# 	end
+# 	return LinearMaps.LinearCombination{Complex{T1}}(As), LinComb_Helmholtz_USM_pullback
+# end
+#
+# function rrule(T::Type{<:LinearMaps.UniformScalingMap},α::T1,N::Int) where T1
+# 	function USM_pullback(M̄)
+# 		# ᾱ = dot(M̄.maps[1].lmap/N, M̄.maps[2].lmap')
+# 		ᾱ = mean( M̄.maps[1].lmap .* M̄.maps[2].lmap' )
+# 		return (NoTangent(), ᾱ, ZeroTangent())
+# 	end
+# 	return LinearMaps.UniformScalingMap(α,N), USM_pullback
+# end
+#
+# function rrule(T::Type{<:LinearMaps.UniformScalingMap},α::T1,N::Int,N2::Int) where T1
+# 	function USM_pullback(M̄)
+# 		# ᾱ = dot(M̄.maps[1].lmap/N, M̄.maps[2].lmap')
+# 		ᾱ = mean( M̄.maps[1].lmap .* M̄.maps[2].lmap' )
+# 		return (NoTangent(), ᾱ, ZeroTangent(), ZeroTangent())
+# 	end
+# 	return LinearMaps.UniformScalingMap(α,N,N2), USM_pullback
+# end
+#
+# function rrule(T::Type{<:LinearMaps.UniformScalingMap},α::T1,Ns::Tuple{<:Int,<:Int}) where T1
+# 	function USM_pullback(M̄)
+# 		# ᾱ = dot(M̄.maps[1].lmap/first(Ns), M̄.maps[2].lmap')
+# 		ᾱ = mean( M̄.maps[1].lmap .* M̄.maps[2].lmap' )
+# 		return (NoTangent(), ᾱ, DoesNotExist())
+# 	end
+# 	return LinearMaps.UniformScalingMap(α,Ns), USM_pullback
+# end
 
 
 
@@ -334,9 +450,9 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny, Nz) where
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
 
 	# eīf = flat(eī)
-	eīf = Buffer(Array{Float64,1}([2., 2.]),3,3,Nx,Ny,Nz) # bufferfrom(zero(T),3,3,Nx,Ny,Nz)
-	# eīf = bufferfrom(zero(eltype(real(d⃗)),3,3,Nx,Ny,Nz))
-	@avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+	eīf = Buffer(Array{Float64,1}([2., 2.]),3,3,Nx,Ny,Nz) 
+	# @avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
+	for iz=1:Nz,iy=1:Ny,ix=1:Nx
 		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
@@ -361,7 +477,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	# eīf = flat(eī)
 	eīf = Buffer(Array{Float64,1}([2., 2.]),3,3,Nx,Ny) # bufferfrom(zero(T),3,3,Nx,Ny)
 	# eīf = bufferfrom(zero(eltype(real(d⃗)),3,3,Nx,Ny))
-	@avx for iy=1:Ny,ix=1:Nx
+	# @avx for iy=1:Ny,ix=1:Nx
+	for iy=1:Ny,ix=1:Nx
 		q = (Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
@@ -379,6 +496,12 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	return eī # inv( (eps' + eps) / 2)
 end
 
+# newer Tullio based version
+function ε⁻¹_bar(d⃗::AbstractArray{Complex{T},N}, λ⃗d::AbstractArray{Complex{T},N}) where {T<:Real,N}
+	-real( herm_back(_outer(λ⃗d,d⃗)))
+end
+
+#####
 function solve_adj!(λ⃗,M̂::HelmholtzMap,H̄,ω²,H⃗,eigind::Int;log=false)
 	# log=true
 	res = bicgstabl!(

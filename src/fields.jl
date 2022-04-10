@@ -9,6 +9,8 @@
 export unflat, _d2ẽ!, _H2d!, _H2e!, E⃗, E⃗x, E⃗y, E⃗z, H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z
 export normE!, Ex_norm, Ey_norm, val_magmax, ax_magmax, idx_magmax, group_index,
 		 canonicalize_phase, canonicalize_phase!
+
+export E_relpower_xyz, Eslices, count_E_nodes, mode_viable, mode_idx 
 # export _cross, _cross_x, _cross_y, _cross_z, _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
 # export _outer
  #, slice_inv 	# stuff to get rid of soon
@@ -512,6 +514,133 @@ end
 #     end
 #     return transpose(hcat(ngs...))
 # end
+
+
+"""
+################################################################################
+#																			   #
+#							Mode Filtering Functions					   	   #
+#																			   #
+################################################################################
+"""
+
+"""
+Calculate the relative E-field power along each grid axis (integrated over space) for a mode field, and return these values as a 3-Tuple.
+This is useful for categorizing/distinguishing mode polarization, for example quasi-TE modes might give values like (0.95,0.04,0.01) while
+quasi-TM modes give values more like (0.01,0.98,0.01).
+"""
+function E_relpower_xyz(eps::AbstractArray{T,4},E::AbstractArray{Complex{T},3}) where T<:Real
+    return normalize( real( @tullio E_abspower_xyz[i] := conj(E)[i,ix,iy] * eps[i,j,ix,iy] * E[j,ix,iy] ))
+end
+
+function E_relpower_xyz(eps::AbstractArray{T,5},E::AbstractArray{Complex{T},4}) where T<:Real
+    return normalize( real( @tullio E_abspower_xyz[i] := conj(E)[i,ix,iy,iz] * eps[i,j,ix,iy,iz] * E[j,ix,iy,iz] ))
+end
+
+"""
+Return slices (views) of E-field component `component_idx` along each axis intersecting the point at Cartesian index `pos_idx`
+"""
+function Eslices(E,component_idx,pos_idx::CartesianIndex{2})
+    return ( view(E,component_idx,:,pos_idx[2]), view(E,component_idx,pos_idx[1],:) ) 
+end
+
+"""
+Return slices (views) of E-field component `component_idx` along each axis intersecting the point at Cartesian index `pos_idx`
+"""
+function Eslices(E,component_idx,pos_idx::CartesianIndex{3})
+    return ( view(E,component_idx,:,pos_idx[2],pos_idx[3]), view(E,component_idx,pos_idx[1],:,pos_idx[3]), view(E,component_idx,pos_idx[1],pos_idx[2],:) ) 
+end
+
+"""
+Count the number of E-field zero crossings along each grid axis intersecting the peak E-field intensity maximum for a given field component `component_idx`.
+This assumes that the input E-field amplitude is normalized to and real at (phase=0) the peak amplitude component-wise amplitude. 
+Slices of the specified E-field component are cropped at the points where the component magnitude drops below `rel_amp_min` to avoid counting 
+zero-crossings in numerical noise where the E-field magnitude is negligible.
+
+This is useful when filtering for a specific mode order (eg. TE₀₀ or TM₂₁) in the presence of mode-crossings.
+"""
+function count_E_nodes(E,eps,component_idx;rel_amp_min=0.1) 
+    peak_idx = argmax(real(_3dot(E,eps,E)[component_idx,..]))
+    E_slcs = Eslices(real(E),component_idx,peak_idx)
+    node_counts = map(E_slcs) do E_slice
+        min_idx = findfirst(x->(x>rel_amp_min),abs.(E_slice))
+        max_idx = findlast(x->(x>rel_amp_min),abs.(E_slice))
+        n_zero_xing = sum(abs.(diff(sign.(E_slice[min_idx:max_idx]))))
+        return n_zero_xing
+    end
+    return node_counts
+end
+
+# """
+# Utility function for debugging count_E_nodes function.
+# inspect output with something like: 
+#     slcs_inds = windowed_E_slices(E,eps,component_idx;rel_amp_min=0.1)
+#     ind_min_xslc, ind_max_xslc = slcs_inds[1][2:3]
+#     E_xslc = slcs_inds[1][1]
+#     scatterlines(x(grid)[ind_min_xslc:ind_max_xslc],real(E_xslc[ind_min_xslc:ind_max_xslc]))
+# """
+# function windowed_E_slices(E,eps,component_idx;rel_amp_min=0.1) 
+#     peak_idx = argmax(real(_3dot(E,eps,E)[component_idx,..]))
+#     E_slcs = Eslices(real(E),component_idx,peak_idx)
+#     slices_and_window_inds = map(E_slcs) do E_slice
+#         min_idx = findfirst(x->(x>rel_amp_min),abs.(E_slice))
+#         max_idx = findlast(x->(x>rel_amp_min),abs.(E_slice))
+#         # n_zero_xing = sum(abs.(diff(sign.(E_slice[min_idx:max_idx]))))
+#         return E_slice, min_idx, max_idx
+#     end
+#     return slices_and_window_inds
+# end
+
+# """
+# `inspect_slcs_inds` plots the output of `windowed_E_slices` above
+# for inspection when debugging the `count_E_nodes` function.
+# """
+# function inspect_slcs_inds(slcs_inds;ax=nothing)
+#     if isnothing(ax)
+#         fig = Figure()
+#         ax = fig[1,1] = Axis(fig)
+#         ret = fig
+#     else
+#         ret = ax
+#     end
+#     map(slcs_inds,(x(grid),y(grid)),(logocolors[:red],logocolors[:blue])) do slc_ind, ax_coords, ln_clr
+#         E_slc = slc_ind[1]
+#         ind_min_slc, ind_max_slc = slc_ind[2:3]
+#         scatterlines!(ax,ax_coords[ind_min_slc:ind_max_slc],real(E_slc[ind_min_slc:ind_max_slc]),color=ln_clr)
+#     end
+#     return ret
+# end
+
+"""
+Return `true` if the following conditions are met:
+    (1) The mode E-field `E` is dominantly polarized along axis index `pol_idx`
+    (2) The Hermite-Gaussian mode order computed by `count_E_nodes` is equal to `mode_order`
+Otherwise, return `false`.  
+"""
+function mode_viable(E,eps;pol_idx=1,mode_order=(0,0),rel_amp_min=0.4)
+    Epwr = E_relpower_xyz(eps,E)
+    Epol_axind = argmax(Epwr)
+    E_mode_order = count_E_nodes(E,eps,Epol_axind;rel_amp_min)
+    return ( isequal(argmax(Epwr),pol_idx) && isequal(E_mode_order,mode_order) )
+end
+
+"""
+Identify the mode of a given order/polarization in an vector of
+eigenmode E-fields `Es`, length `nbands`, found by solving Helmholtz Equation at a single frequency.
+"""
+function mode_idx(Es::AbstractVector,eps;pol_idx=1,mode_order=(0,0),rel_amp_min=0.4)
+    return findfirst(EE->mode_viable(EE,eps;pol_idx,mode_order,rel_amp_min),Es)
+end
+
+# """
+# Identify the mode of a given order/polarization for each frequency index in an vector of
+# eigenmode E-fields `Es`, length `nbands`.
+# """
+# function mode_idx(Es,eps::AbstractVector;pol_idx=1,mode_order=(0,0),rel_amp_min=0.4)
+#     n_freq = first(size(Es))
+#     return [ findfirst(EE->mode_viable(EE,eps[fidx];pol_idx,mode_order,rel_amp_min),Es[fidx,:]) for fidx=1:n_freq ]
+# end
+
 
 
 """

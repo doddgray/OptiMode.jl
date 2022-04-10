@@ -3,8 +3,13 @@ export MPB_Solver, n_range #, mp, mpb, np
 
 mutable struct MPB_Solver <: AbstractEigensolver end
 
+# function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
+# 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
+# 	f_filter=nothing) where {ND,T<:Real} 
+
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_Solver; nev=1,
-        k_tol=1e-8,eig_tol=1e-8,maxiter=100,log=false,f_filter=nothing,overwrite=false) where {ND,T<:Real}
+    max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
+    f_filter=nothing,overwrite=false) where {ND,T<:Real}
     ε = sliceinv_3x3(ε⁻¹)
     ks,evecs = find_k(ω,ε,grid;num_bands=nev,overwrite,k_tol,eig_tol)
     return ks, evecs

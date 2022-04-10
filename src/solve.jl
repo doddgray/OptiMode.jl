@@ -149,7 +149,7 @@ end
 
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
-	f_filter=nothing) where {ND,T<:Real} 
+	f_filter=nothing,overwrite=false) where {ND,T<:Real} 
 	# ms = ignore() do
 	# 	kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
 	# 	ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, eig_tol)
@@ -199,10 +199,11 @@ end
 # end
 
 
-function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
+function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::TS;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
-	f_filter=nothing) where {ND,T<:Real} 
-	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+	f_filter=nothing,overwrite=false) where {ND,T<:Real,TS<:AbstractEigensolver} 
+	kmags,evecs = solve_k(ω, ε⁻¹, grid, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, kguess, Hguess,
+	f_filter, overwrite)
 	# g⃗ = copy(ms.M̂.g⃗)
 	# (mag, m⃗, n⃗), mag_m_n_pb = Zygote.pullback(k) do x
 	# 	mag_m_n(x,dropgrad(g⃗))
