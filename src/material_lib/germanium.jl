@@ -1,12 +1,12 @@
 ################################################################################
-#                                   silicon                                    #
+#                                   germanium                                    #
 ################################################################################
-export silicon, n²_silicon, n²_ω_silicon
+export germanium, n²_germanium, n²_ω_germanium
 
 """
 This code creates a symbolic representation of the Sellmeier Equation model
-for the index of refraction of crystalline silicon. Equation form is based on:
-    Frey, Leviton and Madison, "Temperature-dependent refractive index of silicon and germanium"
+for the index of refraction of crystalline germanium. Equation form is based on:
+    Frey, Leviton and Madison, "Temperature-dependent refractive index of germanium and germanium"
 	https://arxiv.org/pdf/physics/0606168.pdf
 
 in work from NASA Goddard using their Cryogenic High-Accuracy Refraction Measuring System (CHARMS).
@@ -35,48 +35,48 @@ In the referenced paper three-term Sellemeier forms are used, and thus Sᵢⱼ a
 				λ₀₃		λ₃₁		λ₃₂		λ₃₃		λ₃₄		]
 
 is provided for germanium Table 10 of the referenced paper. The model matches experiment
-    in the vacuum wavelength and temperature ranges:
-    
-        1.1 μm 	<	λ	<	5.6 μm
-        20 K	<	T 	<	300 K
-    
+in the vacuum wavelength and temperature ranges:
+
+	1.9 μm 	<	λ	<	5.5 μm
+	20 K	<	T 	<	300 K
+
 and should match decently well slightly outside these ranges.
 
 The symbolic index model and its derivatives in turn are used to generate
-numerical functions for the silicon index, group index and GVD as a function
+numerical functions for the germanium index, group index and GVD as a function
 of temperature and wavelength.
+
 Variable units are lm in [um] and T in [deg C]
 """
 
-# Sij_lmij_si     =  [
-#     10.4907     -1346.61        4.42827E+07     0.299713     -3.51710E+03      1.71400E+06
-#     -2.08020E-04        29.1664     -1.76213E+06     -1.14234E-05      42.3892     -1.44984E+05
-#     4.21694E-06     -0.278724       -7.61575E+04    1.67134E-07   -0.357957        -6.90744E+03
-#     -5.82298E-09        1.05939E-03     678.414      -2.51049E-10      1.17504E-03    -39.3699
-#     3.44688E-12     -1.35089E-06        103.243     2.32484E-14      -1.13212E-06      23.5770
+# Sij_lmij_ge     =  [
+# 	13.9723		0.452096	751.447	0.386367	1.08843	-2893.19
+# 	2.52809E-03	-3.09197E-03	-14.2843	2.01871E-04	1.16510E-03	-0.967948
+# 	-5.02195E-06	2.16895E-05	-0.238093	-5.93448E-07	-4.97284E-06	-0.527016
+# 	2.22604E-08	-6.02290E-08	2.96047E-03	-2.27923E-10	1.12357E-08	6.49364E-03
+# 	-4.86238E-12	4.12038E-11	-7.73454E-06	5.37423E-12	9.40201E-12	-1.95162E-05
 # ]' 
-# Sᵢⱼ_silicon =   Sij_lmij_si[1:3,:]
-# λᵢⱼ_silicon =   Sij_lmij_si[4:6,:]
+# Sᵢⱼ_germanium =   Sij_lmij_ge[1:3,:]
+# λᵢⱼ_germanium =   Sij_lmij_ge[4:6,:]
 
-Sᵢⱼ_silicon =   [   
-    10.4907     -0.00020802     4.21694e-6      -5.82298e-9     3.44688e-12
-    -1346.61    29.1664         -0.278724       0.00105939      -1.35089e-6
-    4.42827e7   -1.76213e6      -76157.5        678.414         103.243      
+Sᵢⱼ_germanium =   [   
+	13.9723     0.00252809  	-5.02195e-6   	2.22604e-8  	-4.86238e-12
+   	0.452096  	-0.00309197   	2.16895e-5  	-6.0229e-8    	4.12038e-11
+   	751.447     -14.2843      	-0.238093     	0.00296047  	-7.73454e-6
 ]
 
-λᵢⱼ_silicon =   [   
-    0.299713    -1.14234e-5     1.67134e-7      -2.51049e-10    2.32484e-14
-    -3517.1     42.3892         -0.357957       0.00117504      -1.13212e-6
-    1.714e6     -144984.0       -6907.44        -39.3699        23.577
+λᵢⱼ_germanium =   [   
+    0.386367 	0.000201871 	-5.93448e-7  	-2.27923e-10   	5.37423e-12
+    1.08843    	0.0011651    	-4.97284e-6   	1.12357e-8    	9.40201e-12
+	-2893.19    -0.967948    	-0.527016     	0.00649364  	-1.95162e-5
 ]
 
-n²_silicon(λ, T)    =   n²_sym_NASA( λ, T ; Sᵢⱼ=Sᵢⱼ_silicon, λᵢⱼ=λᵢⱼ_silicon,)
-n²_ω_silicon(ω, T)  =   n²_sym_NASA_ω( ω, T ; Sᵢⱼ=Sᵢⱼ_silicon, λᵢⱼ=λᵢⱼ_silicon,)
+n²_germanium(λ, T)    =   n²_sym_NASA( λ, T ; Sᵢⱼ=Sᵢⱼ_germanium, λᵢⱼ=λᵢⱼ_germanium,)
+n²_ω_germanium(ω, T)  =   n²_sym_NASA_ω( ω, T ; Sᵢⱼ=Sᵢⱼ_germanium, λᵢⱼ=λᵢⱼ_germanium,)
 
-
-function make_silicon(;p_n²=p_n²_silicon)
+function make_germanium(;p_n²=p_n²_germanium)
 	@variables ω, λ, T
-	n² = n²_ω_silicon(ω,T-273.15)
+	n² = n²_ω_germanium(ω,T-273.15)
 	n_λ = sqrt(substitute(n²,Dict([(ω=>1/λ),]))) 
 	ng = ng_model(n_λ,λ)
 	gvd = gvd_model(n_λ,λ)
@@ -92,9 +92,9 @@ function make_silicon(;p_n²=p_n²_silicon)
 		:T		=>		295.0,	    # °C
 
 	])
-	Material(models, defaults, :silicon, colorant"grey")
+	Material(models, defaults, :germanium, colorant"brown")
 end
 
 ################################################################
 
-silicon = make_silicon()
+germanium = make_germanium()

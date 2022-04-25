@@ -256,6 +256,93 @@ function n_sym_cauchy_ω( ω ; A=1, B=0, C=0, B₂=0, kwargs...)
     A   +   B * ω^2    +   C * ω^4
 end
 
+"""
+Dispersive thermo-optic Sellmeier format based on:
+	Frey, Leviton and Madison, "Temperature-dependent refractive index of silicon and germanium"
+	https://arxiv.org/pdf/physics/0606168.pdf
+
+in work from NASA Goddard using their Cryogenic High-Accuracy Refraction Measuring System (CHARMS).
+
+The squared index of refraction n² is approximated in a Sellmeier form 
+
+	n² = 1 + ∑ᵢ ( Sᵢ * λ² ) / ( λ² - λᵢ² )
+
+with temperature-dependent coefficients Sᵢ and λᵢ representing the strengths and vacuum 
+wavelengths of optical resonances, respectively. Sᵢ and λᵢ are both calcualted as fourth-order
+polynomials in absolute temperature `T` (in deg. Kelvin). Model parameters are supplied as
+n × 5 matrices Sᵢⱼ and λᵢⱼ, where n is the number of Sellmeier terms. Sᵢ and λᵢ are 
+calculated as dot products
+
+	Sᵢ	=	Sᵢⱼ ⋅ [1, T, T^2, T^3, T^4]
+	λᵢ	=	λᵢⱼ ⋅ [1, T, T^2, T^3, T^4]
+
+In the referenced paper three-term Sellemeier forms are used, and thus Sᵢⱼ and λᵢⱼ of the form
+
+	Sᵢⱼ	= 	[	S₀₁		S₁₁		S₁₂		S₁₃		S₁₄
+				S₀₂		S₂₁		S₂₂		S₂₃		S₂₄
+				S₀₃		S₃₁		S₃₂		S₃₃		S₃₄		]
+
+	λᵢⱼ	= 	[	λ₀₁		λ₁₁		λ₁₂		λ₁₃		λ₁₄
+				λ₀₂		λ₂₁		λ₂₂		λ₂₃		λ₂₄
+				λ₀₃		λ₃₁		λ₃₂		λ₃₃		λ₃₄		]
+
+is provided for silicon and germanium in Tables 5 and 10, respectively.
+"""
+function n²_sym_NASA( λ, T ; Sᵢⱼ=zeros(3,5), λᵢⱼ=zeros(3,5), kwargs...)
+    λ² 	= 	λ^2
+	# Tₖ	=	T + 273.15
+	# T_pows	=	[1, Tₖ, Tₖ^2, Tₖ^3, Tₖ^4]
+	T_pows	=	[1.0, T, T^2, T^3, T^4]
+	Sᵢ	=	Sᵢⱼ * T_pows
+	λᵢ	=	λᵢⱼ * T_pows
+	return 1 + sum( s_lm->((first(s_lm) * λ²)/(λ²-last(s_lm)^2)), zip(Sᵢ, λᵢ) )		# <--- nominal
+	# return sum( s_lm->((first(s_lm)^2 * λ²)/(λ²-last(s_lm))), zip(Sᵢ, λᵢ) )
+end
+
+"""
+Dispersive thermo-optic Sellmeier format based on:
+	Frey, Leviton and Madison, "Temperature-dependent refractive index of silicon and germanium"
+	https://arxiv.org/pdf/physics/0606168.pdf
+
+in work from NASA Goddard using their Cryogenic High-Accuracy Refraction Measuring System (CHARMS).
+
+The squared index of refraction n² is approximated in a Sellmeier form 
+
+	n² = 1 + ∑ᵢ  Sᵢ / ( 1 - (ω * λᵢ)² )
+
+with temperature-dependent coefficients Sᵢ and λᵢ representing the strengths and vacuum 
+wavelengths of optical resonances, respectively. Sᵢ and λᵢ are both calcualted as fourth-order
+polynomials in absolute temperature `T` (in deg. Kelvin). Model parameters are supplied as
+n × 5 matrices Sᵢⱼ and λᵢⱼ, where n is the number of Sellmeier terms. Sᵢ and λᵢ are 
+calculated as dot products
+
+	Sᵢ	=	Sᵢⱼ ⋅ [1, T, T^2, T^3, T^4]
+	λᵢ	=	λᵢⱼ ⋅ [1, T, T^2, T^3, T^4]
+
+In the referenced paper three-term Sellemeier forms are used, and thus Sᵢⱼ and λᵢⱼ of the form
+
+	Sᵢⱼ	= 	[	S₀₁		S₁₁		S₁₂		S₁₃		S₁₄
+				S₀₂		S₂₁		S₂₂		S₂₃		S₂₄
+				S₀₃		S₃₁		S₃₂		S₃₃		S₃₄		]
+
+	λᵢⱼ	= 	[	λ₀₁		λ₁₁		λ₁₂		λ₁₃		λ₁₄
+				λ₀₂		λ₂₁		λ₂₂		λ₂₃		λ₂₄
+				λ₀₃		λ₃₁		λ₃₂		λ₃₃		λ₃₄		]
+
+is provided for silicon and germanium in Tables 5 and 10, respectively.
+"""
+function n²_sym_NASA_ω( ω, T ; Sᵢⱼ=zeros(3,5), λᵢⱼ=zeros(3,5), kwargs...)
+	# Tₖ	=	T + 273.15
+	# T_pows	=	[1, Tₖ, Tₖ^2, Tₖ^3, Tₖ^4]
+	T_pows	=	[1, T, T^2, T^3, T^4]
+	Sᵢ	=	Sᵢⱼ * T_pows
+	λᵢ	=	λᵢⱼ * T_pows
+	# return 1 + sum( (s,lm)->((s^2)/(1-(lm*ω)^2)), zip(Sᵢ, λᵢ) )
+	return 1 + sum( s_lm->(first(s_lm)/(1-(last(s_lm)*ω)^2)), zip(Sᵢ, λᵢ) )
+	# return 1 + sum( s_lm->((first(s_lm)^2)/(1-last(s_lm)*ω^2)), zip(Sᵢ, λᵢ) )
+end
+
+
 # Miller's Delta scaling
 function Δₘ_factors(λs,ε_sym)
 	λ = Num(first(get_variables(sum(ε_sym))))
@@ -496,7 +583,8 @@ include("material_lib/SiO2.jl")
 include("material_lib/Si3N4.jl")
 include("material_lib/αAl2O3.jl")
 include("material_lib/LiB3O5.jl")
-# include("material_lib/silicon.jl")
+include("material_lib/silicon.jl")
+include("material_lib/germanium.jl")
 # include("material_lib/GaAs.jl")
 # include("material_lib/MgF2.jl")
 # include("material_lib/HfO2.jl")
