@@ -74,7 +74,7 @@ Sᵢⱼ_germanium =   [
 n²_germanium(λ, T)    =   n²_sym_NASA( λ, T ; Sᵢⱼ=Sᵢⱼ_germanium, λᵢⱼ=λᵢⱼ_germanium,)
 n²_ω_germanium(ω, T)  =   n²_sym_NASA_ω( ω, T ; Sᵢⱼ=Sᵢⱼ_germanium, λᵢⱼ=λᵢⱼ_germanium,)
 
-function make_germanium(;p_n²=p_n²_germanium)
+function make_germanium()
 	@variables ω, λ, T
 	n² = n²_ω_germanium(ω,T-273.15)
 	n_λ = sqrt(substitute(n²,Dict([(ω=>1/λ),]))) 

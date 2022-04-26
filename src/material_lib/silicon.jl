@@ -74,7 +74,7 @@ n²_silicon(λ, T)    =   n²_sym_NASA( λ, T ; Sᵢⱼ=Sᵢⱼ_silicon, λᵢ�
 n²_ω_silicon(ω, T)  =   n²_sym_NASA_ω( ω, T ; Sᵢⱼ=Sᵢⱼ_silicon, λᵢⱼ=λᵢⱼ_silicon,)
 
 
-function make_silicon(;p_n²=p_n²_silicon)
+function make_silicon()
 	@variables ω, λ, T
 	n² = n²_ω_silicon(ω,T-273.15)
 	n_λ = sqrt(substitute(n²,Dict([(ω=>1/λ),]))) 
