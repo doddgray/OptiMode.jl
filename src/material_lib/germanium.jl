@@ -76,20 +76,20 @@ n²_ω_germanium(ω, T)  =   n²_sym_NASA_ω( ω, T ; Sᵢⱼ=Sᵢⱼ_germanium,
 
 function make_germanium()
 	@variables ω, λ, T
-	n² = n²_ω_germanium(ω,T-273.15)
-	n_λ = sqrt(substitute(n²,Dict([(ω=>1/λ),]))) 
-	ng = ng_model(n_λ,λ)
-	gvd = gvd_model(n_λ,λ)
+	n² = n²_ω_germanium(ω,T+273.15)
+	# n_λ = sqrt(substitute(n²,Dict([(ω=>1/λ),]))) 
+	# ng = ng_model(n_λ,λ)
+	# gvd = gvd_model(n_λ,λ)
 	models = Dict([
-		:n		=>	n_λ,
-		:ng		=>	ng,
-		:gvd	=>	gvd,
+		# :n		=>	n_λ,
+		# :ng		=>	ng,
+		# :gvd	=>	gvd,
 		:ε 		=> 	diagm([n², n², n²]),
 	])
 	defaults =	Dict([
 		:ω		=>		inv(1.55),	# μm⁻¹
 		:λ		=>		1.55,		# μm
-		:T		=>		295.0,	    # °C
+		:T		=>		20.0, # 295.0,	    # °C
 
 	])
 	Material(models, defaults, :germanium, colorant"brown")
