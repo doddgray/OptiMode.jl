@@ -322,8 +322,8 @@ function kx_tc!(d::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4},mn
     # @assert size(Y) === size(X)
     # @assert size(d,4) == 3
     # @assert size(H,4) === 2
-    @avx for k ∈ axes(d,4), j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
-	# @avx for i ∈ axes(d,1), j ∈ axes(d,2), k ∈ axes(d,3), l in 0:0
+    @inbounds @fastmath for k ∈ axes(d,4), j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
+	# @inbounds @fastmath for i ∈ axes(d,1), j ∈ axes(d,2), k ∈ axes(d,3), l in 0:0
 		# scale = -mag[i,j,k]
 		d[1+l,i,j,k] = ( H[1,i,j,k] * mn[1+l,2,i,j,k] - H[2,i,j,k] * mn[1+l,1,i,j,k] ) * -mag[i,j,k]
         d[2+l,i,j,k] = ( H[1,i,j,k] * mn[2+l,2,i,j,k] - H[2,i,j,k] * mn[2+l,1,i,j,k] ) * -mag[i,j,k]
@@ -333,7 +333,7 @@ function kx_tc!(d::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4},mn
 end
 
 function zx_tc!(d::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4},mn::AbstractArray{T,5})::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(d,4), j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
+    @inbounds @fastmath for k ∈ axes(d,4), j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
 		d[1+l,i,j,k] = -H[1,i,j,k] * mn[2+l,1,i,j,k] - H[2,i,j,k] * mn[2+l,2,i,j,k]
         d[2+l,i,j,k] =  H[1,i,j,k] * mn[1+l,1,i,j,k] + H[2,i,j,k] * mn[1+l,2,i,j,k]
     end
@@ -341,7 +341,7 @@ function zx_tc!(d::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4},mn
 end
 
 function kx_ct!(H::AbstractArray{Complex{T},4},e::AbstractArray{Complex{T},4},mn::AbstractArray{T,5},mag::AbstractArray{T,3},Ninv::T)::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(H,4), j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
+    @inbounds @fastmath for k ∈ axes(H,4), j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
         scale = mag[i,j,k] * Ninv
         H[1+l,i,j,k] =  (	e[1+l,i,j,k] * mn[1+l,2,i,j,k] + e[2+l,i,j,k] * mn[2+l,2,i,j,k] + e[3+l,i,j,k] * mn[3+l,2,i,j,k]	) * -scale  # -mag[i,j,k] * Ninv
 		H[2+l,i,j,k] =  (	e[1+l,i,j,k] * mn[1+l,1,i,j,k] + e[2+l,i,j,k] * mn[2+l,1,i,j,k] + e[3+l,i,j,k] * mn[3+l,1,i,j,k]	) * scale   # mag[i,j,k] * Ninv
@@ -350,7 +350,7 @@ function kx_ct!(H::AbstractArray{Complex{T},4},e::AbstractArray{Complex{T},4},mn
 end
 
 # function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
-#     @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
+#     @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
 #         e[1+h,i,j,k] =  ε⁻¹[1+h,1+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,1+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,1+l,i,j,k]*d[3+l,i,j,k]
 #         e[2+h,i,j,k] =  ε⁻¹[1+h,2+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,2+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,2+l,i,j,k]*d[3+l,i,j,k]
 #         e[3+h,i,j,k] =  ε⁻¹[1+h,3+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,3+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,3+l,i,j,k]*d[3+l,i,j,k]
@@ -359,7 +359,7 @@ end
 # end
 
 function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
+    @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
         e[1+h,i,j,k] =  ε⁻¹[1+h,1+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,1+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,1+l,i,j,k]*d[3+l,i,j,k]
         e[2+h,i,j,k] =  ε⁻¹[1+h,2+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,2+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,2+l,i,j,k]*d[3+l,i,j,k]
         e[3+h,i,j,k] =  ε⁻¹[1+h,3+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,3+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,3+l,i,j,k]*d[3+l,i,j,k]
@@ -376,7 +376,7 @@ function eid!(e::AbstractArray{Complex{T},4},ε⁻¹::AbstractArray{TA,3},d::Abs
 end
 
 function kxinv_tc!(e::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4},mn::AbstractArray{T,5},inv_mag::AbstractArray{T,3})::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
+    @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
 		e[1+l,i,j,k] = ( H[1,i,j,k] * mn[1+l,2,i,j,k] - H[2,i,j,k] * mn[1+l,1,i,j,k] ) * inv_mag[i,j,k]
         e[2+l,i,j,k] = ( H[1,i,j,k] * mn[2+l,2,i,j,k] - H[2,i,j,k] * mn[2+l,1,i,j,k] ) * inv_mag[i,j,k]
         e[3+l,i,j,k] = ( H[1,i,j,k] * mn[3+l,2,i,j,k] - H[2,i,j,k] * mn[3+l,1,i,j,k] ) * inv_mag[i,j,k]
@@ -385,7 +385,7 @@ function kxinv_tc!(e::AbstractArray{Complex{T},4},H::AbstractArray{Complex{T},4}
 end
 
 function kxinv_ct!(H::AbstractArray{Complex{T},4},d::AbstractArray{Complex{T},4},mn::AbstractArray{T,5},inv_mag::AbstractArray{T,3},N::T)::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(H,4), j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
+    @inbounds @fastmath for k ∈ axes(H,4), j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
         scale = inv_mag[i,j,k] * N
         H[1+l,i,j,k] =  (	d[1+l,i,j,k] * mn[1+l,2,i,j,k] + d[2+l,i,j,k] * mn[2+l,2,i,j,k] + d[3+l,i,j,k] * mn[3+l,2,i,j,k]	) * scale # inv_mag[i,j,k] * N
 		H[2+l,i,j,k] =  (	d[1+l,i,j,k] * mn[1+l,1,i,j,k] + d[2+l,i,j,k] * mn[2+l,1,i,j,k] + d[3+l,i,j,k] * mn[3+l,1,i,j,k]	) * -scale # inv_mag[i,j,k] * N
@@ -394,7 +394,7 @@ function kxinv_ct!(H::AbstractArray{Complex{T},4},d::AbstractArray{Complex{T},4}
 end
 
 function ed_approx!(d::AbstractArray{Complex{T},4},ε_ave::AbstractArray{T,3},e::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
-    @avx for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
+    @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
         d[1+l,i,j,k] =  ε_ave[i,j,k]*e[1+l,i,j,k]
         d[2+l,i,j,k] =  ε_ave[i,j,k]*e[2+l,i,j,k]
         d[3+l,i,j,k] =  ε_ave[i,j,k]*e[3+l,i,j,k]
@@ -408,8 +408,8 @@ function kx_tc!(d::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn
     # @assert size(Y) === size(X)
     # @assert size(d,4) == 3
     # @assert size(H,4) === 2
-    @avx for j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
-	# @avx for i ∈ axes(d,1), j ∈ axes(d,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
+	# @inbounds @fastmath for i ∈ axes(d,1), j ∈ axes(d,2), l in 0:0
 		# scale = -mag[i,j,k]
 		d[1+l,i,j] = ( H[1,i,j] * mn[1+l,2,i,j] - H[2,i,j] * mn[1+l,1,i,j] ) * -mag[i,j]
         d[2+l,i,j] = ( H[1,i,j] * mn[2+l,2,i,j] - H[2,i,j] * mn[2+l,1,i,j] ) * -mag[i,j]
@@ -419,7 +419,7 @@ function kx_tc!(d::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn
 end
 
 function zx_tc!(d::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn::AbstractArray{T,4})::AbstractArray{Complex{T},3} where T<:Real
-    @avx for j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
 		d[1+l,i,j] = -H[1,i,j] * mn[2+l,1,i,j] - H[2,i,j] * mn[2+l,2,i,j]
         d[2+l,i,j] =  H[1,i,j] * mn[1+l,1,i,j] + H[2,i,j] * mn[1+l,2,i,j]
     end
@@ -427,7 +427,7 @@ function zx_tc!(d::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn
 end
 
 function kx_ct!(H::AbstractArray{Complex{T},3},e::AbstractArray{Complex{T},3},mn::AbstractArray{T,4},mag::AbstractArray{T,2},Ninv::T)::AbstractArray{Complex{T},3} where T<:Real
-    @avx for j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
         scale = mag[i,j] * Ninv
         H[1+l,i,j] =  (	e[1+l,i,j] * mn[1+l,2,i,j] + e[2+l,i,j] * mn[2+l,2,i,j] + e[3+l,i,j] * mn[3+l,2,i,j]	) * -scale  # -mag[i,j] * Ninv
 		H[2+l,i,j] =  (	e[1+l,i,j] * mn[1+l,1,i,j] + e[2+l,i,j] * mn[2+l,1,i,j] + e[3+l,i,j] * mn[3+l,1,i,j]	) * scale   # mag[i,j] * Ninv
@@ -436,7 +436,7 @@ function kx_ct!(H::AbstractArray{Complex{T},3},e::AbstractArray{Complex{T},3},mn
 end
 
 function eid!(e::AbstractArray{Complex{T},3},ε⁻¹,d::AbstractArray{Complex{T},3}) where T<:Real
-    @avx for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
+    @inbounds @fastmath for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
         e[1+h,i,j] =  ε⁻¹[1+h,1+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,1+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,1+l,i,j]*d[3+l,i,j]
         e[2+h,i,j] =  ε⁻¹[1+h,2+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,2+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,2+l,i,j]*d[3+l,i,j]
         e[3+h,i,j] =  ε⁻¹[1+h,3+l,i,j]*d[1+l,i,j] + ε⁻¹[2+h,3+l,i,j]*d[2+l,i,j] + ε⁻¹[3+h,3+l,i,j]*d[3+l,i,j]
@@ -453,7 +453,7 @@ function eid!(e::AbstractArray{Complex{T},3},ε⁻¹::AbstractArray{TA,2},d::Abs
 end
 
 function kxinv_tc!(e::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn::AbstractArray{T,4},inv_mag::AbstractArray{T,2})::AbstractArray{Complex{T},3} where T<:Real
-    @avx for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
 		e[1+l,i,j] = ( H[1,i,j] * mn[1+l,2,i,j] - H[2,i,j] * mn[1+l,1,i,j] ) * inv_mag[i,j]
         e[2+l,i,j] = ( H[1,i,j] * mn[2+l,2,i,j] - H[2,i,j] * mn[2+l,1,i,j] ) * inv_mag[i,j]
         e[3+l,i,j] = ( H[1,i,j] * mn[3+l,2,i,j] - H[2,i,j] * mn[3+l,1,i,j] ) * inv_mag[i,j]
@@ -462,7 +462,7 @@ function kxinv_tc!(e::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3}
 end
 
 function kxinv_ct!(H::AbstractArray{Complex{T},3},d::AbstractArray{Complex{T},3},mn::AbstractArray{T,4},inv_mag::AbstractArray{T,2},N::T)::AbstractArray{Complex{T},3} where T<:Real
-    @avx for j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(H,3), i ∈ axes(H,2), l in 0:0
         scale = inv_mag[i,j] * N
         H[1+l,i,j] =  (	d[1+l,i,j] * mn[1+l,2,i,j] + d[2+l,i,j] * mn[2+l,2,i,j] + d[3+l,i,j] * mn[3+l,2,i,j]	) * scale # inv_mag[i,j] * N
 		H[2+l,i,j] =  (	d[1+l,i,j] * mn[1+l,1,i,j] + d[2+l,i,j] * mn[2+l,1,i,j] + d[3+l,i,j] * mn[3+l,1,i,j]	) * -scale # inv_mag[i,j] * N
@@ -471,7 +471,7 @@ function kxinv_ct!(H::AbstractArray{Complex{T},3},d::AbstractArray{Complex{T},3}
 end
 
 function ed_approx!(d::AbstractArray{Complex{T},3},ε_ave::AbstractArray{T,2},e::AbstractArray{Complex{T},3})::AbstractArray{Complex{T},3} where T<:Real
-    @avx for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
+    @inbounds @fastmath for j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0
         d[1+l,i,j] =  ε_ave[i,j]*e[1+l,i,j]
         d[2+l,i,j] =  ε_ave[i,j]*e[2+l,i,j]
         d[3+l,i,j] =  ε_ave[i,j]*e[3+l,i,j]
