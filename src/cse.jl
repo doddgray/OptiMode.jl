@@ -195,7 +195,7 @@ function oop_fn_op(A::AbstractArray, args...;
     i = findfirst(x->x isa DestructuredArgs, dargs)
     similarto = i === nothing ? Array : dargs[i].name
     assigns, final = cse_equations(simp_fn.(A))
-    return Func(dargs, [], Let(assigns,make_array(parallel, dargs, final, similarto),let_block))
+    return Func(dargs, [], Let(assigns,make_array(parallel, dargs, final, similarto,false),let_block))
 end
 oop_fn_expr(A, args...;states=LazyState(),kwargs...) = toexpr(oop_fn_op(A, args...; kwargs...), states)
 eval_fn_oop(A,args...;kwargs...) = eval(oop_fn_expr(A, args...;kwargs...))
