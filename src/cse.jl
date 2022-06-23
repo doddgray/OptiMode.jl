@@ -215,7 +215,7 @@ function ip_fn_op(A::AbstractArray, args...;
     similarto = i === nothing ? Array : dargs[i].name
     assigns, final = cse_equations(simp_fn.(A))
     out = Sym{Any}(:ˍ₋out)
-    body = set_array(parallel, dargs, out, outputidxs, final, checkbounds, skipzeros)
+    body = set_array(parallel, dargs, out, outputidxs, final, checkbounds, skipzeros, false)
     return Func([out, dargs...], [], Let(assigns,body,let_block) )
 end
 ip_fn_expr(A, args...;states=LazyState(),kwargs...) = toexpr(ip_fn_op(A, args...; kwargs...), states)
