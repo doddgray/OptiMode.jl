@@ -3,6 +3,53 @@ export MPB_Solver, n_range #, mp, mpb, np
 
 mutable struct MPB_Solver <: AbstractEigensolver end
 
+# mutable struct MPB_Solver <: AbstractEigensolver
+#     num_bands=2,band_min=1,band_max=num_bands,eig_tol=1e-8,k_tol=1e-8,
+#     k_dir=[0.,0.,1.]
+
+# end
+
+
+# using Parameters
+
+# @with_kw mutable struct MPB_Solver{T} <: AbstractEigensolver
+# 	"Number of bands (modes) to find"
+#     num_bands::Int64 = 2
+
+#     "Lowest band number to find"
+#     band_min::Int64 = 1
+
+#     "Highest band number to find"
+#     band_max::Int64 = 2
+    
+#     "Absolute k magnitude tolerance for outer (Newton) solver"
+# 	k_tol::T = 1e-9
+
+# 	"Absolute eigenvalue tolerance for inner (eigen) solver"
+# 	eig_tol::T = 1e-9
+
+# 	"Number of restarts"
+# 	k_dir::Vec{T} = [0.,0.,1]
+
+# 	"Path to directory where solver log and field data should be saved"
+# 	data_path::String = pwd()
+
+#     "filename prefix for saving solver log and field data"
+# 	filename_prefix::String = "f01"
+
+# 	"Display information during iterations"
+# 	verbose::Bool = false
+
+# 	"Record information"
+# 	log::Bool = true
+
+# 	"Save eigenvector data"
+# 	save_evecs::Bool = false
+
+#     "Save electric field data"
+# 	save_efield::Bool = false
+# end
+
 # function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 # 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 # 	f_filter=nothing) where {ND,T<:Real} 
