@@ -5,14 +5,16 @@
 
 export hdf5_logger
 
-using DocStringExtensions: SIGNATURES, TYPEDEF
+# using DocStringExtensions: SIGNATURES, TYPEDEF
 import Logging
 using HDF5: h5open, create_group
 
-"""
-$(TYPEDEF)
-Logger into HDF5 files. Use [`hdf5_logger`](@ref) to create.
-"""
+
+
+# """
+# $(TYPEDEF)
+# Logger into HDF5 files. Use [`hdf5_logger`](@ref) to create.
+# """
 mutable struct HDF5Logger{L} <: Logging.AbstractLogger
     "The filename of a HDF5 file."
     filename::String
@@ -29,11 +31,11 @@ function Base.show(io::IO, logger::HDF5Logger)
           " messages in “", logger.group_path, "”")
 end
 
-"""
-$(SIGNATURES)
-Utility function to find the last index, ie the highest group name that parses as an
-integer. Internal.
-"""
+# """
+# $(SIGNATURES)
+# Utility function to find the last index, ie the highest group name that parses as an
+# integer. Internal.
+# """
 function get_last_index(log_group)
     last_index = 0
     for k in keys(log_group)
@@ -45,44 +47,44 @@ function get_last_index(log_group)
     last_index
 end
 
-"""
-$(SIGNATURES)
-Create a logger that write log messages into the HDF5 file `filename` within the given
-`group_path` (defaults to `"log"`).
-# Logging
-A counter keeps track of an increasing integer index. A log message is written to the given
-`group_path` as a group named with this index (converted to a string), with the following
-fields:
-- `level::Int`, `message::String`, `_module::String`, `group::String`, `id::String`,
-  `file::String`, `line::String`, which are part of every log message
-- `data`, which contains additional key-value pairs as passed on by the user. Keys are
-  strings.
-# Reading logs
-`length(logger)` returns the last index of logged messages, which can be be accessed with
-`logger[i]`. The latter returns a `NamedTuple`, or `nothing` for no such message.
-# Example
-```jldoctest; filter = [r"group = .*", r"file \\S*"]
-julia> using HDF5Logging, Logging
-julia> logger = hdf5_logger(tempname())
-Logging into HDF5 file /tmp/jl_IbbUvj, 0 messages in “log”
-julia> # write log
-julia> with_logger(logger) do
-       @info "very informative" a = 1
-       end
-julia> # read log
-julia> logger[1]
-(level = Info, message = "very informative", _module = "Main", group = "REPL[46]", id = "Main_7a40b9cc", file = "REPL[46]", line = 2, data = ["a" => 1])
-```
-# Notes
-1. The HDF5 file can contain other data, ideally in other groups than `group_path`.
-2. Contiguity of message indexes is not checked. This package will create them in order,
-starting at 1, but if you delete some with another tool then `getindex` will just return
-`nothing`.
-3. A lock is used, so a shared instance should be thread-safe. That said, **if you open the
-same file with another `hdf5_logger`, consequences are undefined.**
-4. The HDF5 file is not kept open when not accessed. This is slower, but should help ensure
-robust operation.
-"""
+# """
+# $(SIGNATURES)
+# Create a logger that write log messages into the HDF5 file `filename` within the given
+# `group_path` (defaults to `"log"`).
+# # Logging
+# A counter keeps track of an increasing integer index. A log message is written to the given
+# `group_path` as a group named with this index (converted to a string), with the following
+# fields:
+# - `level::Int`, `message::String`, `_module::String`, `group::String`, `id::String`,
+#   `file::String`, `line::String`, which are part of every log message
+# - `data`, which contains additional key-value pairs as passed on by the user. Keys are
+#   strings.
+# # Reading logs
+# `length(logger)` returns the last index of logged messages, which can be be accessed with
+# `logger[i]`. The latter returns a `NamedTuple`, or `nothing` for no such message.
+# # Example
+# ```jldoctest; filter = [r"group = .*", r"file \\S*"]
+# julia> using HDF5Logging, Logging
+# julia> logger = hdf5_logger(tempname())
+# Logging into HDF5 file /tmp/jl_IbbUvj, 0 messages in “log”
+# julia> # write log
+# julia> with_logger(logger) do
+#        @info "very informative" a = 1
+#        end
+# julia> # read log
+# julia> logger[1]
+# (level = Info, message = "very informative", _module = "Main", group = "REPL[46]", id = "Main_7a40b9cc", file = "REPL[46]", line = 2, data = ["a" => 1])
+# ```
+# # Notes
+# 1. The HDF5 file can contain other data, ideally in other groups than `group_path`.
+# 2. Contiguity of message indexes is not checked. This package will create them in order,
+# starting at 1, but if you delete some with another tool then `getindex` will just return
+# `nothing`.
+# 3. A lock is used, so a shared instance should be thread-safe. That said, **if you open the
+# same file with another `hdf5_logger`, consequences are undefined.**
+# 4. The HDF5 file is not kept open when not accessed. This is slower, but should help ensure
+# robust operation.
+# """
 function hdf5_logger(filename; group_path = "log")
     last_index = 0
     h5open(filename, "cw") do fid
@@ -128,7 +130,7 @@ end
 
 Logging.shouldlog(::HDF5Logger, level, _module, group, id) = true
 
-Logging.min_enabled_level(::HDF5Logger) = 0
+Logging.min_enabled_level(::HDF5Logger) = Logging.Info
 
 ####
 #### read logs
