@@ -209,18 +209,21 @@ end
 
 f_εₑᵣ_sym, prot = _f_εₑᵣ_sym();
 fj_εₑᵣ_sym, fjh_εₑᵣ_sym = _fj_fjh_sym(f_εₑᵣ_sym, prot);
+# generate out-of-place (non-mutating) functions
 f_εₑᵣ   = eval_fn_oop(f_εₑᵣ_sym,prot);
 fj_εₑᵣ  = eval_fn_oop(fj_εₑᵣ_sym,prot);
 fjh_εₑᵣ  = eval_fn_oop(fjh_εₑᵣ_sym,prot);
+# generate in-place (mutating) functions
 f_εₑᵣ!   = eval_fn_ip(f_εₑᵣ_sym,prot);
 fj_εₑᵣ!  = eval_fn_ip(fj_εₑᵣ_sym,prot);
 fjh_εₑᵣ! = eval_fn_ip(fjh_εₑᵣ_sym,prot);
-fout_rot = f_εₑᵣ(rand(19));
-fjout_rot = fj_εₑᵣ(rand(19));
-fjhout_rot = fjh_εₑᵣ(MVector{19}(rand(19)));
-f_εₑᵣ!(similar(fout_rot),rand(19));
-fj_εₑᵣ!(similar(fjout_rot),rand(19));
-fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));
+# # force compilation of these generated functions
+# fout_rot = f_εₑᵣ(rand(19));
+# fjout_rot = fj_εₑᵣ(rand(19));
+# fjhout_rot = fjh_εₑᵣ(MVector{19}(rand(19)));
+# f_εₑᵣ!(similar(fout_rot),rand(19));
+# fj_εₑᵣ!(similar(fjout_rot),rand(19));
+# fjh_εₑᵣ!(similar(fjout_rot,9,381),rand(19));
 
 ∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
 
