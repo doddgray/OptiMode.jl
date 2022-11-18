@@ -16,7 +16,13 @@ export KrylovKitEigsolve, solve_ω²
 # !!! tip "Different linear solvers"
 #     By tuning the options, you can select CG, GMRES... see [here](https://jutho.github.io/KrylovKit.jl/stable/man/linear/#KrylovKit.linsolve)
 # """
-mutable struct KrylovKitEigsolve <: AbstractEigensolver end
+# mutable struct KrylovKitEigsolve <: AbstractEigensolver end
+
+mutable struct KrylovKitEigsolve{L<:AbstractLogger} <: AbstractEigensolver{L}
+    logger::L
+end
+
+KrylovKitEigsolve() = KrylovKitEigsolve(NullLogger())
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=200,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
 	# x₀ 		=	 # copy(vec(ms.H⃗[:,1]))	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))

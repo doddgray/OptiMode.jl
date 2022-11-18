@@ -3,7 +3,7 @@
 
 # module HDF5Logging
 
-export hdf5_logger
+export hdf5_logger, HDF5Logger
 
 # using DocStringExtensions: SIGNATURES, TYPEDEF
 import Logging

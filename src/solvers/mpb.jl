@@ -1,7 +1,13 @@
 export find_k, load_evecs, load_epsilon, save_epsilon, DEFAULT_MPB_LOGPATH, DEFAULT_MPB_EPSPATH
 export MPB_Solver, n_range #, mp, mpb, np
 
-mutable struct MPB_Solver <: AbstractEigensolver end
+# mutable struct MPB_Solver <: AbstractEigensolver end
+
+mutable struct MPB_Solver{L<:AbstractLogger} <: AbstractEigensolver{L}
+    logger::L
+end
+
+MPB_Solver() = MPB_Solver(NullLogger())
 
 # mutable struct MPB_Solver <: AbstractEigensolver
 #     num_bands=2,band_min=1,band_max=num_bands,eig_tol=1e-8,k_tol=1e-8,

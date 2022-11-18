@@ -21,7 +21,14 @@ export LOBPCG, DFTK_LOBPCG
 # function signature with keywords and default values copied from source code
 # LOBPCG(A, X, B=I, precon=I, tol=1e-10, maxiter=100; miniter=1, ortho_tol=2eps(real(eltype(X))), n_conv_check=nothing, display_progress=false)
                          
-mutable struct DFTK_LOBPCG <: AbstractEigensolver end
+# mutable struct DFTK_LOBPCG <: AbstractEigensolver end
+
+mutable struct DFTK_LOBPCG{L<:AbstractLogger} <: AbstractEigensolver{L}
+    logger::L
+end
+
+DFTK_LOBPCG() = DFTK_LOBPCG(NullLogger())
+
 # @with_kw mutable struct DFTK_LOBPCG{T} <: AbstractEigensolver 
     
 #     λ::Vector{T}
@@ -36,29 +43,28 @@ mutable struct DFTK_LOBPCG <: AbstractEigensolver end
 # end
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	# x₀ 		=	vec(ms.H⃗[:,1])	 # initial eigenvector guess, should be complex vector with length 2*prod(size(grid))
-	# howmany =	nev				# how many eigenvector/value pairs to find
-	# which	=	:SR				# :SR="Smallest Real" eigenvalues
-	# # evals,evecs,convinfo = eigsolve(x->ms.M̂*x,ms.H⃗[:,1],nev,:SR; maxiter, tol, krylovdim=50, verbosity=2)
-	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
     res = LOBPCG(ms.M̂,copy(ms.H⃗),I,ms.P̂,tol,maxiter)
     copy!(ms.H⃗,res.X)
     copy!(ms.ω²,res.λ)
-    # copyto!(ms.H⃗,res.X)
-    # copyto!(ms.ω²,res.λ)
-    # canonicalize_phase!(ms)
-    # evals,evecs,info = eigsolve(x->ms.M̂*x,x₀,howmany,which;maxiter,tol,krylovdim=50) #,verbosity=2)
-	# info.converged < howmany && @warn "KrylovKit.eigsolve only found $(info.converged) eigenvector/value pairs while attempting to find $howmany"
-	# println("evals: $evals")
-	# n_results = min(nev,info.converged) # min(size(ms.H⃗,2),info.converged)
-	# evals_res = evals[1:n_results]
-	# evecs_res = vec.(evecs[1:n_results])
-	# copyto!(ms.ω²,evals_res)
-	# copyto!(ms.H⃗[:,1:n_results],hcat(evecs_res...))
-	# return real(evals_res), evecs_res
-    # return real(ms.ω²), collect(eachcol(ms.H⃗))
     return copy(real(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
 end
+
+# function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG{L};nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,L<:HDF5Logger}
+#     res = LOBPCG(ms.M̂,copy(ms.H⃗),I,ms.P̂,tol,maxiter)
+#     copy!(ms.H⃗,res.X)
+#     copy!(ms.ω²,res.λ)
+#     with
+#     with_logger(logger) do
+#         solver_str = "DFTK_LOBPCG"
+#         @debug "solve_ω²" eigenvalues=res.λ eigenvectors=res.X solver_str residual_history=res.residual_history residual_norms=res.residual_norms n_matvec=res.n_matvec
+#     end
+
+#     (λ=λ, X=X,
+#      residual_norms=[norm(residuals[:, i]) for i in 1:size(residuals, 2)],
+#      residual_history=resid_history[:, 1:niter+1],
+#      n_matvec=n_matvec)
+#     return copy(real(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
+# end
 
 ############################################################################################################################################
 ############################################################################################################################################
