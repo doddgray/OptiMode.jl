@@ -16,7 +16,9 @@ The fit function form and thermo-optic coefficients follow
 "Temperature and wavelength dependent refractive index equations for MgO-doped 
 congruent and stoichiometric LiNbO3" by Gayer et al., Applied Physics B 91,
 343?348 (2008), under the assumption that the thermo-optic coefficients are
-not strongly dependent on the MgO doping level. This assumption is supported by D. Matsuda, T. Mizuno, and N. Umemura, "Temperature-dependent phase-matching properties with oo-e and oo-o interactions in 5mol% MgO doped congruent LiNbO3", Proc. SPIE (2015)
+not strongly dependent on the MgO doping level. This assumption is supported by D. Matsuda, 
+T. Mizuno, and N. Umemura, "Temperature-dependent phase-matching properties with oo-e and 
+oo-o interactions in 5mol% MgO doped congruent LiNbO3", Proc. SPIE (2015).
 
 This model is then exported to other functions that use it and its
 derivatives to return index, group index and GVD values as a function
