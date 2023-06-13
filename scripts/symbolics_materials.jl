@@ -4,7 +4,7 @@ using BenchmarkTools
 # includet("rules.jl")
 using Symbolics: get_variables, wrap, unwrap, MakeTuple, toexpr, substitute, value, Sym, Num
 # using ReversePropagation: gradient_expr
-using SymbolicUtils: @rule, @acrule, @slots, RuleSet, numerators, denominators, flatten_pows
+using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, flatten_pows
 using SymbolicUtils: PolyForm, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
 using SymbolicUtils.Code: toexpr, cse #, cse!, _cse

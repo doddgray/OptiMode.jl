@@ -4,7 +4,7 @@ using BenchmarkTools
 # includet("rules.jl")
 using Symbolics: get_variables, wrap, unwrap, MakeTuple, toexpr, substitute, value
 # using ReversePropagation: gradient_expr
-using SymbolicUtils: @rule, @acrule, @slots, RuleSet
+using SymbolicUtils: @rule, @acrule, RuleSet
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
 using Symbolics: unwrap, wrap
 r_sqrt_pow = @rule sqrt(~x) --> (~x)^(1//2)

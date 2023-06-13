@@ -1,7 +1,7 @@
 using LinearAlgebra
 using Symbolics
 using Symbolics: Sym, Num
-using SymbolicUtils: @rule, @acrule, @slots, RuleSet, numerators, denominators, flatten_pows
+using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, flatten_pows
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
 using IterTools: subsets
 using RuntimeGeneratedFunctions
