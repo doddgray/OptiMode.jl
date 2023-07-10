@@ -140,7 +140,6 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 
 ## Includes ##
 
-# include("plot.jl")
 include("logging.jl")
 include("linalg.jl")
 include("epsilon.jl")
@@ -152,8 +151,9 @@ include("epsilon_fns.jl")
 include("smooth.jl")
 include("maxwell.jl")
 include("fields.jl")
-include("grads.jl")
 include("solve.jl")
+include("grads/StaticArrays.jl")
+include("grads/solve.jl")
 
 
 

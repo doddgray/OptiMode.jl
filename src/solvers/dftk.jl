@@ -29,19 +29,6 @@ end
 
 DFTK_LOBPCG() = DFTK_LOBPCG(NullLogger())
 
-# @with_kw mutable struct DFTK_LOBPCG{T} <: AbstractEigensolver 
-    
-#     λ::Vector{T}
-    
-#     X::Matrix{Complex{T}}
-    
-#     n_matvec::Int64
-    
-#     residual_history::Matrix{T}
-    
-#     residual_norms::Vector{T}
-# end
-
 function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
     res = LOBPCG(ms.M̂,copy(ms.H⃗),I,ms.P̂,tol,maxiter)
     copy!(ms.H⃗,res.X)
@@ -49,22 +36,6 @@ function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG;nev=1,eigind=1,maxi
     return copy(real(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
 end
 
-# function solve_ω²(ms::ModeSolver{ND,T},solver::DFTK_LOBPCG{L};nev=1,eigind=1,maxiter=300,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,L<:HDF5Logger}
-#     res = LOBPCG(ms.M̂,copy(ms.H⃗),I,ms.P̂,tol,maxiter)
-#     copy!(ms.H⃗,res.X)
-#     copy!(ms.ω²,res.λ)
-#     with
-#     with_logger(logger) do
-#         solver_str = "DFTK_LOBPCG"
-#         @debug "solve_ω²" eigenvalues=res.λ eigenvectors=res.X solver_str residual_history=res.residual_history residual_norms=res.residual_norms n_matvec=res.n_matvec
-#     end
-
-#     (λ=λ, X=X,
-#      residual_norms=[norm(residuals[:, i]) for i in 1:size(residuals, 2)],
-#      residual_history=resid_history[:, 1:niter+1],
-#      n_matvec=n_matvec)
-#     return copy(real(res.λ)), [copy(res.X[:,i]) for i=1:nev] #[copy(ev) for ev in eachcol(res.X)] #copy.(eachcol(res.X))
-# end
 
 ############################################################################################################################################
 ############################################################################################################################################

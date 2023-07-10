@@ -130,38 +130,6 @@ function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::Ab
 	HMH(Ha,ε⁻¹,mag,mn)
 end
 
-# function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
-# 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
-# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
-# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
-# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
-# 	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
-# 	return W / (2*real(P_z))
-# end
-
-# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
-# 	Nx,Ny,Nz = size(mag)
-# 	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
-# 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
-# end
-
-# function ng_z(Hₜ::AbstractArray{Complex{T},4},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
-# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:4) ), real(ε⁻¹))
-# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:4) )
-# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) * size(H,4) )
-# 	@tullio P_z := conj(E)[1,ix,iy,iz] * H[2,ix,iy,iz] - conj(E)[2,ix,iy,iz] * H[1,ix,iy,iz]
-# 	return W / (2*real(P_z))
-# end
-
-# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
-# 	Nx,Ny,Nz = size(mag)
-# 	Ha = reshape(Hₜ,(2,Nx,Ny,Nz))
-# 	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
-# end
-
-
-# 2D
-
 """
     tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
 """
@@ -279,35 +247,6 @@ function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::A
 	HMH(Ha,ε⁻¹,mag,mn)
 end
 
-# function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,m,n)::T where T<:Real
-# 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
-# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
-# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
-# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
-# 	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
-# 	return W / (2*real(P_z))
-# end
-
-# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
-# 	Nx,Ny = size(mag)
-# 	Ha = reshape(Hₜ,(2,Nx,Ny))
-# 	ng_z(Ha,ω,ε⁻¹,nng,mag,m,n)
-# end
-
-# function ng_z(Hₜ::AbstractArray{Complex{T},3},ω,ε⁻¹,nng,mag,mn)::T where T<:Real
-# 	E = 1im * ε⁻¹_dot( fft( kx_tc(Hₜ,mn,mag), (2:3) ), real(ε⁻¹))
-# 	H = (-1im * ω) * fft( tc(Hₜ,mn), (2:3) )
-# 	W = real(dot(E,_dot(nng,E))) + ( ω^2 * size(H,2) * size(H,3) )
-# 	@tullio P_z := conj(E)[1,ix,iy] * H[2,ix,iy] - conj(E)[2,ix,iy] * H[1,ix,iy]
-# 	return W / (2*real(P_z))
-# end
-
-# function ng_z(Hₜ::AbstractVector{Complex{T}},ω,ε⁻¹,nng,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
-# 	Nx,Ny = size(mag)
-# 	Ha = reshape(Hₜ,(2,Nx,Ny))
-# 	ng_z(Ha,ω,ε⁻¹,nng,mag,mn)
-# end
-
 """
 ################################################################################
 #																			   #
@@ -348,15 +287,6 @@ function kx_ct!(H::AbstractArray{Complex{T},4},e::AbstractArray{Complex{T},4},mn
     end
     return H
 end
-
-# function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
-#     @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
-#         e[1+h,i,j,k] =  ε⁻¹[1+h,1+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,1+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,1+l,i,j,k]*d[3+l,i,j,k]
-#         e[2+h,i,j,k] =  ε⁻¹[1+h,2+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,2+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,2+l,i,j,k]*d[3+l,i,j,k]
-#         e[3+h,i,j,k] =  ε⁻¹[1+h,3+l,i,j,k]*d[1+l,i,j,k] + ε⁻¹[2+h,3+l,i,j,k]*d[2+l,i,j,k] + ε⁻¹[3+h,3+l,i,j,k]*d[3+l,i,j,k]
-#     end
-#     return e
-# end
 
 function eid!(e::AbstractArray{Complex{T},4},ε⁻¹,d::AbstractArray{Complex{T},4})::AbstractArray{Complex{T},4} where T<:Real
     @inbounds @fastmath for k ∈ axes(e,4), j ∈ axes(e,3), i ∈ axes(e,2), l in 0:0, h in 0:0
@@ -405,9 +335,6 @@ end
 # 2D _M! and _P! subroutines
 
 function kx_tc!(d::AbstractArray{Complex{T},3},H::AbstractArray{Complex{T},3},mn::AbstractArray{T,4},mag::AbstractArray{T,2})::AbstractArray{Complex{T},3} where T<:Real
-    # @assert size(Y) === size(X)
-    # @assert size(d,4) == 3
-    # @assert size(H,4) === 2
     @inbounds @fastmath for j ∈ axes(d,3), i ∈ axes(d,2), l in 0:0
 	# @inbounds @fastmath for i ∈ axes(d,1), j ∈ axes(d,2), l in 0:0
 		# scale = -mag[i,j,k]
@@ -528,8 +455,6 @@ function mag_m_n!(mag,m,n,k⃗::SVector{3,T},g⃗) where T <: Real
 end
 
 mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,0.,kz),g⃗)
-# mag_m_n!(M̂::HelmholtzMap,k) = mag_m_n!(M̂.mag,M̂.m⃗,M̂.n⃗,M̂.g⃗,k)
-# mag_m_n!(ms::ModeSolver,k) = mag_m_n!(ms.M̂.mag,ms.M̂.m⃗,ms.M̂.n⃗,ms.M̂.g⃗,k)
 
 function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
 	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
@@ -691,10 +616,6 @@ end
 function mag_mn!(mag,mn::AbstractArray{T1,NDp2},k⃗::SVector{3,T2},g⃗) where {T1<:Real,T2<:Real,NDp2}
 	local ẑ = SVector{3}(0.,0.,1.)
 	local ŷ = SVector{3}(0.,1.,0.)
-	# mv = view(mn,1:3,1,eachindex(g⃗)...)
-	# nv = view(mn,1:3,2,eachindex(g⃗)...)
-	# mvs = reinterpret(reshape,SVector{3,T1},mv)
-	# nvs = reinterpret(reshape,SVector{3,T1},nv)
 	kpg = zero(k⃗)
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg = k⃗ - g⃗[i]
@@ -858,10 +779,6 @@ mutable struct HelmholtzMap{ND,T,NDp1,NDp2} <: LinearMap{T}
 	Ninv::T
 	g⃗::Array{SVector{3,T},ND}
 	mag::Array{T,ND}
-    # m⃗::Array{SVector{3,T},ND}
-	# n⃗::Array{SVector{3,T},ND}
-	# m::Base.ReinterpretArray{T, NDp1, SVector{3, T}, Array{SVector{3, T}, ND}, true}
-	# n::Base.ReinterpretArray{T, NDp1, SVector{3, T}, Array{SVector{3, T}, ND}, true}
 	mn::Array{T,NDp2}
     e::Array{Complex{T},NDp1}
     d::Array{Complex{T},NDp1}
@@ -880,30 +797,12 @@ mutable struct HelmholtzPreconditioner{ND,T,NDp1,NDp2} <: LinearMap{T}
 end
 
 mutable struct ModeSolver{ND,T,NDp1,NDp2}
-	# geom::Geometry
-	# materials #::Vector{<:AbstractMaterial}
 	grid::Grid{ND,T}
 	M̂::HelmholtzMap{ND,T,NDp1,NDp2}
 	P̂::HelmholtzPreconditioner{ND,T,NDp1,NDp2}
-	# eigs_itr::IterativeSolvers.LOBPCGIterator
 	H⃗::Matrix{Complex{T}}
 	ω²::Vector{Complex{T}}
 	∂ω²∂k::Vector{T}
-	# λ⃗::Vector{Complex{T}}
-	# b⃗::Vector{Complex{T}}
-	# λd::HybridArray
-	# λẽ::HybridArray
-	# ε⁻¹_bar::Array{SMatrix{3,3,T,9}, ND}
-	# kx̄_m⃗::Array{SVector{3, T}, ND}
-	# kx̄_n⃗::Array{SVector{3, T}, ND}
-	# māg::Array{T,ND}
-	# k̄_kx::SVector{3,T}
-	# ω̄::T
-	# adj_itr::IterativeSolvers.BiCGStabIterable
-	# corner_sinds::Array{Int,ND}
-	# sinds_proc::Array #{NTuple{8,Int},ND}
-	# Srvol::Array{Tuple{SMatrix{3,3,T,9},T},ND}
-	# minds::Vector{Int}
 end
 
 """
@@ -932,12 +831,6 @@ function HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹, gr::Grid{3,T}; shift=0. 
 			mn,
 			copy(d0),
 			copy(d0),
-			# m⃗,
-			# n⃗,
-			# HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)),
-			# HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)),
-		    # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Complex{T}}(d0),# (Array{T}(undef,(Nx,Ny,Nz,3))),
-		    # HybridArray{Tuple{3,Dynamic(),Dynamic(),Dynamic()},Complex{T}}(d0),# (Array{T}(undef,(Nx,Ny,Nz,3))),
 			plan_fft!(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
 			plan_bfft!(d0,fftax,flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
 			plan_fft(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
@@ -967,12 +860,6 @@ function HelmholtzMap(k⃗::AbstractVector{T}, ε⁻¹, gr::Grid{2,T}; shift=0. 
 			mn,
 			copy(d0),
 			copy(d0),
-			# m⃗,
-			# n⃗,
-			# HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)),
-			# HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)),
-		    # HybridArray{Tuple{3,Dynamic(),Dynamic()},Complex{T}}(d0),# (Array{T}(undef,(Nx,Ny,Nz,3))),
-		    # HybridArray{Tuple{3,Dynamic(),Dynamic()},Complex{T}}(d0),# (Array{T}(undef,(Nx,Ny,Nz,3))),
 			plan_fft!(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
 			plan_bfft!(d0,fftax,flags=FFTW.PATIENT), # planned in-place iFFT operator 𝓕⁻¹!
 			plan_fft(d0,fftax,flags=FFTW.PATIENT), # planned in-place FFT operator 𝓕!
@@ -990,21 +877,10 @@ end
 
 # function ModeSolver(k⃗::SVector{3,T}, geom::Geometry, grid::Grid{ND}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {ND,T<:Real}
 function ModeSolver(k⃗::SVector{3,T}, ε⁻¹, grid::Grid{2}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {T<:Real}
-	# run inital smoothing sub-processes
-	# ε⁻¹ = εₛ⁻¹( (1. / ω₀), geom, grid)
 
-	# sinds,sinds_proc,Srvol,mats,minds,ε⁻¹ = _εₛ⁻¹_init( (1. / ω₀), geom.shapes, grid)
 	M̂ = HelmholtzMap(k⃗, ε⁻¹, grid)
 	P̂ = HelmholtzPreconditioner(M̂)
-	# eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],nev)),P̂,constraint)
-	# λ⃗ = randn(Complex{T},2*M̂.N)
-	# b⃗ = similar(λ⃗)
-	# adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
-    #                          Pl = Identity(),
-    #                          max_mv_products = size(M̂, 2),
-    #                          abstol = zero(T),
-    #                          reltol = sqrt(eps(T)),
-    #                          initial_zero = false)
+
 	ModeSolver{2,T,3,4}(
 		# geom,
 		# mats,
@@ -1015,49 +891,16 @@ function ModeSolver(k⃗::SVector{3,T}, ε⁻¹, grid::Grid{2}; nev=1, tol=1e-8,
 		randn(Complex{T},2*N(grid),nev), #eigs_itr.XBlocks.block,
 		zeros(Complex{T},nev),
 		zeros(T,nev),
-		# λ⃗,
-		# b⃗,
-		# similar(M̂.d),							# λ⃗d
-		# similar(M̂.e),							# λ⃗ẽ
-		# similar(M̂.ε⁻¹),						# ε⁻¹_bar
-		# similar(M̂.m⃗),							 # kx̄_m⃗
-		# similar(M̂.n⃗),							# kx̄_n⃗
-		# similar(M̂.mag),						# māg
-		# zero(SVector{3,Float64}),				# k̄_kx
-		# 0.,										# ω̄
-		# adj_itr,
-		# sinds,
-		# sinds_proc,
-		# Srvol,
-		# minds,
 	)
 end
 
-# function ModeSolver(kz::T, ε⁻¹, grid::Grid{2}; nev=1, tol=1e-8, maxiter=3000,constraint=nothing,) where {T<:Real}
-# 	ModeSolver(SVector{3,T}(0.,0.,kz), ε⁻¹, grid; nev, tol, maxiter, constraint)
-# end
-#
-# function ModeSolver(ω, p::AbstractVector, geom_fn::F, grid::Grid{2}; nev=1, tol=1e-8, maxiter=3000,constraint=nothing,) where {F<:Function}
-# 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid);
-# 	return ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, tol, maxiter, constraint)
-# end
 
 function ModeSolver(k⃗::SVector{3,T}, ε⁻¹, grid::Grid{3}; nev=1, tol=1e-8, maxiter=3000, ω₀=1/1.55, constraint=nothing,) where {T<:Real}
 	# run inital smoothing sub-processes
 	# ε⁻¹ = εₛ⁻¹( (1. / ω₀), geom, grid)
-
-	# sinds,sinds_proc,Srvol,mats,minds,ε⁻¹ = _εₛ⁻¹_init( (1. / ω₀), geom.shapes, grid)
 	M̂ = HelmholtzMap(k⃗, ε⁻¹, grid)
 	P̂ = HelmholtzPreconditioner(M̂)
-	# eigs_itr = LOBPCGIterator(M̂,false,randn(eltype(M̂),(size(M̂)[1],nev)),P̂,constraint)
-	# λ⃗ = randn(Complex{T},2*M̂.N)
-	# b⃗ = similar(λ⃗)
-	# adj_itr = bicgstabl_iterator!(λ⃗, M̂ - ( 1. * I ), b⃗, 2;		# last entry is `l`::Int = # of GMRES iterations
-    #                          Pl = Identity(),
-    #                          max_mv_products = size(M̂, 2),
-    #                          abstol = zero(T),
-    #                          reltol = sqrt(eps(T)),
-    #                          initial_zero = false)
+
 	ModeSolver{3,T,4,5}(
 		# geom,
 		# mats,
@@ -1068,21 +911,6 @@ function ModeSolver(k⃗::SVector{3,T}, ε⁻¹, grid::Grid{3}; nev=1, tol=1e-8,
 		randn(Complex{T},2*N(grid),nev), #eigs_itr.XBlocks.block,
 		zeros(Complex{T},nev),
 		zeros(T,nev),
-		# λ⃗,
-		# b⃗,
-		# similar(M̂.d),							# λ⃗d
-		# similar(M̂.e),							# λ⃗ẽ
-		# similar(M̂.ε⁻¹),						# ε⁻¹_bar
-		# similar(M̂.m⃗),							 # kx̄_m⃗
-		# similar(M̂.n⃗),							# kx̄_n⃗
-		# similar(M̂.mag),						# māg
-		# zero(SVector{3,Float64}),				# k̄_kx
-		# 0.,										# ω̄
-		# adj_itr,
-		# sinds,
-		# sinds_proc,
-		# Srvol,
-		# minds,
 	)
 end
 

@@ -333,24 +333,7 @@ function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["
 	Fs = [view(F,j,:,:) for j=1:2]
 	magmax = maximum(abs,F)
 	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-	# ax1 = pos[1]
-	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
-	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-	# ax2 = pos[2]
-	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
-	# hms = [hm1,hm2]
-	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
-	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
-	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
-	# hideydecorations!.(ax[2])
-	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
-	# for axx in ax
-	# 	axx.xlabel= "x [μm]"
-	# 	xlims!(axx,xlim)
-	# 	ylims!(axx,ylim)
-	# 	axx.aspect=DataAspect()
-	# end
-	# linkaxes!(ax...)
+
 	return hm
 end
 function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
@@ -360,12 +343,6 @@ function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y
     Colorbar(fig[1,2],hms;label=label*" axis $axind")
 	fig
 end
-
-# previously working (for mpb modes) E⃗(evec,k,grid) code from analyze.jl
-# mags_mns = [mag_mn(kk,grid) for kk in ks]
-# Es = [-1im * ε⁻¹_dot(fft(kx_tc(evecs[omidx,bndidx],mags_mns[omidx,bndidx][2],mags_mns[omidx,bndidx][1]),(2:3)),epsi[omidx]) for omidx=1:length(oms), bndidx=1:num_bands]
-# Enorms =  [ EE[argmax(abs2.(EE))] for EE in Es ]
-# Es = Es ./ Enorms
 
 function Efield(k,evec::AbstractArray{<:Number},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; normalized=true) where {ND}
     magmn = mag_mn(k,grid) 
@@ -695,25 +672,6 @@ FiniteDifferences.grad(central_fdm(5,1),x->sum(f_ε_mats2(x)),[1.1,30.0])
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ##
 using ChainRulesCore
 # ChainRulesCore differentiation rules for SArray and subtypes
@@ -735,17 +693,6 @@ Zygote.refresh()
 ##
 
 ##
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -919,15 +866,6 @@ let grid=gr2
         reshape(getindex.(sm11,(1,)),size(grid)),
     )
     cb21 = Colorbar(fig[2, 2], hm2_sm11; label = "smoothed diagonal tensor value", width = 15, ticksize = 15, tickalign = 1)
-    # heatmap of smoothed (1,2) tensor elements 
-    # hm2_sm12    = heatmap!(ax22,reshape(getindex.(sm11,(2,)),size(gr2)))
-    # cb22 = Colorbar(fig[2, 4], hm2_sm12; label = "values", width = 15, ticksize = 15, tickalign = 1)
-
-    
-    
-    #colsize!(fig.layout, 1, Aspect(1, 1.0))
-    #colgap!(fig.layout, 7)
-    # display(fig)
     fig
 end
 

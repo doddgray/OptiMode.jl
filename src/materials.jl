@@ -1,33 +1,11 @@
 using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, _build_and_inject_function, @__MODULE__, MultithreadedForm, tosymbol, Sym, wrap, unwrap, MakeTuple, substitute, value
 using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, flatten_pows, PolyForm, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
-using SymbolicUtils.Code: toexpr, MakeArray #, cse, cse!, _cse
-# using Rotations
-# using ReversePropagation: gradient_expr
+using SymbolicUtils.Code: toexpr, MakeArray 
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
 export rotate, unique_axes, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
 export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, n_model, ng_model, gvd_model
-export NumMat #, nĝvd_model, nn̂g_model
-# export plot_data, plot_model!  # exports when optional Deps present?
-
-# RuntimeGeneratedFunctions.init(@__MODULE__)
-
-# add Symbolics.get_variables for arrays of `Num`s
-# import Symbolics.get_variables
-# function Symbolics.get_variables(A::AbstractArray{Num})
-# 	unique(vcat(get_variables.(A)...))
-# end
-
-# adjoint/rrule for SymbolicUtils.Code.create_array
-# https://github.com/JuliaSymbolics/SymbolicUtils.jl/pull/278/files
-# function rrule(::typeof(SymbolicUtils.Code.create_array), A::Type{<:AbstractArray}, T, u::Val{j}, d::Val{dims}, elems...) where {dims, j}
-#   y = SymbolicUtils.Code.create_array(A, T, u, d, elems...)
-#   function create_array_pullback(Δ)
-#     dx = Δ
-#     (NO_FIELDS, DoesNotExist(), DoesNotExist(), DoesNotExist(), DoesNotExist(), dx..., ntuple(_ -> DoesNotExist(), length(elems) - prod(dims) + j)...)
-#   end
-#   y, create_array_pullback
-# end
+export NumMat 
 
 
 get_array_vars(A) = mapreduce(x->wrap.(get_variables(x)),union,A)
@@ -382,32 +360,6 @@ function gvd_model(mat::AbstractMaterial; symbol=:λ)
 	return gvd_model(n_model,λ)
 end
 
-# function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
-# 	λ = Num(Sym{Real}(symbol))
-# 	# Dλ = Differential(λ)
-# 	n_model = sqrt.(get_model(mat,:ε,symbol))
-# 	return ng_model(n_model,λ) .* n_model
-# end
-
-# function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
-# 	λ = Num(Sym{Real}(symbol))
-# 	# Dλ = Differential(λ)
-# 	n_model = sqrt.(get_model(mat,:ε,symbol))
-# 	return gvd_model(n_model,λ) .* n_model
-# end
-
-# function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-# 	λ = Num(Sym{Real}(symbol))
-# 	n_model = sqrt.(ε_model)
-# 	return ng_model(n_model,λ) .* n_model
-# end
-#
-# function nĝvd_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-# 	λ = Num(Sym{Real}(symbol))
-# 	n_model = sqrt.(ε_model)
-# 	return gvd_model(n_model,λ) .* n_model
-# end
-
 function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
 	Dλ = Differential(λ)
@@ -493,87 +445,6 @@ function unique_axes(mat::AbstractMaterial;model=:ε)
 	end
 end
 
-"""
-################################################################################
-#																			   #
-#							   Plotting methods					   			   #
-#																			   #
-################################################################################
-"""
-
-# function plot_data(mats_in::AbstractVector{<:AbstractMaterial};model=:n)
-# 	if isequal(model,:n)
-# 		mats = filter(x->has_model(x,:ε),mats_in)
-# 		# fes = generate_fn.(mats,(:ε,),(:λ,))
-# 		fes = ε_fn.(mats)
-# 		axind_axstr_unq = unique_axes.(mats)
-# 		axind_unq = getindex.(axind_axstr_unq,1)
-# 		axstr_unq = getindex.(axind_axstr_unq,2)
-# 		fns = vcat(map((ff,as)->[(x->sqrt(ff(x)[a,a])) for a in as ], fes, axind_unq)...)
-# 		mat_names = String.(nameof.(mats))
-# 		names = "n" .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...) # "n, n_i or n_i,j (Material)" for all unique axes and materials
-# 	else
-# 		mats = filter(x->has_model(x,model),mats_in)
-# 		# fgs = generate_fn.(mats,(model,),(:λ,))
-# 		fgs = generate_array_fn.(([Num(Sym{Real}(:λ)) ,],),get_model.(mats,(model,),(:λ,)))
-# 		axind_axstr_unq = unique_axes.(mats)
-# 		axind_unq = getindex.(axind_axstr_unq,1)
-# 		axstr_unq = getindex.(axind_axstr_unq,2)
-# 		fns = vcat(map((ff,as)->[(x->ff(x)[a,a]) for a in as ], fgs, axind_unq)...)
-# 		mat_names = String.(nameof.(mats))
-# 		names = String(model) .* vcat([.*(axstr_unq[i], " (", mat_names[i],")") for i=1:length(mats)]...)
-# 	end
-# 	colors = vcat( [ [ mat.color for i=1:ll ] for (mat,ll) in zip(mats,length.(getindex.(axind_axstr_unq,(1,)))) ]...)
-# 	all_linestyles	=	[nothing,:dash,:dot,:dashdot,:dashdotdot]
-# 	linestyles  =	vcat( [ getindex.((all_linestyles,),1:ll) for ll in length.(getindex.(axind_axstr_unq,(1,))) ]... )
-# 	return fns, names, colors, linestyles
-# end
-# plot_data(mat::AbstractMaterial ; model=:n) = plot_data([mat,]; model)
-# plot_data(mats::NTuple{N,<:AbstractMaterial} where N ; model=:n) = plot_data([mats...]; model)
-
-
-
-# function uplot(x::Union{AbstractMaterial, AbstractVector{<:AbstractMaterial}, NTuple{N,<:AbstractMaterial} };
-# 		model=:n, xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n", kwargs...)  where N
-# 	fns, name, colors, styles = plot_data(x;model)
-# 	UnicodePlots.lineplot(fns, xlim[1], xlim[2];
-# 	 	xlim,
-# 		ylim=map((a,b)->a(b,digits=1),(floor,ceil),ylims(fns;xlims=xlim)),
-# 		name,
-# 		xlabel,
-# 		ylabel,
-# 		width=75,
-# 		height=35,
-# 		kwargs...
-# 		)
-# end
-
-# function uplot!(plt::UnicodePlots.Plot,x::Union{Material, AbstractVector{<:Material}, NTuple{N,<:Material} };
-# 		xlim=[0.5,1.8], xlabel="λ [μm]", ylabel="n")  where N
-# 	fns, name, colors, styles = plot_data(x)
-# 	UnicodePlots.lineplot!(plt, fns; name ) #, xlim[1], xlim[2];
-# 	 	# xlim,
-# 		# ylim=round.( ylims(plt,ylims(fns;xlims=xlim)) ,digits=1),
-# 		# name,
-# 		# xlabel,
-# 		# ylabel,
-# 		# )
-# end
-
-# function plot_model!(ax, mats::AbstractVector{<:AbstractMaterial};model=:n,xrange=nothing,kwargs...)
-# 	if isnothing(xrange)
-# 		xmin = ax.limits[].origin[1]
-# 		xmax = xmin + ax.limits[].widths[1]
-# 	end
-# 	lns = [lines!(ax, xmin..xmax, fn; label=lbl, color=clr, linestyle=ls, kwargs...) for (fn,lbl,clr,ls) in zip(plot_data(mats; model)...)]
-# end
-# plot_model(ax, mat::AbstractMaterial ; model=:n, xrange=nothing, kwargs...) = plot_model([mat,]; model, xrange, kwargs...)
-# plot_model(ax, mats::NTuple{N,<:AbstractMaterial} where N ; model=:n, xrange=nothing, kwargs...) = plot_model([mats...]; model, xrange, kwargs...)
-
-# import Base: show
-# Base.show(io::IO, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat) #print(io, "Examplary instance of Material\n", m.x, " ± ", m.y)
-# Base.show(io::IO, mat::AbstractMaterial) = uplot(mat) #print(io, m.x, '(', m.y, ')')
-# Base.show(io, ::MIME"text/plain", mat::AbstractMaterial) = uplot(mat)
 ################################################################################
 #                                Load Materials                                #
 ################################################################################
