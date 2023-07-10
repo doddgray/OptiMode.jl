@@ -347,39 +347,6 @@ end |> first
 @show gvd_RM_vs_FD_err    = gvd_RM - gvd_FD
 @show gvd_RM_vs_FD_relerr = abs(gvd_RM_vs_FD_err) / gvd_FD
 
-# @show gvd_direct_vs_FD_err    = gvd_RM - gvd_ev
-# @show gvd_direct_vs_FD_relerr = abs(gvd_direct_vs_FD_err) / gvd_FD
-# @show gvd_direct_vs_RM_err    = gvd_RM - gvd_ev
-# @show gvd_direct_vs_RM_relerr = abs(gvd_direct_vs_RM_err) / gvd_FD
-
-# gvd_RM = Zygote.gradient(ω) do ω
-#     ε_data          =   smooth_ε(geom_fn(p[2:5]),f_ε_mats([ω,]),minds,grid); 
-#     ε               =   copy(selectdim(ε_data,3,1)); # ε_data[:,:,1,:,:]  
-#     ∂ε_∂ω           =   copy(selectdim(ε_data,3,2)); # ε_data[:,:,2,:,:] 
-#     ε⁻¹             =   sliceinv_3x3(ε);
-#     kmags,evecs     =   solve_k(ω,ε⁻¹,grid,IterativeSolversLOBPCG();nev,eig_tol,k_tol)
-#     ng              =   group_index(kmags[1],evecs[1],ω,ε⁻¹,∂ε_∂ω,grid)
-#     return ng
-# end |> first
-#  solve_k_pullback:
-# k̄ (bar): -0.929874961497507
-#  solve_k pullback for eigind=1:
-#          ω² (target): 1.2100000000000002
-#          ∂ω²∂k (recalc'd): 0.9638126793744675
-# k̄ₕ_old = -((mag_m_n_pb((māg, kx̄_m⃗ .* ms.M̂.mag, kx̄_n⃗ .* ms.M̂.mag)))[1]) = 0.0279527504176263
-# k̄ₕ = -(∇ₖmag_m_n(māg, kx̄_m⃗ .* ms.M̂.mag, kx̄_n⃗ .* ms.M̂.mag, ms.M̂.mag, m⃗, n⃗; dk̂ = SVector(0.0, 0.0, 1.0))) = 0.027952750417626303
-# ω_bar += ((2ω) * (k̄ + k̄ₕ)) / ∂ω²∂k = -2.058728741422596
-#  solve_k_pullback:
-# k̄ (bar): 0.0
-#  solve_k pullback for eigind=2:
-#          ω² (target): 1.2100000000000002
-#          ∂ω²∂k (recalc'd): 0.9564010245562874
-# ω_bar += ((2ω) * (k̄ + k̄ₕ)) / ∂ω²∂k = -2.058728741422596
-#gvd_RM = 0.14033455221012248
-
-###############################################################################################################################
-###############################################################################################################################
-
 using Tullio
 using OptiMode: ∇ₖmag_m_n, ∇ₖmag_mn
 
@@ -439,13 +406,7 @@ function ng_AD_steps()
 
     @show ng
     
-    # ∂ng_∂kmags, ∂ng_∂evecs, ∂ng_∂ω_1, ∂ng_∂ε⁻¹_1, ∂ng_∂∂ε_∂ω    =   ng_pb(1.0)
-    # ∂ng_∂ω_2, ∂ng_∂ε⁻¹_2                                        =   solve_k_pb((∂ng_∂kmags,∂ng_∂evecs))
-    # ∂ng_∂ε                                                      =   ε⁻¹_pb( ∂ng_∂ε⁻¹_1 + ∂ng_∂ε⁻¹_2 )[1]
-
     ∂ng_∂ω_1, ∂ng_∂EdepsiE, ∂ng_∂HMkH                           =   ng_pb(1.0)
-    # ∂ng_∂evecs_1,∂ng_∂ε⁻¹_1,∂ng_∂mag_1,∂ng_∂mn_1                =   HMkH_pb(∂ng_∂HMkH)
-    # ∂ng_∂evecs_2,∂ng_∂ε⁻¹_2,∂ng_∂∂ε_∂ω,∂ng_∂mag_2,∂ng_∂mn_2     =   EdepsiE_pb(∂ng_∂EdepsiE)
     ∂ng_∂evecs_2,∂ng_∂ε⁻¹_2,∂ng_∂mag_2,∂ng_∂mn_2                =   HMkH_pb(∂ng_∂HMkH)
     ∂ng_∂evecs_1,∂ng_∂ε⁻¹_1,∂ng_∂∂ε_∂ω,∂ng_∂mag_1,∂ng_∂mn_1     =   EdepsiE_pb(∂ng_∂EdepsiE)
     ∂ng_∂kmags                                                  =   mag_mn_pb(( ∂ng_∂mag_1 + ∂ng_∂mag_2 , ∂ng_∂mn_1 + ∂ng_∂mn_2 ))[1]
@@ -669,12 +630,9 @@ function ng_AD_steps()
     @show ∂ng_∂ω_3
 
     return nothing
-    # return ∂ng_∂mag_1_AD, ∂ng_∂mn_1_AD, ∂ng_∂mag_2_AD, ∂ng_∂mn_2_AD, ∂ng_∂mag_1, ∂ng_∂mn_1, ∂ng_∂mag_2, ∂ng_∂mn_2
 end
 
 ng_AD_steps()
-
-# ∂ng_∂mag_1_AD, ∂ng_∂mn_1_AD, ∂ng_∂mag_2_AD, ∂ng_∂mn_2_AD, ∂ng_∂mag_1, ∂ng_∂mn_1, ∂ng_∂mag_2, ∂ng_∂mn_2 = ng_AD_steps()
 
 ###############################################################################################################################
 ###############################################################################################################################
@@ -695,24 +653,12 @@ ng_AD_steps()
 @show ∂ng_∂k_1 = ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
 @show ∂ng_∂k_2 = ∇ₖmag_mn(∂ng_∂mag_2,∂ng_∂mn_2,mag,mn)
 
-# real(∂ng_∂mag_1_AD)[1:10,1:10]
-# real(∂ng_∂mag_1)[1:10,1:10]
-# real(∂ng_∂mag_1_AD-∂ng_∂mag_1)[1:10,1:10]
 @test real(∂ng_∂mag_1_AD) ≈ ∂ng_∂mag_1
 
-# real(∂ng_∂mn_1_AD)[:,1,1:4,1:4]
-# real(∂ng_∂mn_1)[:,1,1:4,1:4]
-# real(∂ng_∂mn_1_AD-∂ng_∂mn_1)[:,1,1:4,1:4]
 @test real(∂ng_∂mn_1_AD[:,1,:,:]) ≈ ∂ng_∂mn_1[:,1,:,:]
 
-# real(∂ng_∂mn_1_AD)[:,2,1:4,1:4]
-# real(∂ng_∂mn_1)[:,2,1:4,1:4]
-# real(∂ng_∂mn_1_AD - ∂ng_∂mn_1)[:,2,1:4,1:4]
 @test real(∂ng_∂mn_1_AD[:,2,:,:]) ≈ ∂ng_∂mn_1[:,2,:,:]
 
-# real(∂ng_∂mag_2_AD)[1:10,1:10]
-# real(∂ng_∂mag_2)[1:10,1:10]
-# real(∂ng_∂mag_2_AD-∂ng_∂mag_2)[1:10,1:10]
 @test real(∂ng_∂mag_2_AD) ≈ ∂ng_∂mag_2
 
 
@@ -803,10 +749,6 @@ epsi_deps_E         =   _dot(ε⁻¹,deps_E)                                # (�
 Fi_epsi_deps_E      =   ifft( epsi_deps_E, fftax )                      # 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
 kx_Fi_epsi_deps_E   =   kx_ct( Fi_epsi_deps_E , mn, mag  )              # [(k⃗+g⃗)×]cₜ ⋅ 𝓕⁻¹ ⋅ (ε⁻¹)(∂ε/∂ω)|E⟩
 EdepsiE             =   real( dot(evg,kx_Fi_epsi_deps_E) )              # ⟨E|∂ε/∂ω|E⟩ = ⟨D|∂(ε⁻¹)/∂ω|D⟩
-# EdepsiE_1         =   HMH(vec(ev), _dot( ε⁻¹, ∂ε_∂ω, ε⁻¹ ),mag,mn)
-# EdepsiE_2         =   real(_expect(∂ε_∂ω,E)) * Ninv
-# EdepsiE_3         =   real( dot(D,epsi_deps_E) ) * Ninv
-# EdepsiE_4         =   real( dot(evg,kx_Fi_epsi_deps) )
 
 ng                  =   (ω + EdepsiE/2) * inv_HMkH
 
@@ -825,16 +767,7 @@ ng_RM
 @tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] 
 ∂ng_∂k_1            =   ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
 
-# ∂ng_∂ε⁻¹_2          =   2 * herm(_outer(deps_E,D)) * ∂ng_∂EdepsiE
-# ∂ng_∂evg_2          =   2 * kx_Fi_epsi_deps_E * ∂ng_∂EdepsiE
-
-# ∂ng_∂kx_2           =  real(_outer(Fi_epsi_deps_E, evg)) * ∂ng_∂EdepsiE
-# @tullio ∂ng_∂mag_1[ix,iy] := conj(reverse(∂ng_∂kx_1,dims=2))[i,j,ix,iy] * mn[i,j,ix,iy] 
-# @tullio ∂ng_∂mn_1[i,j,ix,iy] := reverse(∂ng_∂kx_1,dims=2)[i,j,ix,iy] * mag[ix,iy] 
-# ∂ng_∂k_1            =   ∇ₖmag_mn(∂ng_∂mag_1,∂ng_∂mn_1,mag,mn)
-
 ∂ng_∂k_2, ∂ng_∂evg_2, ∂ng_∂ε⁻¹_2 = ∇HMₖH(k,evg,ε⁻¹,grid) .* ∂ng_∂HMkH
-# ∂ng_∂evg_2          =   (-2 * ng * inv_HMkH) * _cross(dk̂, E)
 
 ### ∇solve_k ###
 k̄ = ∂ng_∂k_1 + ∂ng_∂k_2
@@ -941,18 +874,9 @@ end
 
 
 Ns = size(grid) # (Nx,Ny,Nz) for 3D or (Nx,Ny) for 2D
-# mag,m⃗,n⃗ = mag_m_n(k,grid)
-# ∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
 mag,mns = mag_mn(k,grid)
-# mns = copy(mn)
 ∂ω²∂k_nd = 2 * HMₖH(Hv,ε⁻¹,real(mag),real(mns))
 
-########################
-#######################
-# k̄, H̄, nngī  = ∇HMₖH(k,Hv,nng⁻¹,grid; eigind=1)
-
-# inards of:
-# function ∇HMₖH(k::Real,H⃗::AbstractArray{Complex{T}},nng⁻¹::AbstractArray{T2,N2},grid::Grid{ND};eigind=1) where {T<:Real,ND,T2<:Real,N2}
 T = Float64
 # Setup
 zxtc_to_mn = SMatrix{3,3,Float64}(	[	0 	-1	  0
@@ -976,72 +900,26 @@ H = reshape(Hv,(2,Ns...))
 Hsv = reinterpret(reshape, SVector{2,Complex{T}}, H )
 
 #TODO: Banish this quadruply re(shaped,interpreted) m,n,mns format back to hell
-# mns = mapreduce(x->reshape(flat(x),(1,3,size(x)...)),vcat,(m⃗,n⃗))
-# m = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,m⃗)))
-# n = real(HybridArray{Tuple{3,Dynamic(),Dynamic()},T}(reinterpret(reshape,T,n⃗)))
-# mns = vcat(reshape(m,(1,3,Ns...)),reshape(n,(1,3,Ns...)))
 m = mns[:,1,:,:] #real(reinterpret(reshape,T,m⃗))
 n = mns[:,2,:,:] # real(reinterpret(reshape,T,n⃗))
-# mns = cat(reshape(m,(3,1,Ns...)),reshape(n,(3,1,Ns...));dims=2)
 
 ### calculate k̄ contribution from M̄ₖ ( from ⟨H|M̂ₖ|H⟩ )
 Ā₁		=	conj.(Hsv)
 A2_init = bfft( ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(nng⁻¹)), 2:3)
 Ā₂ = reinterpret(reshape,SVector{3,Complex{T}}, A2_init)
-# reshape(
-# 	𝓕⁻¹ * nngsp * 𝓕 * zxtcsp * vec(H),
-# 	(3,size(gr)...),
-# 	),
-    # 𝓕⁻¹ * ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(nng⁻¹)), )
-    # bfft( ε⁻¹_dot(  𝓕 * zx_tc(H * Ninv,mns) , real(nng⁻¹)), 2:3), )
 Ā 	= 	Ā₁  .*  transpose.( Ā₂ )
 m̄n̄_Ā = transpose.( (kxtc_to_mn,) .* real.(Ā) )
 m̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (1,) )
 n̄_Ā = 		view.( m̄n̄_Ā, (1:3,), (2,) )
 māg_Ā = dot.(n⃗, n̄_Ā) + dot.(m⃗, m̄_Ā)
 
-# # diagnostic for nngī accuracy
-# B̄₁_old = reinterpret(
-# 	reshape,
-# 	SVector{3,Complex{T}},
-# 	# 𝓕  *  kxtcsp	 *	vec(H),
-# 	𝓕 * kx_tc( conj.(H) ,mns,mag),
-# 	)
-# B̄₂_old = reinterpret(
-# 	reshape,
-# 	SVector{3,Complex{T}},
-# 	# 𝓕  *  zxtcsp	 *	vec(H),
-# 	𝓕 * zx_tc( H * Ninv ,mns),
-# 	)
-# B̄_old 	= 	 SMatrix{3,3,Float64,9}.(real.(Hermitian.(  B̄₁_old  .*  transpose.( B̄₂_old )  )) )
-# B̄_oldf = copy(flat(B̄_old))
-# println("sum(B̄_oldf): $(sum(B̄_oldf))")
-# println("maximum(B̄_oldf): $(maximum(B̄_oldf))")
-# # end diagnostic for nngī accuracy
-
 B̄₁ = fft( kx_tc( conj.(H) ,mns,mag) , 2:3) # 𝓕 * kx_tc( conj.(H) ,mns,mag)
 B̄₂ = fft( zx_tc( H * Ninv ,mns) , 2:3) # 𝓕 * zx_tc( H * Ninv ,mns)
 @tullio B̄[a,b,i,j] := B̄₁[a,i,j] * B̄₂[b,i,j] + B̄₁[b,i,j] * B̄₂[a,i,j]   #/2 + real(B̄₁[b,i,j] * B̄₂[a,i,j])/2
 
-# # diagnostic for nngī accuracy
-#
-# # println("sum(B̄): $(sum(real(B̄)))")
-# # println("maximum(B̄): $(maximum(real(B̄)))")
-# B̄_herm = real(B̄)/2
-# println("sum(B̄_herm): $(sum(B̄_herm))")
-# println("maximum(B̄_herm): $(maximum(B̄_herm))")
-# # end diagnostic for nngī accuracy
-
 C1_init = bfft(ε⁻¹_dot(  𝓕 * -kx_tc( H * Ninv, mns, mag) , nng⁻¹), 2:3)
 C̄₁ = reinterpret(reshape,SVector{3,Complex{T}},C1_init)
-# reshape,
-# SVector{3,Complex{T}},
-# reshape(
-# 	𝓕⁻¹ * nngsp * 𝓕 * kxtcsp * -vec(H),
-# 	(3,size(gr)...),
-# 	),
-# 𝓕⁻¹ * ε⁻¹_dot(  𝓕 * -kx_tc( H * Ninv, mns, mag) , nng⁻¹),
-# )
+
 C̄₂ =   conj.(Hsv)
 C̄ 	= 	C̄₁  .*  transpose.( C̄₂ )
 m̄n̄_C̄ = 			 (zxtc_to_mn,) .* real.(C̄)
@@ -1058,33 +936,13 @@ k̄	 	= ∇ₖmag_m_n(
     m⃗,
     n⃗,
 )
-# H̄ = Mₖᵀ_plus_Mₖ(H⃗,k,nng⁻¹,grid)
-# Y = zx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), (2:3) ), nng⁻¹), (2:3)), mns )
-# X = -kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mns), (2:3) ), nng⁻¹), (2:3) ), mns, mag )
-
-# nngif = real(flat(nng⁻¹))
-# X = -kx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * zx_tc(H,mns)		, nng⁻¹), mns, mag )
-# Y =  zx_ct( 𝓕⁻¹ * ε⁻¹_dot( 𝓕 * kx_tc(H,mns,mag)	, nng⁻¹), mns )
 X = -kx_ct( bfft( ε⁻¹_dot( fft( zx_tc(H,mns), 2:3)		, nng⁻¹), 2:3), mns, mag )
 Y =  zx_ct( bfft( ε⁻¹_dot( fft( kx_tc(H,mns,mag), 2:3)	, nng⁻¹), 2:3), mns )
 H̄ = vec(X + Y) * Ninv
-# return k̄, H̄, nngī
 
 
 ########################
 #######################
-
-# ( _, _, om̄₁, eī₁ ) = ∇solve_k(	  (k̄,H̄),
-#                                      (k,Hv),
-#                                       ∂ω²∂k_nd,
-#                                        ω,
-#                                     ε⁻¹,
-#                                     grid; eigind)
-
-# ∇solve_k(ΔΩ, Ω, ∂ω²∂k, ω, ε⁻¹, grid)
-# ΔΩ, Ω get unpacked immediately as:
-    # k̄ₖ, H̄ = ΔΩ
-    # k, Hv = Ω
 k̄ₖ = copy(k̄)
 ∂ω²∂k = ∂ω²∂k_nd 
 eigind=1
@@ -1093,10 +951,7 @@ Ninv 		= 		1. / N(grid)
 Ns			=		size(grid)
 M̂ = HelmholtzMap(k,ε⁻¹,grid) # dropgrad(grid))
 P̂	= HelmholtzPreconditioner(M̂)
-# λ⃗₀0 = randn(eltype(Hv), size(Hv) )
-# λ⃗₀ = normalize(λ⃗₀0 - Hv*dot(Hv,λ⃗₀0))
-# if !iszero(H̄)
-    # solve_adj!(λ⃗,M̂,H̄,ω^2,Hv,eigind)
+
 λ⃗	= eig_adjt(
         M̂,								 # Â
         ω^2, 							# α
@@ -1109,17 +964,10 @@ P̂	= HelmholtzPreconditioner(M̂)
 ############################3
 ################################
 
-# k̄ₕ, eīₕ = ∇M̂(k,ε⁻¹,λ⃗,Hv,grid)
-
-# inards of
-# function ∇M̂(k,ε⁻¹,λ⃗,H⃗,grid::Grid{ND,T}) where {ND,T<:Real}
-
 λ⃗ 	-= 	 dot(Hv,λ⃗) * ev
 λ	=	reshape(λ⃗,(2,size(grid)...))
 d = fft( kx_tc( H , mn, mag ), 2:3 ) * Ninv
 λd = fft( kx_tc( λ , mn, mag ), 2:3 )  
-# d = _H2d!(ms.M̂.d, ev_grid * ms.M̂.Ninv, ms) # =  ms.M̂.𝓕 * kx_tc( ev_grid , mn2, mag )  * ms.M̂.Ninv
-# λd = _H2d!(λd,λ,ms) # ms.M̂.𝓕 * kx_tc( reshape(λ⃗,(2,ms.M̂.Nx,ms.M̂.Ny,ms.M̂.Nz)) , mn2, mag )
 eīₕ = ε⁻¹_bar(vec(d), vec(λd), size(grid)...) # eīₕ  # prev: ε⁻¹_bar!(ε⁻¹_bar, vec(ms.M̂.d), vec(λd), gridsize...)
 
 # back-propagate gradients w.r.t. `(k⃗+g⃗)×` operator to k via (m⃗,n⃗) pol. basis and |k⃗+g⃗|
@@ -1130,19 +978,7 @@ ẽ 	 =   bfft( ε⁻¹_dot(d        , ε⁻¹), 2:3 )
 ẽ_sv 	= reinterpret(reshape, SVector{3,Complex{T}}, ẽ )
 kx̄_m⃗ = real.( λẽ_sv .* conj.(view( ev_grid,2,axes(grid)...)) .+ ẽ_sv .* conj.(view(λ,2,axes(grid)...)) )
 kx̄_n⃗ =  -real.( λẽ_sv .* conj.(view( ev_grid,1,axes(grid)...)) .+ ẽ_sv .* conj.(view(λ,1,axes(grid)...)) )
-# m⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,1,..])
-# n⃗ = reinterpret(reshape, SVector{3,Float64},ms.M̂.mn[:,2,..])
 māg = dot.(n⃗, kx̄_n⃗) + dot.(m⃗, kx̄_m⃗)
-
-# @show k̄ₕ = -∇ₖmag_m_n(
-#     māg,
-#     kx̄_m⃗.*ms.M̂.mag, # m̄,
-#     kx̄_n⃗.*ms.M̂.mag, # n̄,
-#     ms.M̂.mag,
-#     m⃗,
-#     n⃗;
-#     dk̂=SVector(0.,0.,1.), # dk⃗ direction
-# )
 
 # TODO: check if this shoudl be negated
 k̄ₕ		= -∇ₖmag_m_n(
@@ -1156,17 +992,6 @@ k̄ₕ		= -∇ₖmag_m_n(
         )
     
 
-###############################
-#########################
-# else
-#     eīₕ 	= zero(ε⁻¹) #fill(SMatrix{3,3}(0.,0.,0.,0.,0.,0.,0.,0.,0.),size(ε⁻¹))
-#     k̄ₕ 	= 0.0
-# end
-# combine k̄ₕ with k̄, scale by ( 2ω / ∂ω²∂k ) and calculate ω̄ and eīₖ
-# println("")
-# println("k̄ₖ = $(k̄ₖ)")
-# println("k̄ₕ = $(k̄ₕ)")
-# println("k̄ₖ + k̄ₕ = $(k̄ₖ+k̄ₕ)")
 λ⃗ₖ	 = ( (k̄ₖ + k̄ₕ ) / ∂ω²∂k ) * Hv
 H 	= reshape(Hv,(2,Ns...))
 λₖ  = reshape(λ⃗ₖ, (2,Ns...))
@@ -1212,23 +1037,17 @@ ng = WW / PP
 # ∂ω²∂k_disp = 2 * HMₖH(Hv,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗)))
 ∂ω²∂k_nd = 2 * HMₖH(Hv,nng⁻¹,real(mag),real(mns))
 neff = k / ω
-# ng = 2 * ω / ∂ω²∂k_disp # HMₖH(H⃗,nng⁻¹,real(mag),real(flat(m⃗)),real(flat(n⃗))) # ng = ∂k/∂ω
+
 gvd = 2 / ∂ω²∂k_disp - ω * 4 / ∂ω²∂k_disp^2 * om̄ #( ng / ω ) * ( 1. - ( ng * om̄ ) )
 gvd_alt1 = ω * 4 / ∂ω²∂k_disp^2 * om̄ - 2 / ∂ω²∂k_disp 
 gvd_alt2 = 2 / ∂ω²∂k_disp + ω * 4 / ∂ω²∂k_disp^2 * om̄
-# println("∂ω²∂k_disp: $(∂ω²∂k_disp)")
+
 println("neff: $(neff)")
 println("ng: $(ng)")
 println("gvd: $(gvd)")
 
 println("")
 println("calc. with pullbacks:")
-# nngī2 = copy(reinterpret(SMatrix{3,3,T,9},copy(reshape( nngī , 9*Ns[1], Ns[2:end]...))))
-# nngī_herm = (real.(nngī2) .+ transpose.(real.(nngī2)) ) ./ 2
-# eī_herm = (real.(eī₁) .+ transpose.(real.(eī₁)) ) ./ 2
-
-# om̄₂_pb = nngi_pb(herm(nngī))[1] #nngī2)
-# om̄₃_pb = ei_pb(herm(eī₁))[1] #eī₁)
 
 (ε,ε⁻¹,nng,nng⁻¹,ngvd), eps_data_pb
 

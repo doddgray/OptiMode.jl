@@ -34,30 +34,6 @@ function filter_eigs(ms::ModeSolver{ND,T},f_filter::Function)::Tuple{Vector{T},M
 	# return getindex.(ω²H_filt,1), hcat(getindex.(ω²H_filt,2)...) # ω²_filt, H_filt
 end
 
-# # function _solve_ω²(ms::ModeSolver{ND,T},::;nev=1,eigind=1,maxiter=100,tol=1.6e-8
-
-# function solve_ω²(ms::ModeSolver{ND,T},solver::AbstractEigensolver;nev=1,maxiter=200,k_tol=1e-8,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-# 	evals,evecs = _solve_ω²(ms,solver;nev,eigind,maxiter,tol,log,f_filter)
-# 	# @assert isequal(size(ms.H⃗,2),nev) # check that the modesolver struct is consistent with the number of eigenvalue/vector pairs `nev`
-# 	# evals_res = evals[1:nev]
-# 	# evecs_res = vec.(evecs[1:nev])
-# 	# copyto!(ms.H⃗,hcat(evecs_res...)) 
-# 	# copyto!(ms.ω²,evals_res)
-	
-# 	# res = lobpcg!(ms.eigs_itr; log,not_zeros=false,maxiter,tol)
-
-# 	# res = LOBPCG(ms.M̂,ms.H⃗,I,ms.P̂,tol,maxiter)
-# 	# copyto!(ms.H⃗,res.X)
-# 	# copyto!(ms.ω²,res.λ)
-
-
-# 	# if isnothing(f_filter)
-# 	# 	return   (copy(real(ms.ω²)), copy(ms.H⃗))
-# 	# else
-# 	# 	return filter_eigs(ms, f_filter)
-# 	# end
-# 	return evals, evecs
-# end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::TK,solver::AbstractEigensolver;nev=1,maxiter=100,tol=1e-8,
 	log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
@@ -99,16 +75,12 @@ modified solve_ω version for Newton solver, which wants (x -> f(x), f(x)/f'(x))
 """
 function _solve_Δω²(ms::ModeSolver{ND,T},k::TK,ωₜ::T,evec_out::Vector{Complex{T}},solver::AbstractEigensolver;nev=1,
 	eigind=1,maxiter=100,eig_tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK}
-	# println("k: $(k)")
 	evals,evecs = solve_ω²(ms,k,solver; nev, maxiter, tol=eig_tol, log, f_filter)
 	evec_out[:] = copy(evecs[eigind]) #copyto!(evec_out,evecs[eigind])
 	Δω² = evals[eigind] - ωₜ^2
-	# ∂ω²∂k = 2 * HMₖH(evecs[eigind],ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	∂ω²∂k = 2 * HMₖH(evec_out,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn) # = 2ω*(∂ω/∂|k|); ∂ω/∂|k| = group velocity = c / ng; c = 1 here
 	ms.∂ω²∂k[eigind] = ∂ω²∂k
 	ms.ω²[eigind] = evals[eigind]
-	# println("Δω²: $(Δω²)")
-	# println("∂ω²∂k: $(∂ω²∂k)")
     return Δω² , ( Δω² / ∂ω²∂k )
 end
 
@@ -141,7 +113,6 @@ function solve_k(ms::ModeSolver{ND,T},ω::T,solver::AbstractEigensolver;nev=1,ma
 	return kmags, collect(copy.(eachcol(evecs))) #evecs #[copy(ev) for ev in eachcol(evecs)] #collect(eachcol(evecs))
 end
 
-# function solve_k(ms::ModeSolver{ND,T},ω::T,solver::AbstractEigensolver{L};nev=1,maxiter=100,k_tol=1e-8,eig_tol=1e-8,
 
 function solve_k(ms::ModeSolver{ND,T},ω::T,solver::TS;nev=1,maxiter=100,k_tol=1e-8,eig_tol=1e-8,
 	max_eigsolves=60,log=false,f_filter=nothing) where {ND,T<:Real,TS<:AbstractEigensolver{L} where L<:HDF5Logger} #
@@ -172,56 +143,9 @@ end
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 	f_filter=nothing,overwrite=false) where {ND,T<:Real} 
-	# ms = ignore() do
-	# 	kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
-	# 	ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, eig_tol)
-	# 	if !isnothing(Hguess)
-	# 		ms.H⃗ = reshape(Hguess,size(ms.H⃗))
-	# 	end
-	# 	return ms
-	# end
 	ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
 	solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
 end
-
-
-
-
-# function solve_k(ω::T,p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
-# 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
-# 	ms = ignore() do
-# 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
-# 		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
-# 		if !isnothing(Hguess)
-# 			ms.H⃗ = reshape(Hguess,size(ms.H⃗))
-# 		end
-# 		return ms
-# 	end
-# 	solve_k(ms, ω, solver; nev, maxiter, tol, log, f_filter)
-# end
-
-# function solve_k(ω::AbstractVector{T},p::AbstractVector,geom_fn::F,grid::Grid{ND},solver::AbstractEigensolver;kguess=nothing,Hguess=nothing,nev=1,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,F<:Function}
-# 	ε⁻¹ = smooth(ω,p,:fεs,true,geom_fn,grid)
-# 	# ms = @ignore(ModeSolver(k_guess(first(ω),first(ε⁻¹)), first(ε⁻¹), grid; nev, maxiter, tol))
-# 	ms = ignore() do
-# 		kguess = isnothing(kguess) ? k_guess(ω,ε⁻¹) : kguess
-# 		ms = ModeSolver(kguess, ε⁻¹, grid; nev, maxiter, tol)
-# 		if !isnothing(Hguess)
-# 			ms.H⃗ = Hguess
-# 		end
-# 		return ms
-# 	end
-# 	nω = length(ω)
-# 	k = Buffer(ω,nω)
-# 	Hv = Buffer([1.0 + 3.0im, 2.1+4.0im],(size(ms.M̂)[1],nω))
-# 	for ωind=1:nω
-# 		@ignore(update_ε⁻¹(ms,ε⁻¹[ωind]))
-# 		kHv = solve_k(ms,ω[ωind],solver; nev, maxiter, tol, log, f_filter)
-# 		k[ωind] = kHv[1]
-# 		Hv[:,ωind] = kHv[2]
-# 	end
-# 	return copy(k), copy(Hv)
-# end
 
 
 function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::TS;nev=1,
@@ -248,13 +172,6 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			λd =  similar(ms.M̂.d)
 			λẽ = similar(ms.M̂.d)
 			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
-			# println("\tsolve_k_pullback:")
-			# println("k̄ (bar): $k̄")
-			# println("\tsolve_k pullback for eigind=$eigind:")
-			# println("\t\tω² (target): $(ω^2)")
-			# # println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
-			# println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
-			# (mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
 			ev_grid = reshape(ev,(2,gridsize...))
 			if isa(k̄,AbstractZero)
 				k̄ = 0.0
@@ -343,13 +260,6 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			λẽ = similar(ms.M̂.d)
 			∂ω²∂k = 2 * HMₖH(ev,ms.M̂.ε⁻¹,ms.M̂.mag,ms.M̂.mn)
 			∂ω²∂ks[eigind] = ∂ω²∂k
-			# println("\tsolve_k_pullback:")
-			# println("k̄ (bar): $k̄")
-			# println("\tsolve_k pullback for eigind=$eigind:")
-			# println("\t\tω² (target): $(ω^2)")
-			# # println("\t\t∂ω²∂k (recorded): $(domsq_dk_solns[eigind])")
-			# println("\t\t∂ω²∂k (recalc'd): $(∂ω²∂k)")
-			# (mag,m⃗,n⃗), mag_m_n_pb = Zygote.pullback(kk->mag_m_n(kk,g⃗(ms.grid)),k)
 			ev_grid = reshape(ev,(2,gridsize...))
 			
 			if isa(k̄,AbstractZero)
@@ -417,9 +327,6 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 
 		let kmags_bar=kmags_bar, evecs_bar=evecs_bar, ω_bar=ω_bar, ei_bar=ei_bar, λ₀s=λ₀s, ∂ω²∂ks=∂ω²∂ks, ω=ω, kmags=kmags, nev=nev, logger=solver_logger
 			with_logger(logger) do
-				# solver_str = string(solver)
-				# k_dir = norm(Vector{Float64}(M̂.k⃗))
-				# ε = sliceinv_3x3(ms.M̂.ε⁻¹) 
 				@debug "solve_k_pullback" kmags_bar evecs_bar ω_bar ei_bar λ₀s ∂ω²∂ks ω kmags nev 
 			end
 		end

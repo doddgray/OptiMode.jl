@@ -9,7 +9,6 @@ using OrderedCollections
 using SymbolicUtils
 using SymbolicUtils: Sym, Term
 using SymbolicUtils.Rewriters
-# using SymbolicUtils.Code: SetArray, AtIndex, Func, MakeArray, DestructuredArgs, Let, LazyState, Assignment, MakeTuple, LiteralExpr
 using Symbolics: SetArray, AtIndex, Func, MakeArray, DestructuredArgs, Let, LazyState, Assignment, MakeTuple, LiteralExpr, SerialForm, MultithreadedForm
 using Symbolics
 using Symbolics: value, unwrap, wrap, toexpr, variable, 
@@ -22,10 +21,6 @@ r_ratsqrt1 = @rule ^(~x,~y::is_rathalf) => sqrt(~x)
 r_ratsqrt2 = @rule ^(~~xs,~y::is_rathalf) => sqrt(~~xs)
 rs_ratsqrt = RuleSet([r_ratsqrt1,r_ratsqrt2])
 rw_ratsqrt = PassThrough(Postwalk(Chain([r_ratsqrt1,r_ratsqrt2])))
-# To replace (...)^(1//2) with sqrt(...) in a large expression `x` use either
-#      ∘  simplify(x,rewriter=rw_ratsqrt,simplify_fractions=false)
-#      ∘  simplify(x,rs_ratsqrt,simplify_fractions=false)
-
 
 const symbol_numbers = Dict{Symbol, Int}()
 
@@ -134,19 +129,6 @@ end
 cse(ex::Num) = cse(Symbolics.value(ex))
 
 
-# @syms x y 
-
-# ex = exp(3x^2 + 4x^2 * y)
-
-# dict, final = cse(ex)
-
-# cse_equations(ex)
-
-# dict
-# final
-
-# end
-
 ### New code extending this for generating code from arrays of expression with global CSE
 
 function cse(A::AbstractArray{<:Num})
@@ -163,26 +145,7 @@ end
 
 ####################################################################################
 
-
-
-
-# function fn_expr(A::AbstractArray{<:Num},vars;T=Float64)
-#     assigns, final = cse_equations(A)
-#     input_vars = toexpr(Symbolics.MakeTuple((vars...,)))
-#     code = Expr(:block, toexpr.(assigns)..., )
-#     # final_ex = toexpr(MakeArray
-#     full_code = quote
-#         (v_in, ) -> begin
-#             $input_vars = v_in
-#             $code
-#             return reshape( $T[ $(toexpr.(final)...) ] , $(size(final)) )
-#         end
-#     end
-#     return full_code
-# end
-
 ### testing various code-gen approaches
-# using SymbolicUtils.Code: Let, LazyState
 
 make_dargs(args...;checkbounds=false) = map((x) -> destructure_arg(x[2], !checkbounds, Symbol("ˍ₋arg$(x[1])")), enumerate([args...]))
 

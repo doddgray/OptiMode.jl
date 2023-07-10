@@ -102,39 +102,6 @@ function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
 end
 
 
-
-# function remote_update_package(remote_host; pkg_str="OptiMode", kwargs...)
-# 	pids = addprocs([(remote_host,1)];kwargs...)
-# 	@everywhere @eval procs(pids[1]) begin
-# 		using Pkg
-# 		Pkg.update("OptiMode") # Pkg.update(pkg_str)
-# 	end
-# end
-
-# function remote_add_package(remote_host;pkg_url="https://github.com/doddgray/OptiMode.jl",rev="main",kwargs...)
-# 	pids = addprocs([(remote_host,1)];kwargs...)
-# 	@everywhere procs(pids[1]) begin
-# 		using Pkg
-# 		Pkg.add(url=pkg_url;rev)
-# 	end
-# end
-
-
-
-# pids = addprocs([("txe1",1)], tunnel=true, exename="/home/gridsan/dodd/github/julia/julia", sshflags="-vv")
-# res = @spawnat 2 Pkg.add(url="https://github.com/doddgray/OptiMode.jl",rev="main")
-# # pids = addprocs([("txe1",1)], tunnel=true, max_parallel=1, exename="/state/partition1/llgrid/pkg/julia/julia-1.6.1/bin/julia", sshflags="-vv")
-
-
-# @everywhere begin
-# 	using Pkg
-# 	# Pkg.add(url="https://github.com/doddgray/OptiMode.jl",rev="main")
-# 	Pkg.update("OptiMode")
-# end
-
-
-
-
 """
 	create_data_file(fname; data_dir, groups, datasets)
 

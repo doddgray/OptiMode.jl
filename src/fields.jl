@@ -11,9 +11,6 @@ export normE!, Ex_norm, Ey_norm, val_magmax, ax_magmax, idx_magmax, group_index,
 		 canonicalize_phase, canonicalize_phase!
 
 export E_relpower_xyz, Eslices, count_E_nodes, mode_viable, mode_idx 
-# export _cross, _cross_x, _cross_y, _cross_z, _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z
-# export _outer
- #, slice_inv 	# stuff to get rid of soon
 
 
 """
@@ -203,16 +200,12 @@ end
 
 @inline function unflat(f,grid::Grid)
 	Ns = size(grid)
-	# nev = 1 # size(f,2)
-	# ratio = length(f) // ( nev * N(grid) ) |> Int # (length of vector) / (number of grid points)
-	# [reshape(f[:,i],(ratio,Ns...)) for i=1:nev]
 	ratio = length(f) //  N(grid) |> Int # (length of vector) / (number of grid points)
 	reshape(f,(ratio,Ns...))
 end
 
 function H⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
 	Harr = [ fft( tc(unflat(ms.H⃗;ms)[eigind],ms.M̂.mn), (2:1+ND) ) for eigind=1:size(ms.H⃗,2) ]#.* ms.M̂.Ninv
-	# svecs ? [ reinterpret(reshape, SVector{3,Complex{T}},  Harr[eigind]) for eigind=1:size(ms.H⃗,2) ] : Harr
 	return Harr
 end
 
@@ -221,19 +214,8 @@ function H⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	Hₜ = reshape(H⃗,(2,Ns...))
 	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
-	# ε⁻¹ = εₛ⁻¹(ω,geom,grid)
 	ε⁻¹, nng⁻¹, ngvd⁻¹ = εₛ⁻¹_nngₛ⁻¹_ngvdₛ⁻¹(ω,geom,grid)
 	H = fft( tc( Hₜ,mns ), (2:1+ND) )
-	# if normalized
-	# 	imagmax = argmax(abs2.(E0))
-	# 	E1 = E0 / E0[imagmax]
-	# 	E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
-	# 	E1norm = sum(dot.(E1s, inv.(nng⁻¹) .* E1s )) * δ(grid)
-	# 	E = E1 / sqrt(E1norm)
-	# else
-	# 	E = E0
-	# end
-	# svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  H) : H
 	return H
 end
 
@@ -242,25 +224,19 @@ function H⃗(k,Hv::AbstractArray{Complex{T}},ω::T,ε⁻¹,nng,grid::Grid{ND}; 
 	mag,m⃗,n⃗ = mag_m_n(k,grid)
 	Hₜ = reshape(Hv,(2,Ns...))
 	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
-	# H0 = fft( tc( Hₜ,mns ), (2:1+ND) )
 	if normalized
 		E0 = 1im * ε⁻¹_dot( fft( kx_tc( Hₜ,mns,mag), (2:1+ND) ), ε⁻¹)
 		imagmax = argmax(abs2.(E0))
 		E0magmax = copy(E0[imagmax])
 		E1 = E0 / E0[imagmax]
-		# E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
 		if nnginv
 			E1norm = dot(E1,_dot(slice_inv(copy(nng.data)),E1)) * δ(grid)
 		else
 			E1norm = dot(E1,_dot(nng,E1)) * δ(grid)
 		end
 		E = E1 / sqrt(E1norm)
-		# fieldnorm = E0magmax * sqrt(E1norm)
 		H1 = fft(tc(kx_ct( ifft( E, (2:1+ND) ), mns,mag), mns),(2:1+ND) ) / ω
-		# H1 = -1.0 * fft( tc( Hₜ,mns ), (2:1+ND) ) / E0magmax / sqrt(E1norm) / ω
 	else
-		# E = E0
-		# fieldnorm = 1.0
 		H1 = fft( tc( Hₜ,mns ), (2:1+ND) )
 	end
 
@@ -290,26 +266,6 @@ function E⃗(evecs::AbstractVector{TV}, ms::ModeSolver{ND,T}) where {ND,T<:Real
 	return [E⃗(ev,ms) for ev in evecs]
 end
 
-# function E⃗(k,H⃗::AbstractArray{Complex{T}},ω::T,geom::Geometry,grid::Grid{ND}; normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
-# 	Ns = size(grid)
-# 	mag,m⃗,n⃗ = mag_m_n(k,grid)
-# 	H = reshape(H⃗,(2,Ns...))
-# 	mns = vcat(reshape(flat(m⃗),1,3,Ns...),reshape(flat(n⃗),1,3,Ns...))
-# 	# ε⁻¹ = εₛ⁻¹(ω,geom,grid)
-# 	ε⁻¹, nng⁻¹, ngvd⁻¹ = εₛ⁻¹_nngₛ⁻¹_ngvdₛ⁻¹(ω,geom,grid)
-# 	E0 = 1im * ε⁻¹_dot( fft( kx_tc( H,mns,mag), (2:1+ND) ), flat(ε⁻¹))
-# 	if normalized
-# 		imagmax = argmax(abs2.(E0))
-# 		E1 = E0 / E0[imagmax]
-# 		E1s = reinterpret(reshape, SVector{3,Complex{T}},  E1)
-# 		E1norm = sum(dot.(E1s, inv.(nng⁻¹) .* E1s )) * δ(grid)
-# 		E = E1 / sqrt(E1norm)
-# 	else
-# 		E = E0
-# 	end
-# 	#svecs ?  reinterpret(reshape, SVector{3,Complex{T}},  E) : E
-# 	return E
-# end
 
 function E⃗(k,evec::AbstractArray{Complex{T}},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; canonicalize=true, normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	evec_gridshape = reshape(evec,(2,size(grid)...))
@@ -359,42 +315,12 @@ val_magmax(F::AbstractArray{T} where {T<:Number}) =  @inbounds F[argmax(abs2.(F)
 
 
 """
-	canonicalize_phase!(ms::ModeSolver[, eig_idx::Int])
 
 Canonicalize the phase of one or all eigenmodes in a ModeSolver struct.
 
 This shifts the phase of each mode field such that the largest magnitude
 component of the corresponding Electric field `E⃗` is purely real.
 """
-# function canonicalize_phase!(ms::ModeSolver,eig_idx::Int)
-#     ms.H⃗[:,eig_idx] = cis(-angle(val_magmax(E⃗(ms,eig_idx)))) * ms.H⃗[:,eig_idx]
-#     return nothing
-# end
-# function canonicalize_phase!(ms::ModeSolver)
-#     for eig_idx=1:size(ms.H⃗,2)
-#         canonicalize_phase!(ms,eig_idx)
-#     end
-#     return nothing
-# end
-# function canonicalize_phase!(evec::AbstractVector{Complex{T}}, ms::ModeSolver) where {T<:Real}
-#     evec *= cis(-angle(val_magmax(E⃗(evec,ms))))
-#     return nothing
-# end
-# function canonicalize_phase!(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
-#     # canonicalize_phase!.(evecs,(ms,))
-# 	# foreach(ev->canonicalize_phase!(ev,ms),evecs)
-# 	for ev in evecs
-# 		ev *= cis(-angle(val_magmax(E⃗(ev,ms))))
-# 	end
-#     return nothing
-# end
-# function canonicalize_phase(evec::AbstractVector{Complex{T}}, ms::ModeSolver) where {T<:Real}
-#     return evec * cis(-angle(val_magmax(E⃗(evec,ms))))
-# end
-# function canonicalize_phase(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
-#     # return canonicalize_phase.(evecs,(ms,))
-# 	return map(ev->canonicalize_phase(ev,ms),evecs)
-# end
 
 
 function canonicalize_phase(evec::AbstractArray{Complex{T}},k::T,ε⁻¹,grid::Grid{ND}) where {ND,T<:Real}
@@ -405,11 +331,6 @@ function canonicalize_phase!(evec::AbstractArray{Complex{T}},k::T,ε⁻¹,grid::
 	evec *= cis(-angle(val_magmax(E⃗(k,evec,ε⁻¹,ε⁻¹,grid;canonicalize=false,normalized=false))))
 	return nothing
 end
-
-# function canonicalize_phase(evecs::AbstractVector{TV}, ms::ModeSolver) where {T<:Real,TV<:AbstractVector{Complex{T}}}
-#     # return canonicalize_phase.(evecs,(ms,))
-# 	return map(ev->canonicalize_phase(ev,ms),evecs)
-# end
 
 
 
@@ -445,25 +366,6 @@ function Ey_norm(ms)
 	view(E,2,eachindex(ms.grid)...) * inv(Eperp[imagmax])
 end
 
-# function ngdisp1(ω,H,geom,mag,m,n)
-# 	ω = sqrt(real(ms.ω²[eigind]))
-# 	ω / HMₖH(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
-# end
-#
-# function ngdisp1(ms,eigind)
-# 	ω = sqrt(real(ms.ω²[eigind]))
-# 	ω / HMₖH(ms.H⃗[:,eigind],nngₛ(ω,geom;ms),ms.M̂.mag,ms.M̂.m,ms.M̂.n)
-# end
-# ( sum( dot.( ( inv.(ms.M̂.ε⁻¹) .* E⃗(ms)[1] ), E⃗(ms)[1]))*δ(ms.grid) ) ./ ( sum.(S⃗z(ms))*δ(ms.grid) )
-
-# sum( real.( getindex.( cross.( conj.(E⃗(ms)), H⃗(ms) ), 3) ) )
-
-# ∫(intgnd;ms::ModeSolver) = sum(ingnd)*δ(ms.grid)
-
-# function 𝓘(ms::ModeSolver{ND,T}) where {ND,T<:Real}
-#
-# end
-
 """
 ######################################################################################
 #
@@ -487,34 +389,6 @@ function group_index(k::Real,evec,ω,ε⁻¹,∂ε_∂ω,grid)
 	return (ω + HMH(vec(evec), _dot( ε⁻¹, ∂ε_∂ω, ε⁻¹ ),mag,mn)/2) / HMₖH(vec(evec),ε⁻¹,mag,mn)
 	# note that this formula assumes (HMH(...), HMₖH(...))>0 (positive eigenvalues)
 end
-
-# function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
-#     [ group_index(ks[bidx],evecs[bidx],om,ε⁻¹,∂ε∂ω,grid) for bidx=1:num_bands ]
-# end
-
-# function group_index(ks::AbstractMatrix,evecs,om,ε⁻¹,∂ε∂ω,grid)
-#     [ group_index(ks[fidx,bidx],evecs[fidx,bidx],om[fidx],ε⁻¹[fidx],∂ε∂ω[fidx],grid) for fidx=1:nω,bidx=1:num_bands ]
-# end
-
-# function group_index(ω::Real,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; kwargs...) where {ND,TF<:Function}
-#     eps, epsi = copy.(getproperty.(smooth(ω,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,)))
-#     deps_dom = ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),ω)
-#     k,evec = find_k(ω,eps,grid; kwargs...)
-#     return group_index(k,evec,ω,epsi,deps_dom,grid)
-# end
-
-# function group_index(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; worker_pool=default_worker_pool(),filename_prefix="",data_path=pwd(), kwargs...) where {ND,TF<:Function}
-#     nω = length(ω)
-#     prefixes = [ lstrip(join((filename_prefix,(@sprintf "f%02i" fidx)),"."),'.') for fidx=1:nω ]
-#     eps_epsi = [ copy.(getproperty.(smooth(om,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,))) for om in ω ]
-#     deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ω ]
-#     ngs = progress_pmap(worker_pool,ω,eps_epsi,deps_dom,prefixes) do om, e_ei, de_do, prfx
-#         kmags,evecs= find_k(om,e_ei[1],grid; filename_prefix=prfx, data_path, kwargs...)
-#         return group_index(kmags,evecs,om,e_ei[2],de_do,grid)
-#     end
-#     return transpose(hcat(ngs...))
-# end
-
 
 """
 ################################################################################
@@ -571,46 +445,6 @@ function count_E_nodes(E,eps,component_idx;rel_amp_min=0.1)
     return node_counts
 end
 
-# """
-# Utility function for debugging count_E_nodes function.
-# inspect output with something like: 
-#     slcs_inds = windowed_E_slices(E,eps,component_idx;rel_amp_min=0.1)
-#     ind_min_xslc, ind_max_xslc = slcs_inds[1][2:3]
-#     E_xslc = slcs_inds[1][1]
-#     scatterlines(x(grid)[ind_min_xslc:ind_max_xslc],real(E_xslc[ind_min_xslc:ind_max_xslc]))
-# """
-# function windowed_E_slices(E,eps,component_idx;rel_amp_min=0.1) 
-#     peak_idx = argmax(real(_3dot(E,eps,E)[component_idx,..]))
-#     E_slcs = Eslices(real(E),component_idx,peak_idx)
-#     slices_and_window_inds = map(E_slcs) do E_slice
-#         min_idx = findfirst(x->(x>rel_amp_min),abs.(E_slice))
-#         max_idx = findlast(x->(x>rel_amp_min),abs.(E_slice))
-#         # n_zero_xing = sum(abs.(diff(sign.(E_slice[min_idx:max_idx]))))
-#         return E_slice, min_idx, max_idx
-#     end
-#     return slices_and_window_inds
-# end
-
-# """
-# `inspect_slcs_inds` plots the output of `windowed_E_slices` above
-# for inspection when debugging the `count_E_nodes` function.
-# """
-# function inspect_slcs_inds(slcs_inds;ax=nothing)
-#     if isnothing(ax)
-#         fig = Figure()
-#         ax = fig[1,1] = Axis(fig)
-#         ret = fig
-#     else
-#         ret = ax
-#     end
-#     map(slcs_inds,(x(grid),y(grid)),(logocolors[:red],logocolors[:blue])) do slc_ind, ax_coords, ln_clr
-#         E_slc = slc_ind[1]
-#         ind_min_slc, ind_max_slc = slc_ind[2:3]
-#         scatterlines!(ax,ax_coords[ind_min_slc:ind_max_slc],real(E_slc[ind_min_slc:ind_max_slc]),color=ln_clr)
-#     end
-#     return ret
-# end
-
 """
 Return `true` if the following conditions are met:
     (1) The mode E-field `E` is dominantly polarized along axis index `pol_idx`
@@ -632,64 +466,3 @@ function mode_idx(Es::AbstractVector,eps;pol_idx=1,mode_order=(0,0),rel_amp_min=
     return findfirst(EE->mode_viable(EE,eps;pol_idx,mode_order,rel_amp_min),Es)
 end
 
-# """
-# Identify the mode of a given order/polarization for each frequency index in an vector of
-# eigenmode E-fields `Es`, length `nbands`.
-# """
-# function mode_idx(Es,eps::AbstractVector;pol_idx=1,mode_order=(0,0),rel_amp_min=0.4)
-#     n_freq = first(size(Es))
-#     return [ findfirst(EE->mode_viable(EE,eps[fidx];pol_idx,mode_order,rel_amp_min),Es[fidx,:]) for fidx=1:n_freq ]
-# end
-
-
-
-"""
-################################################################################
-#																			   #
-#							   Plotting methods					   			   #
-#																			   #
-################################################################################
-"""
-
-# using Makie: heatmap
-# export plot_field, plot_field!
-
-# function plot_field!(pos,F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing,axind=1)
-# 	xs = x(grid)
-# 	ys = y(grid)
-# 	xlim = isnothing(xlim) ? Tuple(extrema(xs)) : xlim
-# 	ylim = isnothing(ylim) ? Tuple(extrema(ys)) : ylim
-
-# 	# ax = [Axis(pos[1,j]) for j=1:2]
-# 	# ax = [Axis(pos[j]) for j=1:2]
-# 	labels = label.*label_base
-# 	Fs = [view(F,j,:,:) for j=1:2]
-# 	magmax = maximum(abs,F)
-# 	hm = heatmap!(pos, xs, ys, real(Fs[axind]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-# 	# ax1 = pos[1]
-# 	# hms = [heatmap!(pos[j], xs, ys, real(Fs[j]),colormap=cmap,label=labels[j],colorrange=(-magmax,magmax)) for j=1:2]
-# 	# hm1 = heatmap!(ax1, xs, ys, real(Fs[1]),colormap=cmap,label=labels[1],colorrange=(-magmax,magmax))
-# 	# ax2 = pos[2]
-# 	# hm2 = heatmap!(ax2, xs, ys, real(Fs[2]),colormap=cmap,label=labels[2],colorrange=(-magmax,magmax))
-# 	# hms = [hm1,hm2]
-# 	# cbar = Colorbar(pos[1,3], heatmaps[2],  width=20 )
-# 	# wfs_E = [wireframe!(ax_E[j], xs, ys, Es[j], colormap=cmap_E,linewidth=0.02,color=:white) for j=1:2]
-# 	# map( (axx,ll)->text!(axx,ll,position=(-1.4,1.1),textsize=0.7,color=:white), ax, labels )
-# 	# hideydecorations!.(ax[2])
-# 	# [ax[1].ylabel= "y [μm]" for axx in ax[1:1]]
-# 	# for axx in ax
-# 	# 	axx.xlabel= "x [μm]"
-# 	# 	xlims!(axx,xlim)
-# 	# 	ylims!(axx,ylim)
-# 	# 	axx.aspect=DataAspect()
-# 	# end
-# 	# linkaxes!(ax...)
-# 	return hm
-# end
-
-# function plot_field(F,grid;cmap=:diverging_bkr_55_10_c35_n256,label_base=["x","y"],label="E",xlim=nothing,ylim=nothing)
-# 	fig=Figure()
-# 	ax = fig[1,1] = Axis(fig)
-# 	hms = plot_field!(ax,F,grid;cmap,label_base,label,xlim,ylim)
-# 	fig
-# end

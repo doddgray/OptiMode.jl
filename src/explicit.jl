@@ -4,23 +4,6 @@ export ε⁻¹_sp, nng⁻¹_sp, M̂_sp, M̂ₖ_sp, 𝓕_dense, 𝓕⁻¹_dense
 using SparseArrays
 using Zygote: Buffer
 
-# both rrules below copied from
-# https://discourse.julialang.org/t/how-to-efficiently-differentiate-backslash-operator-for-sparse-matrix/43778/18
-
-# function ChainRulesCore.rrule(::typeof(SparseArrays.SparseMatrixCSC),
-#     m::Integer, n::Integer, pp::Vector, ii::Vector, Av::Vector)
-#     A = SparseMatrixCSC(m,n,pp,ii,Av)
-#     function SparseMatrixCSC_pullback(dA)
-#         # Pick out the entries in `dA` corresponding to nonzeros in `A`
-#         dAv = Vector{eltype(dA)}(undef, length(Av))
-#         for j = 1:n, p = pp[j]:pp[j+1]-1
-#             dAv[p] = dA[ii[p],j]
-#         end
-#         return (NO_FIELDS, DoesNotExist(), DoesNotExist(), DoesNotExist(), DoesNotExist(), dAv)
-#     end
-#
-#     return A, SparseMatrixCSC_pullback
-# end
 
 function ChainRulesCore.rrule(::typeof(SparseArrays.SparseMatrixCSC),
     m::Integer, n::Integer, pp::Vector, ii::Vector, Av::Vector)
