@@ -97,8 +97,8 @@ pᵪ₂ = (   # NOTE: These are values for MgO:LN, need to be corrected for undo
 
 function make_LiNbO₃(;pₒ=pₒ,pₑ=pₑ,pᵪ₂=pᵪ₂)
 	@variables λ, ω, T, λs[1:3]
-	nₒ² = nₒ²_MgO_LiNbO₃_sym_ω(ω, T; pₒ...)
-	nₑ² = nₑ²_MgO_LiNbO₃_sym_ω(ω, T; pₑ...)
+	nₒ² = nₒ²_LiNbO₃_sym_ω(ω, T; pₒ...)
+	nₑ² = nₑ²_LiNbO₃_sym_ω(ω, T; pₑ...)
 	ε 	= diagm([nₒ², nₒ², nₑ²])
 	d₃₃, d₃₁, d₂₂, λᵣs = pᵪ₂
 	χ⁽²⁾ᵣ = cat(
