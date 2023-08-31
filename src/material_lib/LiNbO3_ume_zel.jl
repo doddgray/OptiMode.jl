@@ -52,7 +52,7 @@ function nₑ²_LiNbO₃_sym(λ, T; a₁, a₂, a₃, b₁, c₀₀, c₀, c₁,
 	return nₑ²
 end
 
-function nₑ²_LiNbO₃_sym_ω(ω, T; a₁, a₂, a₃, b₁, c₀, c₁, c₂, c₃, d₁, T₀)
+function nₑ²_LiNbO₃_sym_ω(ω, T; a₁, a₂, a₃, b₁, c₀₀, c₀, c₁, c₂, c₃, d₁, T₀)
 	ΔT = T-T₀
 	∫∂nₑ = (c₃*ω^3 + c₂*ω^2 + c₁*ω + c₀ + c₀₀/ω) * ΔT * (2+ d₁*(ΔT + 2*T₀)) / 2.0
     ω² = ω^2
