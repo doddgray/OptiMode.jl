@@ -451,6 +451,8 @@ end
 include("material_lib/vacuum.jl")
 include("material_lib/LiNbO3.jl")
 include("material_lib/LiNbO3_MgO.jl")
+include("material_lib/LiNbO3_ume_zel.jl")
+include("material_lib/LiNbO3_MgO_umemura.jl")
 include("material_lib/SiO2.jl")
 include("material_lib/Si3N4.jl")
 include("material_lib/αAl2O3.jl")
