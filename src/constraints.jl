@@ -90,34 +90,3 @@ end
 𝓟x̄(grid::Grid{2}) = LinearMap{ComplexF64}(H -> vec(_𝓟x̄!(reshape(copy(H),(2,grid.Nx,grid.Ny)),reshape(H,(2,grid.Nx,grid.Ny)),grid)),*(2,grid.Nx,grid.Ny),ishermitian=false,ismutating=false)
 𝓟x̄(grid::Grid{3}) = LinearMap{ComplexF64}(H -> vec(_𝓟x̄!(reshape(copy(H),(2,grid.Nx,grid.Ny,grid.Nz)),reshape(H,(2,grid.Nx,grid.Ny,grid.Nz)),grid)),*(2,grid.Nx,grid.Ny,grid.Nz),ishermitian=false,ismutating=false)
 
-
-
-# import Base: * #, transpose, adjoint
-# function Base.:(*)(M::LinearMaps.FunctionMap,X::Matrix)
-# 	#if isequal(size(M),size(X)) # size check?
-# 	ncolsX = size(X)[2]
-# 	# @assert ncolsX == size(M)[1]
-# 	Y = similar(X)
-# 	for i in 1:ncolsX
-# 		@views Y[:,i] = M * X[:,i]
-# 	end
-# 	return Y
-# end
-
-
-
-#
-# function LinearAlgebra.mul!(y::AbstractVecOrMat, M̂::HelmholtzMap, x::AbstractVector)
-#     LinearMaps.check_dim_mul(y, M̂, x)
-# 	M̂(y, x)
-# end
-#
-# function LinearAlgebra.mul!(y::AbstractVecOrMat, P̂::HelmholtzPreconditioner, x::AbstractVector)
-#     LinearMaps.check_dim_mul(y, P̂, x)
-# 	P̂(y, x)
-# end
-#
-# Base.adjoint(A::HelmholtzMap) = A
-# Base.transpose(P̂::HelmholtzPreconditioner) = P̂
-# LinearAlgebra.ldiv!(c,P̂::HelmholtzPreconditioner,b) = mul!(c,P̂,b) # P̂(c, b) #
-# LinearAlgebra.ldiv!(P̂::HelmholtzPreconditioner,b) = mul!(b,P̂,b)

@@ -9,57 +9,6 @@ end
 
 MPB_Solver() = MPB_Solver(NullLogger())
 
-# mutable struct MPB_Solver <: AbstractEigensolver
-#     num_bands=2,band_min=1,band_max=num_bands,eig_tol=1e-8,k_tol=1e-8,
-#     k_dir=[0.,0.,1.]
-
-# end
-
-
-# using Parameters
-
-# @with_kw mutable struct MPB_Solver{T} <: AbstractEigensolver
-# 	"Number of bands (modes) to find"
-#     num_bands::Int64 = 2
-
-#     "Lowest band number to find"
-#     band_min::Int64 = 1
-
-#     "Highest band number to find"
-#     band_max::Int64 = 2
-    
-#     "Absolute k magnitude tolerance for outer (Newton) solver"
-# 	k_tol::T = 1e-9
-
-# 	"Absolute eigenvalue tolerance for inner (eigen) solver"
-# 	eig_tol::T = 1e-9
-
-# 	"Number of restarts"
-# 	k_dir::Vec{T} = [0.,0.,1]
-
-# 	"Path to directory where solver log and field data should be saved"
-# 	data_path::String = pwd()
-
-#     "filename prefix for saving solver log and field data"
-# 	filename_prefix::String = "f01"
-
-# 	"Display information during iterations"
-# 	verbose::Bool = false
-
-# 	"Record information"
-# 	log::Bool = true
-
-# 	"Save eigenvector data"
-# 	save_evecs::Bool = false
-
-#     "Save electric field data"
-# 	save_efield::Bool = false
-# end
-
-# function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
-# 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
-# 	f_filter=nothing) where {ND,T<:Real} 
-
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_Solver; nev=1,
     max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
     f_filter=nothing,overwrite=false) where {ND,T<:Real}
@@ -68,90 +17,9 @@ function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::MPB_So
     return ks, evecs
 end
 
-# function solve_k(ω::,ms::ModeSolver{ND,T},solver::MPB_Solver;nev=1,eigind=1,maxiter=100,tol=1e-8,log=false,f_filter=nothing,kwargs...) where {ND,T<:Real}
-# 	ks,evecs = find_k(ω,ε,grid;num_bands=nev,kwargs...)
-#     return ks, evecs
-# end
-
-### Dependencies of MPB interface in case this should be a sub-module
-# using PyCall
-# using Distributed
-# using GeometryPrimitives
-# using OptiMode
-# using HDF5
-# using DelimitedFiles
-# using EllipsisNotation
-# using Printf
-# using LinearAlgebra: diag
-# using ProgressMeter
-# using Tullio
-
-# SHM3 = SHermitianCompact{3,Float64,6}
-# Conda.add("wurlitzer"; channel="conda-forge")
-
 const DEFAULT_MPB_LOGPATH = "log.txt"
 const DEFAULT_MPB_EPSPATH = "-epsilon.h5"
 
-
-# function __init__()
-#     # @eval global mp = pyimport("meep")
-#     # @eval global mpb = pyimport("meep.mpb")
-#     # @eval global np = pyimport("numpy")
-#     copy!(pymeep, pyimport("meep"))
-#     copy!(pympb, pyimport("meep.mpb"))
-#     # copy!(numpy, pyimport("numpy"))
-#     # wurlitzer = pyimport("wurlitzer")
-#     py"""
-#     import numpy
-#     import h5py
-#     from numpy import linspace, transpose
-#     from scipy.interpolate import interp2d
-#     from meep import Medium, Vector3
-
-#     def return_evec(evecs_out):
-#         fn = lambda ms, band: numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-#         return fn
-        
-#     def save_evecs(ms,band):
-#         ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-        
-#     def return_and_save_evecs(evecs_out):
-#         # fn = lambda ms, band: ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5"); numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0]) )
-#         def fn(ms,band):
-#             ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-#             numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-#         return fn
-
-#     def output_dfield_energy(ms,band):
-#         D = ms.get_dfield(band, bloch_phase=False)
-#         # U, xr, xi, yr, yi, zr, zi = ms.compute_field_energy()
-#         # numpy.savetxt(
-#         #     f"dfield_energy.b{band:02}.csv",
-#         #     [U, xr, xi, yr, yi, zr, zi],
-#         #     delimiter=","
-#         # )
-#         ms.compute_field_energy()
-
-#     # load epsilon data into python closure function `fmat(p)`
-#     # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-#     # and return a "meep.Material" object with dielectric tensor data for that point
-#     def matfn_from_file(fpath,Dx,Dy,Nx,Ny):
-#         x = linspace(-Dx/2., Dx*(0.5 - 1./Nx), Nx)
-#         y = linspace(-Dy/2., Dy*(0.5 - 1./Ny), Ny)
-#         with h5py.File(fpath, 'r') as f:
-#             f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(f["epsilon."+s])) for s in ["xx","xy","xz","yy","yz","zz"] ]
-#         matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-#         return matfn
-
-#     # Transfer Julia epsilon data directly into python closure function `fmat(p)`
-#     # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-#     # and return a "meep.Material" object with dielectric tensor data for that point
-#     def matfn(eps,x,y):
-#         f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(eps[ix,iy,:,:])) for (ix,iy) in [(0,0),(0,1),(0,2),(1,1),(1,2),(2,2)] ]
-#         matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-#         return matfn
-#     """
-# end
 
 function get_Δs_mpb(ms)
     Δx, Δy, Δz = ms.geometry_lattice.size.__array__()
@@ -290,9 +158,6 @@ function load_epsilon(fpath)
         ε⁻¹_yz = permutedims( read(file, "epsilon_inverse.yz"), perm )
         ε⁻¹_zz = permutedims( read(file, "epsilon_inverse.zz"), perm )
         
-        # return data,ε_xx,ε_xy,ε_xz,ε_yy,ε_yz,ε_zz,ε⁻¹_xx,ε⁻¹_xy,ε⁻¹_xz,ε⁻¹_yy,ε⁻¹_yz,ε⁻¹_zz
-        # ε = reshape(cat(reshape.((ε_xx,ε_xy,ε_xz,ε_xy,ε_yy,ε_yz,ε_xz,ε_yz,ε_zz),((1,grid_size...),))...,dims=1),(3,3,grid_size...))
-        # ε⁻¹ = reshape(cat(reshape.((ε⁻¹_xx,ε⁻¹_xy,ε⁻¹_xz,ε⁻¹_xy,ε⁻¹_yy,ε⁻¹_yz,ε⁻¹_xz,ε⁻¹_yz,ε⁻¹_zz),((1,grid_size...),))...,dims=1),(3,3,grid_size...))
         ε = reshape(cat(reshape.((ε_xx,conj.(ε_xy),conj.(ε_xz),ε_xy,ε_yy,conj.(ε_yz),ε_xz,ε_yz,ε_zz),((1,grid_size...),))...,dims=1),(3,3,grid_size...))
         ε⁻¹ = reshape(cat(reshape.((ε⁻¹_xx,conj.(ε⁻¹_xy),conj.(ε⁻¹_xz),ε⁻¹_xy,ε⁻¹_yy,conj.(ε⁻¹_yz),ε⁻¹_xz,ε⁻¹_yz,ε⁻¹_zz),((1,grid_size...),))...,dims=1),(3,3,grid_size...))
         return ε, ε⁻¹, ε_ave
@@ -301,8 +166,6 @@ end
 
 function load_field(fpath)
     return h5open(fpath, "r") do file
-        # desc_str = read(file,"description")
-        # bw = read(file,"Bloch wavevector")
         f_xr0 = read(file, "x.r")
         perm = reverse(1:ndims(f_xr0))
         f_xr = permutedims(f_xr0,perm)
@@ -650,13 +513,7 @@ function rename_findk_data(filename_prefix,b_inds;k_ind=1,data_path=pwd(),overwr
             )
         end
     end
-    # log_source_fname = logpath
-    # log_target_fname = @sprintf "log.f%02i.txt" f_ind
-    # mv(
-    #     joinpath(data_path,log_source_fname),
-    #     joinpath(data_path,log_target_fname);
-    #     force=overwrite,
-    # )
+
     eps_source_fname = filename_prefix * "-epsilon.h5"
     if in(eps_source_fname,fnames)
         eps_target_fname = "eps." * filename_prefix * ".h5" 
@@ -783,38 +640,6 @@ function find_k(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND};
     eps = [copy(smooth(oo,p,:fεs,false,geom_fn,grid).data) for oo in ω]
     return find_k(ω,eps,grid; kwargs...)
 end
-
-# function group_index(k::Real,evec,om,ε⁻¹,∂ε∂ω,grid)
-#     mag,mn = mag_mn(k,grid)
-#     om / HMₖH(vec(evec),ε⁻¹,mag,mn) * (1-(om/2)*HMH(evec, _dot( ε⁻¹, ∂ε∂ω, ε⁻¹ ),mag,mn))
-# end
-
-# function group_index(ks::AbstractVector,evecs,om::Real,ε⁻¹,∂ε∂ω,grid)
-#     [ group_index(ks[bidx],evecs[bidx],om,ε⁻¹,∂ε∂ω,grid) for bidx=1:num_bands ]
-# end
-
-# function group_index(ks::AbstractMatrix,evecs,om,ε⁻¹,∂ε∂ω,grid)
-#     [ group_index(ks[fidx,bidx],evecs[fidx,bidx],om[fidx],ε⁻¹[fidx],∂ε∂ω[fidx],grid) for fidx=1:nω,bidx=1:num_bands ]
-# end
-
-# function group_index(ω::Real,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; kwargs...) where {ND,TF<:Function}
-#     eps, epsi = copy.(getproperty.(smooth(ω,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,)))
-#     deps_dom = ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),ω)
-#     k,evec = find_k(ω,eps,grid; kwargs...)
-#     return group_index(k,evec,ω,epsi,deps_dom,grid)
-# end
-
-# function group_index(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND}; worker_pool=default_worker_pool(),filename_prefix="",data_path=pwd(), kwargs...) where {ND,TF<:Function}
-#     nω = length(ω)
-#     prefixes = [ lstrip(join((filename_prefix,(@sprintf "f%02i" fidx)),"."),'.') for fidx=1:nω ]
-#     eps_epsi = [ copy.(getproperty.(smooth(om,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing),(:data,))) for om in ω ]
-#     deps_dom = [ ForwardDiff.derivative(oo->copy(getproperty(smooth(oo,p,(:fεs,:fεs),[false,true],geom_fn,grid,kottke_smoothing)[1],:data)),om) for om in ω ]
-#     ngs = progress_pmap(worker_pool,ω,eps_epsi,deps_dom,prefixes) do om, e_ei, de_do, prfx
-#         kmags,evecs= find_k(om,e_ei[1],grid; filename_prefix=prfx, data_path, kwargs...)
-#         return group_index(kmags,evecs,om,e_ei[2],de_do,grid)
-#     end
-#     return transpose(hcat(ngs...))
-# end
 
 function find_k_dom(ω::AbstractVector,p::AbstractVector,geom_fn::TF,grid::Grid{ND};dom=1e-4,data_path=pwd(),kwargs...) where {ND,TF<:Function}
 

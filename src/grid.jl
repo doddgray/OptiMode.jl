@@ -221,18 +221,7 @@ end
 end
 
 function corners(g::Grid{2,T}) where T<:Real
-	# (	( 
-	# 		xx + SVector{3,T}( -δx(g), -δy(g),	zero(T) ),
-	# 		xx + SVector{3,T}( -δx(g),	δy(g),	zero(T) ),
-	# 		xx + SVector{3,T}(	δx(g),	δy(g),	zero(T) ),
-	# 		xx + SVector{3,T}(	δx(g), -δy(g),	zero(T) ),
-	# 	) 	for xx in g 	)
-	# (	( 
-	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g), -δy(g)  ),
-	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}( -δx(g),	δy(g)  ),
-	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g),	δy(g)  ),
-	# 	SVector{2,T}(xx[1:2]) + SVector{2,T}(	δx(g), -δy(g)  ),
-	# ) 	for xx in g 	)
+
 	xcs = xc(g)
 	ycs = yc(g)
 	map(eachindex(g)) do I
@@ -250,16 +239,7 @@ function corners(g::Grid{2,T}) where T<:Real
 end
 
 function corners(g::Grid{3,T}) where T<:Real
-	# (	( 
-	# 		xx + SVector{3,T}( -δx(g), -δy(g),	-δz(g) ),
-	# 		xx + SVector{3,T}( -δx(g),	δy(g),	-δz(g) ),
-	# 		xx + SVector{3,T}(	δx(g),	δy(g),	-δz(g) ),
-	# 		xx + SVector{3,T}(	δx(g), -δy(g),	-δz(g) ),
-	# 		xx + SVector{3,T}( -δx(g), -δy(g),	 δz(g) ),
-	# 		xx + SVector{3,T}( -δx(g),	δy(g),	 δz(g) ),
-	# 		xx + SVector{3,T}(	δx(g),	δy(g),	 δz(g) ),
-	# 		xx + SVector{3,T}(	δx(g), -δy(g),	 δz(g) ),
-	# 	) 	for xx in g 	)
+
 	xcs = xc(g)
 	ycs = yc(g)
 	zcs = yc(g)
@@ -310,35 +290,3 @@ end
 @inline function vxlmax(crnrs::NTuple{8,SVector{ND,T}}) where {ND,T<:Real}
 	@inbounds crnrs[7]
 end
-
-
-
-# ### Grid Voxel/Pixel Corner Positions ###
-# function xc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-# 	( ( g.Δx / g.Nx ) .* (0:g.Nx) ) .- ( g.Δx/2. * ( 1 + 1. / g.Nx ) )
-# 	# collect(range(-g.Δx/2.0, g.Δx/2.0, length=g.Nx+1))
-# end
-# function yc(g::Grid{ND,T})::Vector{T} where {ND,T<:Real}
-# 	( ( g.Δy / g.Ny ) .* (0:g.Ny) ) .- ( g.Δy/2. * ( 1 + 1. / g.Ny ) )
-# 	# collect(range(-g.Δy/2.0, g.Δy/2.0, length=g.Ny+1))
-# end
-# function zc(g::Grid{3,T})::Vector{T} where T<:Real
-# 	( ( g.Δz / g.Nz ) .* (0:g.Nz) ) .- ( g.Δz/2. * ( 1 + 1. / g.Nz ) )
-# 	# collect(range(-g.Δz/2.0, g.Δz/2.0, length=g.Nz+1))
-# end
-# function x⃗c(g::Grid{2,T})::Array{SVector{3,T},2}  where T<:Real
-# 	# ( (xx,yy) = (xc(g),yc(g)); [SVector{3}(xx[ix],yy[iy],0.) for ix=1:(g.Nx+1),iy=1:(g.Ny+1)] )
-# 	[ SVector{3,T}(xx,yy,zero(T)) for xx in xc(g), yy in yc(g) ]
-# end
-# function x⃗c(g::Grid{3,T})::Array{SVector{3,T},3}  where T<:Real
-# 	# ( (xx,yy,zz) = (xc(g),yc(g),zc(g)); [SVector{3}(xx[ix],yy[iy],zz[iz]) for ix=1:(g.Nx+1),iy=1:(g.Ny+1),iz=1:(g.Nz+1)] )
-# 	[ SVector{3,T}(xx,yy,zz) for xx in xc(g), yy in yc(g), zz in zc(g) ]
-# end
-
-"""
-################################################################################
-#																			   #
-#							   Plotting methods					   			   #
-#																			   #
-################################################################################
-"""
