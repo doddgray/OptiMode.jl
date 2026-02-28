@@ -1,0 +1,39 @@
+name = "DielectricSmoother"
+uuid = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+authors = ["Dodd Gray"]
+version = "0.1.0"
+
+[deps]
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MaterialModels = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+SymbolicUtils = "d1185830-fcd6-423d-90d6-eec64667417b"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
+
+[weakdeps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+
+[extensions]
+EnzymeExt = "Enzyme"
+MooncakeExt = "Mooncake"
+ReactantExt = "Reactant"
+
+[extras]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[targets]
+test = ["Test", "FiniteDifferences", "Enzyme", "Mooncake", "BenchmarkTools", "Zygote"]
+
+[compat]
+julia = "1.9"

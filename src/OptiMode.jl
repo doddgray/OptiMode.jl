@@ -2,265 +2,57 @@
 #                                                                              #
 #                                 OptiMode.jl:                                 #
 #                Differentiable Electromagnetic Eigenmode Solver               #
-#                                 (an attempt)                                 #
+#                                                                              #
+# This top-level package re-exports all four sub-packages:                     #
+#   1. MaterialModels   - Dielectric material dispersion modeling              #
+#   2. DielectricSmoother - Dielectric tensor smoothing on FD grids           #
+#   3. EigenModeSolver  - Electromagnetic eigenmode solving                   #
+#   4. ModeAnalysis     - Post-processing of mode solver results              #
 #                                                                              #
 ################################################################################
 
 module OptiMode
 
-##### Imports ######
+using MaterialModels
+using DielectricSmoother
+using EigenModeSolver
+using ModeAnalysis
 
-### Linear Algebra Types and Libraries ###
-using LinearAlgebra
-using LinearAlgebra: diag
-using LinearMaps
-using ArrayInterface
-using StaticArrays
-using StaticArrays: Dynamic, SVector
-using HybridArrays
-# using StructArrays
-# using RecursiveArrayTools
-# using FillArrays
-# using SparseArrays
-using FFTW
-using AbstractFFTs
-using LoopVectorization
-using Tullio
-using SliceMap
+# Re-export all public symbols from sub-packages
+using MaterialModels: ε_tensor, εᵥ, flat, Δₘ,
+    AbstractMaterial, Material, RotatedMaterial, NumMat,
+    get_model, generate_fn, has_model, material_name,
+    n²_sym_fmt1, n²_sym_fmt1_ω, n_sym_cauchy, n_sym_cauchy_ω,
+    n²_sym_NASA, n²_sym_NASA_ω, ng_model, gvd_model,
+    nn̂g_model, nĝvd_model, nn̂g_fn, nĝvd_fn, ε_fn,
+    nn̂g, nĝvd, χ⁽²⁾_fn, rotate, unique_axes, Δₘ_factors,
+    eval_fn_oop, eval_fn_ip,
+    # Materials
+    vacuum, silicon, SiO₂, Si₃N₄, LiNbO₃, MgO_LiNbO₃, LiB₃O₅, αAl₂O₃, germanium
 
-### AD ###
-# using ForwardDiff
-# using ChainRules: ChainRulesCore, @non_differentiable,  NoTangent, @thunk, @not_implemented, AbstractZero
-using ChainRulesCore
-using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
-using Zygote
-using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff, Numeric, literal_getproperty, accum
-### Materials ###
-using Rotations
-using Symbolics
-using SymbolicUtils
-using Symbolics
-using Symbolics: Sym, Num, scalarize
-using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, flatten_pows
-using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
-using IterTools: subsets
-using RuntimeGeneratedFunctions
-RuntimeGeneratedFunctions.init(@__MODULE__)
+using DielectricSmoother: Grid, δx, δy, δz, δV, xvals, yvals, zvals, x⃗, xc, yc, zc,
+    x⃗c, N, g⃗, _fftaxes, Nranges, corners, vxlmin, vxlmax, my_fftfreq,
+    x, y, z, δ,
+    Geometry, fεs, fεs!, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds,
+    εₘₐₓ, nₘₐₓ, materials,
+    corner_sinds, proc_sinds, smooth_ε, smooth_ε_single, vec3D,
+    normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot,
+    _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, ε_views,
+    εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ
 
-### Geometry ###
-using GeometryPrimitives
-# using GeometryPrimitives: Cylinder
+using EigenModeSolver: HelmholtzMap, HelmholtzPreconditioner, ModeSolver,
+    solve_ω², _solve_Δω², solve_k, solve_k_single, filter_eigs,
+    AbstractEigensolver, KrylovKitEigsolve, IterativeSolversLOBPCG,
+    herm, herm_back, eig_adjt, my_linsolve, solve_adj!, ng_gvd_E, ng_gvd,
+    _mult, _dot, _3dot, _cross, _cross_x, _cross_y, _cross_z,
+    _sum_cross, _sum_cross_x, _sum_cross_y, _sum_cross_z,
+    _outer, _expect, sliceinv_3x3,
+    update_k!, update_ε⁻¹
 
-### Iterative Solvers ###
-using IterativeSolvers
-using KrylovKit
-# using DFTK: LOBPCG
-using Roots
-# using PyCall <==== temporarily removing mpb
+using ModeAnalysis: unflat, _d2ẽ!, _H2d!, _H2e!, E⃗, E⃗x, E⃗y, E⃗z,
+    H⃗, H⃗x, H⃗y, H⃗z, S⃗, S⃗x, S⃗y, S⃗z,
+    normE!, Ex_norm, Ey_norm, val_magmax, ax_magmax, idx_magmax,
+    group_index, canonicalize_phase, canonicalize_phase!,
+    E_relpower_xyz, Eslices, count_E_nodes, mode_viable, mode_idx
 
-### Visualization ###
-using Colors
-using Colors: Color, RGB, RGBA, @colorant_str
-import Colors: JULIA_LOGO_COLORS
-logocolors = JULIA_LOGO_COLORS
-# using UnicodePlots
-# using Makie
-# using Makie.GeometryBasics
-
-### I/O ###
-using Dates
-using HDF5
-using DelimitedFiles
-using EllipsisNotation
-using Printf
-using ProgressMeter
-# using Distributed
-
-### Utils ###
-# using Statistics
-# using Interpolations
-# using IterTools
-using Logging
-
-
-
-## Exports ##
-# export plot_ε, test_shapes, ridge_wg, circ_wg, trap_wg, trap_wg2, plot, heatmap, SHM3
-# export SHM3
-# export plot_data, uplot, uplot!, xlims, ylims
-
-# Import methods that we will overload for custom types
-import Base: size, eltype
-import LinearAlgebra: mul!
-import ChainRulesCore: rrule
-
-# FFTW settings
-FFTW.set_num_threads(1)     # chosen for thread safety when combined with other parallel code, consider increasing
-
-# ## Abbreviations, aliases, etc. ##
-# SHM3 = SHermitianCompact{3,Float64,6}   # static Hermitian 3×3 matrix Type, renamed for brevity
-
-# ## generic plotting methods/aliases
-# uplot(x::AbstractVector, y::AbstractVector; kwargs...) = UnicodePlots.lineplot(x, y ; kwargs...)
-# uplot!(plt::UnicodePlots.Plot, x::AbstractVector, y::AbstractVector; kwargs...) = UnicodePlots.lineplot!(plt, x, y ; kwargs...)
-# plot_data(x) = x    # nontrivial methods defined for custom types
-
-# xlims(x::Real) = x
-# xlims(x::Complex) = real(x)
-# xlims(v::AbstractVector{<:Number}) = [extrema(real(v))...]
-# xlims(vs::AbstractVector) = [extrema( vcat( xlims.(vs) ) )...]
-# function xlims(a,b)
-# 	xlims_a, xlims_b = xlims(a), xlims(b)
-# 	[ min(xlims_a[1], xlims_b[1]), max(xlims_a[2], xlims_b[2]) ]
-# end
-# xlims(plt::UnicodePlots.Plot) = parse.(Float64,getfield.(unique(plt.decorations),:second))
-
-# ylims(x::Real) = x
-# ylims(x::Complex) = real(x)
-# ylims(v::AbstractVector{<:Number}) = [extrema(real(v))...]
-# ylims(vs::AbstractVector) = [extrema( vcat( ylims.(vs) ) )...]
-# function ylims(fns::AbstractVector{<:Function};xlims=(0.5,1.8),nvals=100)
-# 	xrng = range(xlims[1],xlims[2];length=nvals)
-# 	[ extrema(hcat(map.(fns,(xrng,) )...) )... ]
-# end
-# function ylims(a,b)
-# 	ylims_a, ylims_b = ylims(a), ylims(b)
-# 	[ min(ylims_a[1], ylims_b[1]), max(ylims_a[2], ylims_b[2]) ]
-# end
-# ylims(plt::UnicodePlots.Plot) = parse.(Float64,getfield.(unique(plt.labels_left),:second))
-
-
-# function ylims(plt::UnicodePlots.Plot, new ; kwargs...)
-# 	ylims_plt = parse.(Float64,getfield.(unique(plt.labels_left),:second))
-# 	ylims(ylims_plt,ylims(new))
-# end
-
-## Add methods to external packages ##
-LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
-
-## Includes ##
-
-include("logging.jl")
-include("linalg.jl")
-include("epsilon.jl")
-include("materials.jl")
-include("grid.jl")
-include("geometry.jl")
-include("cse.jl")
-include("epsilon_fns.jl")
-include("smooth.jl")
-include("maxwell.jl")
-include("fields.jl")
-include("solve.jl")
-include("grads/StaticArrays.jl")
-include("grads/solve.jl")
-
-
-
-
-
-# include("constraints.jl")
-
-# include("grads.jl")
-# include("explicit.jl")
-# include("io.jl")
-# include("optimize.jl")
-
-################################################################################### > start comment to temporarily remove mpb
-
-# # # These empty Python object assignments just set asside pointers for loading Python modules
-# const pymeep    =   PyNULL()
-# const pympb     =   PyNULL()
-# # # const numpy     =   PyNULL()
-
-# # using Requires
-# # # function __init__()
-# #     @require KrylovKit="0b1a1467-8014-51b9-945f-bf0ae24f4b77" include("solvers/krylovkit.jl")
-
-# # 	@require IterativeSolvers="42fd0dbc-a981-5370-80f2-aaf504508153" include("solvers/iterativesolvers.jl")
-
-# # 	@require DFTK="acf6eb54-70d9-11e9-0013-234b7a5f5337" include("solvers/dftk.jl")
-
-# #     # @require PyCall="acf6eb54-70d9-11e9-0013-234b7a5f5337" begin
-# #         # using .PyCall
-# #         # @eval global mp = pyimport("meep")
-# #         # @eval global mpb = pyimport("meep.mpb")
-# #         # @eval global np = pyimport("numpy")
-# function __init__()
-#     copy!(pymeep, pyimport("meep"))
-#     copy!(pympb, pyimport("meep.mpb"))
-#     # copy!(numpy, pyimport("numpy"))
-#     # wurlitzer = pyimport("wurlitzer")
-#     py"""
-#     import numpy
-#     import h5py
-#     from numpy import linspace, transpose
-#     from scipy.interpolate import interp2d
-#     from meep import Medium, Vector3
-
-#     def return_evec(evecs_out):
-#         fn = lambda ms, band: numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-#         return fn
-        
-#     def save_evecs(ms,band):
-#         ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-        
-#     def return_and_save_evecs(evecs_out):
-#         # fn = lambda ms, band: ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5"); numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0]) )
-#         def fn(ms,band):
-#             ms.save_eigenvectors(ms.filename_prefix + f"-evecs.b{band:02}.h5")
-#             # numpy.copyto(evecs_out[:,:,band-1],ms.get_eigenvectors(band,1)[:,:,0])
-#             # ms.get_eigenvectors(band,1)[:,:,0]
-#             numpy.copyto(evecs_out[band-1,:,:],numpy.transpose(ms.get_eigenvectors(band,1)[:,:,0]))
-#         return fn
-
-#     def output_dfield_energy(ms,band):
-#         D = ms.get_dfield(band, bloch_phase=False)
-#         # U, xr, xi, yr, yi, zr, zi = ms.compute_field_energy()
-#         # numpy.savetxt(
-#         #     f"dfield_energy.b{band:02}.csv",
-#         #     [U, xr, xi, yr, yi, zr, zi],
-#         #     delimiter=","
-#         # )
-#         ms.compute_field_energy()
-
-#     # load epsilon data into python closure function `fmat(p)`
-#     # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-#     # and return a "meep.Material" object with dielectric tensor data for that point
-#     def matfn_from_file(fpath,Dx,Dy,Nx,Ny):
-#         x = linspace(-Dx/2., Dx*(0.5 - 1./Nx), Nx)
-#         y = linspace(-Dy/2., Dy*(0.5 - 1./Ny), Ny)
-#         with h5py.File(fpath, 'r') as f:
-#             f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(f["epsilon."+s])) for s in ["xx","xy","xz","yy","yz","zz"] ]
-#         matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-#         return matfn
-
-#     # Transfer Julia epsilon data directly into python closure function `fmat(p)`
-#     # `fmat(p)` should accept an input point `p` of type meep.Vector3 as a single argument
-#     # and return a "meep.Material" object with dielectric tensor data for that point
-#     def matfn(eps,x,y):
-#         f_epsxx,f_epsxy,f_epsxz,f_epsyy,f_epsyz,f_epszz = [interp2d(x,y,transpose(eps[ix,iy,:,:])) for (ix,iy) in [(0,0),(0,1),(0,2),(1,1),(1,2),(2,2)] ]
-#         matfn = lambda p : Medium(epsilon_diag=Vector3( f_epsxx(p.x,p.y)[0], f_epsyy(p.x,p.y)[0], f_epszz(p.x,p.y)[0] ),epsilon_offdiag=Vector3( f_epsxy(p.x,p.y)[0], f_epsxz(p.x,p.y)[0], f_epsyz(p.x,p.y)[0] ))
-#         return matfn
-#     """
-        
-#     # include("solvers/mpb.jl")
-#     # end
-# end
-
-# include("solvers/mpb.jl")
-
-################################################################### < end new comment to temporarily remove mpb
-
-include("solvers/iterativesolvers.jl")
-include("solvers/krylovkit.jl")
-include("solvers/dftk.jl")
-# include("analyze.jl")
-
-## Definitions ##
-
-
-## More includes ##
-
-
-end
+end # module OptiMode

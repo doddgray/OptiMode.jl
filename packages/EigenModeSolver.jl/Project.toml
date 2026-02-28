@@ -1,0 +1,49 @@
+name = "EigenModeSolver"
+uuid = "c3d4e5f6-a7b8-9012-cdef-123456789012"
+authors = ["Dodd Gray"]
+version = "0.1.0"
+
+[deps]
+AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+DielectricSmoother = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+HybridArrays = "1baab800-613f-4b0a-84e4-9cd3431bfbb9"
+IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
+KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
+MaterialModels = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+SliceMap = "82cb661a-3f19-5665-9e27-df437c7e54c8"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[weakdeps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+
+[extensions]
+EnzymeExt = "Enzyme"
+MooncakeExt = "Mooncake"
+ReactantExt = "Reactant"
+
+[extras]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test", "FiniteDifferences", "Enzyme", "Mooncake", "BenchmarkTools", "GeometryPrimitives"]
+
+[compat]
+julia = "1.9"
