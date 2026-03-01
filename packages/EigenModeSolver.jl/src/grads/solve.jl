@@ -450,7 +450,7 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny, Nz) where
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
 
 	# eīf = flat(eī)
-	eīf = Buffer(Array{Float64,1}([2., 2.]),3,3,Nx,Ny,Nz) 
+	eīf = zeros(3,3,Nx,Ny,Nz) 
 	# @avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
 	for iz=1:Nz,iy=1:Ny,ix=1:Nx
 		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
@@ -475,7 +475,7 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
 
 	# eīf = flat(eī)
-	eīf = Buffer(Array{Float64,1}([2., 2.]),3,3,Nx,Ny) # bufferfrom(zero(T),3,3,Nx,Ny)
+	eīf = zeros(3,3,Nx,Ny) # bufferfrom(zero(T),3,3,Nx,Ny)
 	# eīf = bufferfrom(zero(eltype(real(d⃗)),3,3,Nx,Ny))
 	# @avx for iy=1:Ny,ix=1:Nx
 	for iy=1:Ny,ix=1:Nx
@@ -563,11 +563,8 @@ function ng_gvd_E(ω,k,ev,ε⁻¹,∂ε_∂ω,∂²ε_∂ω²,grid::Grid{2,T};dk
     𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),fftax)
     𝓕⁻¹_H̄ = bfft( H̄ ,fftax)
     ### ∇solve_k ###
-    M̂,P̂ = Zygote.ignore() do
-        M̂ = HelmholtzMap(k,ε⁻¹,grid)
-        P̂	= HelmholtzPreconditioner(M̂)
-        return M̂,P̂
-    end
+    M̂ = HelmholtzMap(k,ε⁻¹,grid)
+    P̂	= HelmholtzPreconditioner(M̂)
     λ⃗	= eig_adjt(
         M̂,								 																		 # Â : operator or Matrix for which Â⋅x⃗ = αx⃗, here Â is the Helmholtz Operator M̂ = [∇× ε⁻¹ ∇×]
         ω^2, 																									# α	: primal eigenvalue, here α = ω²
@@ -631,11 +628,8 @@ function ng_gvd(ω,k,ev,ε⁻¹,∂ε_∂ω,∂²ε_∂ω²,grid::Grid{2,T};dk̂
     𝓕⁻¹_ε⁻¹_Ē = bfft(ε⁻¹_dot( Ē, ε⁻¹),fftax)
     𝓕⁻¹_H̄ = bfft( H̄ ,fftax)
     ### ∇solve_k ###
-    M̂,P̂ = Zygote.ignore() do
-        M̂ = HelmholtzMap(k,ε⁻¹,grid)
-        P̂	= HelmholtzPreconditioner(M̂)
-        return M̂,P̂
-    end
+    M̂ = HelmholtzMap(k,ε⁻¹,grid)
+    P̂	= HelmholtzPreconditioner(M̂)
     λ⃗	= eig_adjt(
         M̂,								 																		 # Â : operator or Matrix for which Â⋅x⃗ = αx⃗, here Â is the Helmholtz Operator M̂ = [∇× ε⁻¹ ∇×]
         ω^2, 																									# α	: primal eigenvalue, here α = ω²

@@ -28,8 +28,6 @@ using SymbolicUtils.Code: toexpr, MakeArray
 using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, MultithreadedForm,
     tosymbol, Sym, wrap, unwrap, MakeTuple, substitute, value
 using RuntimeGeneratedFunctions
-using Colors
-using Colors: Color, RGB, RGBA
 using Tullio
 using ChainRulesCore
 using ChainRulesCore: @non_differentiable, NoTangent, ZeroTangent

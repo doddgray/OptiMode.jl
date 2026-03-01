@@ -46,9 +46,6 @@ using Logging
 using ProgressMeter
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, @not_implemented, NoTangent, ZeroTangent, AbstractZero
-using Zygote
-using Zygote: Buffer, bufferfrom, @ignore, @adjoint, ignore, dropgrad, forwarddiff,
-    Numeric, literal_getproperty, accum
 using MaterialModels
 using DielectricSmoother
 
@@ -62,7 +59,6 @@ FFTW.set_num_threads(1)
 ## Add methods to external packages ##
 LinearAlgebra.ldiv!(c, A::LinearMaps.LinearMap, b) = mul!(c, A', b)
 
-include("logging.jl")
 include("linalg.jl")
 include("maxwell.jl")
 include("solve.jl")

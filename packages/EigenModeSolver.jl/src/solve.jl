@@ -44,8 +44,8 @@ end
 
 function solve_ω²(ms::ModeSolver{ND,T},k::TK,ε⁻¹::AbstractArray{T},solver::AbstractEigensolver;nev=1,
 	maxiter=100,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real,TK<:Union{T,SVector{3,T}}}
-	@ignore(update_k!(ms,k))
-	@ignore(update_ε⁻¹(ms,ε⁻¹))
+	update_k!(ms,k)
+	update_ε⁻¹(ms,ε⁻¹)
 	solve_ω²(ms,solver; nev, maxiter, tol, log, f_filter)
 end
 
@@ -136,7 +136,7 @@ end
 
 function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60, maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real} 
-	Zygote.@ignore(update_ε⁻¹(ms,ε⁻¹))
+	update_ε⁻¹(ms,ε⁻¹
 	solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter)
 end
 

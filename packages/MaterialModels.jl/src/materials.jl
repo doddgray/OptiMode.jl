@@ -34,7 +34,7 @@ struct Material <: AbstractMaterial
 	models::Dict
 	defaults::Dict
 	name::Symbol
-	color::Color
+	color::NTuple{4,Float64}  # RGBA stored as plain tuple; use ColorsExt for Colors.jl interop
 end
 
 struct NumMat{T,F1,F2,F3,F4,TC} # <: AbstractMaterial
@@ -62,7 +62,7 @@ nn̂g_fn(mat::NumMat) =  mat.fnng
 nĝvd_fn(mat::NumMat) = mat.fngvd
 χ⁽²⁾_fn(mat::NumMat) = mat.fχ⁽²⁾
 
-function NumMat(eps_in;color=RGB(0,0,0))
+function NumMat(eps_in;color=(0.0, 0.0, 0.0, 1.0))
 	constant_epsilon = ε_tensor(eps_in)
 	eps_model = constant_epsilon
 	feps = x->constant_epsilon
@@ -74,7 +74,7 @@ end
 
 
 # constructor adding random color when color is not specified
-Material(models::Dict,defaults::Dict,name::Symbol) = Material(models,defaults,name,RGBA(rand(3)...,1.0))
+Material(models::Dict,defaults::Dict,name::Symbol) = Material(models,defaults,name,(rand(),rand(),rand(),1.0))
 
 
 import Base: nameof

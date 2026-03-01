@@ -461,9 +461,9 @@ function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where 
     T = promote_type(T1,T2)
 	local ẑ = SVector{3,T}(0.,0.,1.)
 	local ŷ = SVector{3,T}(0.,1.,0.)
-	n = Buffer(zeros(SVector{3,T},2),size(g⃗s))
-	m = Buffer(zeros(SVector{3,T},2),size(g⃗s))
-	mag = Buffer(zeros(T,size(g⃗s)),size(g⃗s))
+	n = Array{SVector{3,T}}(undef, size(g⃗s))
+	m = Array{SVector{3,T}}(undef, size(g⃗s))
+	mag = zeros(T, size(g⃗s))
 	@fastmath @inbounds for i ∈ eachindex(g⃗s)
 		@inbounds kpg::SVector{3,T} = k⃗ - g⃗s[i]
 		@inbounds mag[i] = norm(kpg)
@@ -488,8 +488,8 @@ function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2},2}) whe
 	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s[1:2,:,:];dims=1)[1,:,:] .> 0. );
     T = promote_type(T1,T2)
     g⃗s_flat = copy(reinterpret(reshape,T2,g⃗s))
-	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s_flat[1:2,:,:];dims=1)[1,:,:] .> 0. );
-	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+	g⃗ₜ_zero_mask = sum(abs2,g⃗s_flat[1:2,:,:];dims=1)[1,:,:] .> 0.;
+	g⃗ₜ_zero_mask! = .!(g⃗ₜ_zero_mask);
 	local ŷ = [0.; 1. ;0.]
 	local zxinds = [2; 1; 3]
 	local zxscales = [-1; 1. ;0.]
@@ -510,8 +510,8 @@ function mag_m_n2(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2},3}) whe
 	# g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
     T = promote_type(T1,T2)
     g⃗s_flat = copy(reinterpret(reshape,T2,g⃗s))
-	g⃗ₜ_zero_mask = Zygote.@ignore(  sum(abs2,g⃗s_flat[1:2,:,:,:];dims=1)[1,:,:,:] .> 0. );
-	g⃗ₜ_zero_mask! = Zygote.@ignore( .!(g⃗ₜ_zero_mask) );
+	g⃗ₜ_zero_mask = sum(abs2,g⃗s_flat[1:2,:,:,:];dims=1)[1,:,:,:] .> 0.;
+	g⃗ₜ_zero_mask! = .!(g⃗ₜ_zero_mask);
 	local ŷ = [0.; 1. ;0.]
 	local zxinds = [2; 1; 3]
 	local zxscales = [-1; 1. ;0.]
@@ -558,10 +558,10 @@ end
 function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{3,T}}) where T <: Real
 	local ẑ = SVector(0.,0.,1.)
 	local ŷ = SVector(0.,1.,0.)
-	n_buf = Buffer(g⃗,size(g⃗))
-	m_buf = Buffer(g⃗,size(g⃗))
-	kpg_buf = Buffer(g⃗,size(g⃗))
-	mag_buf = Buffer(zeros(T,size(g⃗)),size(g⃗))
+	n_buf = similar(g⃗)
+	m_buf = similar(g⃗)
+	kpg_buf = similar(g⃗)
+	mag_buf = zeros(T, size(g⃗))
 	@fastmath @inbounds for i ∈ eachindex(g⃗)
 		@inbounds kpg_buf[i] = k⃗ - g⃗[i]
 		@inbounds mag_buf[i] = norm(kpg_buf[i])
@@ -569,8 +569,8 @@ function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{
 		@inbounds n_buf[i] =   ( ( abs2(kpg_buf[i][1]) + abs2(kpg_buf[i][2]) ) > 0. ) ?  normalize( cross( ẑ, kpg_buf[i] ) ) : ŷ
 		@inbounds m_buf[i] =  normalize( cross( n_buf[i], kpg_buf[i] )  )
 	end
-	mag_m⃗_n⃗ = (copy(mag_buf), copy(m_buf), copy(n_buf))
-	kp⃗g = copy(kpg_buf)
+	mag_m⃗_n⃗ = (mag_buf, m_buf, n_buf)
+	kp⃗g = kpg_buf
 	mag_m_n_pullback(ΔΩ) = let Ω=mag_m⃗_n⃗, kp⃗g=kp⃗g, dk̂=normalize(k⃗)
 		māg,m̄,n̄ = ΔΩ
 		mag,m⃗,n⃗ = Ω
@@ -701,10 +701,10 @@ function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3
 	local ẑ = SVector{3}(0.,0.,1.)
 	local ŷ = SVector{3}(0.,1.,0.)
 	grid_size = size(g)
-	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	m_buf = Array{SVector{3,T1}}(undef, grid_size)
+	n_buf = Array{SVector{3,T1}}(undef, grid_size)
+	kpg_buf = Array{SVector{3,T1}}(undef, grid_size)
+	mag_buf = zeros(T1, grid_size)
 	@fastmath @inbounds for i ∈ eachindex(g)
 		@inbounds kpg_buf[i] = k⃗ - g[i]
 		@inbounds mag_buf[i] = norm(kpg_buf[i])
@@ -714,7 +714,7 @@ function rrule(::typeof(mag_mn),k⃗::SVector{3,T1},g::AbstractArray{<:SVector{3
 	mag = copy(mag_buf)
 	m⃗	=	copy(m_buf)
 	n⃗	= copy(n_buf)
-	# kp⃗g = copy(kpg_buf)
+	# kp⃗g = kpg_buf
 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
@@ -734,10 +734,10 @@ function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=
 	local ŷ = SVector{3}(0.,1.,0.)
 	k⃗ = kmag * dk̂
 	grid_size = size(g)
-	m_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	n_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	kpg_buf = Buffer(zeros(SVector{3,T1},grid_size),grid_size)
-	mag_buf = Buffer(zeros(T1,grid_size),grid_size)
+	m_buf = Array{SVector{3,T1}}(undef, grid_size)
+	n_buf = Array{SVector{3,T1}}(undef, grid_size)
+	kpg_buf = Array{SVector{3,T1}}(undef, grid_size)
+	mag_buf = zeros(T1, grid_size)
 	@fastmath @inbounds for i ∈ eachindex(g)
 		@inbounds kpg_buf[i] = k⃗ - g[i]
 		@inbounds mag_buf[i] = norm(kpg_buf[i])
@@ -747,7 +747,7 @@ function rrule(::typeof(mag_mn),kmag::T1,g::AbstractArray{<:SVector{3,T2}};dk̂=
 	mag = copy(mag_buf)
 	m⃗	=	copy(m_buf)
 	n⃗	= copy(n_buf)
-	# kp⃗g = copy(kpg_buf)
+	# kp⃗g = kpg_buf
 	m = reshape(reinterpret(reshape,T1,m⃗), (3,1,grid_size...))
 	n = reshape(reinterpret(reshape,T1,n⃗), (3,1,grid_size...))
 	# kpg = reshape(reinterpret(reshape,T1,kp⃗g), (3,grid_size...))
