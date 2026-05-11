@@ -1,5 +1,6 @@
 using Symbolics: get_variables, make_array, SerialForm, Func, toexpr, _build_and_inject_function, @__MODULE__, MultithreadedForm, tosymbol, Sym, wrap, unwrap, MakeTuple, substitute, value
-using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, flatten_pows, PolyForm, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
+# using SymbolicUtils: @rule, @acrule, RuleSet, numerators, denominators, get_pvar2sym, get_sym2term, unpolyize, numerators, denominators #, toexpr
+using SymbolicUtils: Term, SymReal
 using SymbolicUtils.Rewriters: Chain, RestartedChain, PassThrough, Prewalk, Postwalk
 using SymbolicUtils.Code: toexpr, MakeArray 
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
@@ -93,7 +94,8 @@ Material(mat::AbstractMaterial) = mat
 function get_model(mat::AbstractMaterial,model_name::Symbol,args...)
 	model = mat.models[model_name]
 	missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),mat.defaults)
-	subs =  Dict([(Sym{Real}(k),v) for (k,v) in missing_var_defaults])
+	# subs =  Dict([(Sym{Real}(k),v) for (k,v) in missing_var_defaults])
+	subs =  Dict([(Sym{SymReal}(k;type=Real),v) for (k,v) in missing_var_defaults])
 	if typeof(model)<:AbstractArray
 		model_subs = substitute.(model, (subs,))
 	else
@@ -110,9 +112,9 @@ function generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_modu
 	model = get_model(mat,model_name,args...)
 	if typeof(model)<:AbstractArray
 		# fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model; expr_module, parallel)
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})[1]
+		fn = build_function(model,[Num(Sym{SymReal}(arg;type=Real)) for arg in args]...;expression=Val{false})[1]
 	else
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})
+		fn = build_function(model,[Num(Sym{SymReal}(arg;type=Real)) for arg in args]...;expression=Val{false})
 	end
 	return fn
 end
@@ -120,10 +122,10 @@ end
 function generate_fn(mat::AbstractMaterial,model,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 	# model = get_model(mat,model_name,args...)
 	if typeof(model)<:AbstractArray
-		# fn = generate_array_fn([Num(Sym{Real}(arg)) for arg in args],model; expr_module, parallel)
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})[1]
+		# fn = generate_array_fn([Num(Sym{SymReal}(arg;type=Real)) for arg in args],model; expr_module, parallel)
+		fn = build_function(model,[Num(Sym{SymReal}(arg;type=Real)) for arg in args]...;expression=Val{false})[1]
 	else
-		fn = build_function(model,[Num(Sym{Real}(arg)) for arg in args]...;expression=Val{false})
+		fn = build_function(model,[Num(Sym{SymReal}(arg;type=Real)) for arg in args]...;expression=Val{false})
 	end
 	return fn
 end
@@ -190,7 +192,7 @@ function get_model(mat::RotatedMaterial,model_name::Symbol,args...)
 	# defs = merge(mat.parent.defaults,mat.rotation_defaults)
 	# missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),defs)
 	missing_var_defaults = filter(x->!in(first(x),tosymbol.(args)),mat.rotation_defaults)
-	subs =  Dict([(Sym{Real}(k),v) for (k,v) in missing_var_defaults])
+	subs =  Dict([(Sym{SymReal}(k;type=Real),v) for (k,v) in missing_var_defaults])
 	if typeof(model)<:AbstractArray
 		model_subs = substitute.(model, (subs,))
 	else
@@ -349,19 +351,19 @@ ng_model(n_model::AbstractArray{Num}, λ::Num) = ng_model.(n_model,(λ,))
 gvd_model(n_model::AbstractArray{Num}, λ::Num) = gvd_model.(n_model,(λ,))
 
 function ng_model(mat::AbstractMaterial; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	n_model = sqrt.(get_model(mat,:ε,symbol))
 	return ng_model(n_model,λ)
 end
 
 function gvd_model(mat::AbstractMaterial; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	n_model = sqrt.(get_model(mat,:ε,symbol))
 	return gvd_model(n_model,λ)
 end
 
 function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	Dλ = Differential(λ)
 	ε_model = get_model(mat,:ε,symbol)
 	# ω∂ε∂ω_model =   -1 * λ .* expand_derivatives.(Dλ.(ε_model),(true,))
@@ -371,7 +373,7 @@ function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
 end
 
 function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	Dλ = Differential(λ)
 	# ∂ε∂ω_model = nn̂g_model(mat; symbol) .* (2 / λ)
 	# ω∂²ε∂ω²_model =   -1 * λ .* expand_derivatives.(Dλ.(∂ε∂ω_model),(true,))
@@ -382,7 +384,7 @@ function nĝvd_model(mat::AbstractMaterial; symbol=:λ)
 end
 
 function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	Dλ = Differential(λ)
 	# ω∂ε∂ω_model =   -1 * λ .* expand_derivatives.(Dλ.(ε_model),(true,))
 	# return ω∂ε∂ω_model ./ 2
@@ -391,7 +393,7 @@ function nn̂g_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
 end
 
 function nĝvd_model(ε_model::AbstractMatrix{Num}; symbol=:λ)
-	λ = Num(Sym{Real}(symbol))
+	λ = Num(Sym{SymReal}(symbol;type=Real))
 	Dλ = Differential(λ)
 	# ∂ε∂ω_model = nn̂g_model(ε_model; symbol) .* (2 / λ)
 	# ω∂²ε∂ω²_model =   -1 * λ .* expand_derivatives.(Dλ.(∂ε∂ω_model),(true,))
@@ -403,9 +405,9 @@ end
 
 # generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 
-ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],get_model(mat,:ε,:λ))
-nn̂g_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nn̂g_model(mat))
-nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nĝvd_model(mat))
+ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{SymReal}(:λ;type=Real)) ,],get_model(mat,:ε,:λ))
+nn̂g_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{SymReal}(:λ;type=Real)) ,],nn̂g_model(mat))
+nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{SymReal}(:λ;type=Real)) ,],nĝvd_model(mat))
 
 
 

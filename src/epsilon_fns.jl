@@ -1,6 +1,8 @@
 export normcart, τ_trans, τ⁻¹_trans, avg_param, avg_param_rot, _f_ε_mats, _fj_ε_mats, _fjh_ε_mats, 
     ε_views, εₑ_∂ωεₑ_∂²ωεₑ, εₑ_∂ωεₑ
 
+using SymbolicUtils: Term, SymReal
+
 rules_2D = Prewalk(PassThrough(@acrule sin(~x)^2 + cos(~x)^2 => 1 ))
 
 ####### Symbolic Jacobians (`j_sym`) and Hessians (`h_sym`) of symbolic array-valued functions `f_sym`,
@@ -19,7 +21,8 @@ end
 function _f_ε_mats_sym(mats,p_syms=(:ω,))
     @variables ω
     Dom = Differential(ω)
-    p = [ω, (Num(Sym{Real}(p_sym)) for p_sym in p_syms[2:end])...]
+    # p = [ω, (Num(Sym{Real}(p_sym)) for p_sym in p_syms[2:end])...]
+    p = [ω, (Num(Sym{SymReal}(p_sym)) for p_sym in p_syms[2:end])...]
     ε_∂ωε_∂²ωε_mats = mapreduce(hcat,mats) do mm
         eps_vec = vec(get_model(mm,:ε,p_syms...))
         dom_eps_vec = expand_derivatives.(Dom.(eps_vec))

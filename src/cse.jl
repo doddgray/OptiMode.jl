@@ -7,11 +7,12 @@ export make_dargs, oop_fn_op, oop_fn_expr, eval_fn_oop, rgf_fn_oop, ip_fn_op, ip
 # module
 using OrderedCollections
 using SymbolicUtils
-using SymbolicUtils: Sym, Term
+# using SymbolicUtils: Sym, Term, SymReal
+using SymbolicUtils: Term, SymReal
 using SymbolicUtils.Rewriters
 using Symbolics: SetArray, AtIndex, Func, MakeArray, DestructuredArgs, Let, LazyState, Assignment, MakeTuple, LiteralExpr, SerialForm, MultithreadedForm
 using Symbolics
-using Symbolics: value, unwrap, wrap, toexpr, variable, 
+using Symbolics: Sym, value, unwrap, wrap, toexpr, variable, 
                 make_array, destructure_arg, build_function, _build_function,
                 istree, operation, arguments, set_array, _build_and_inject_function
                
@@ -158,7 +159,7 @@ function oop_fn_op(A::AbstractArray, args...;
     i = findfirst(x->x isa DestructuredArgs, dargs)
     similarto = i === nothing ? Array : dargs[i].name
     assigns, final = cse_equations(simp_fn.(A))
-    return Func(dargs, [], Let(assigns,make_array(parallel, dargs, final, similarto,false),let_block))
+    return Func(dargs, [], Let(assigns,make_array(parallel, dargs, final, similarto),let_block))
 end
 oop_fn_expr(A, args...;states=LazyState(),kwargs...) = toexpr(oop_fn_op(A, args...; kwargs...), states)
 eval_fn_oop(A,args...;kwargs...) = eval(oop_fn_expr(A, args...;kwargs...))
@@ -177,8 +178,12 @@ function ip_fn_op(A::AbstractArray, args...;
     i = findfirst(x->x isa DestructuredArgs, dargs)
     similarto = i === nothing ? Array : dargs[i].name
     assigns, final = cse_equations(simp_fn.(A))
-    out = Sym{Any}(:ˍ₋out)
-    body = set_array(parallel, dargs, out, outputidxs, final, checkbounds, skipzeros, false)
+    # out = Sym{Any}(:ˍ₋out)
+    # Sym{T}(...) # `T`: The `SymVariant` type (`SymReal`, `SafeReal`, or `TreeReal`)
+    # out = Sym{SafeReal}(:ˍ₋out; type=Real)
+    out = Sym{SymReal}(:ˍ₋out; type=Real)
+    # body = set_array(parallel, dargs, out, outputidxs, final, checkbounds, skipzeros, false)
+    body = set_array(parallel, dargs, out, outputidxs, final, checkbounds, skipzeros)
     return Func([out, dargs...], [], Let(assigns,body,let_block) )
 end
 ip_fn_expr(A, args...;states=LazyState(),kwargs...) = toexpr(ip_fn_op(A, args...; kwargs...), states)
