@@ -69,8 +69,12 @@ const backends_forward = Dict(
         @test vec(f0) ≈ fjh0[:, 1]
         @test fj0[:, 2] ≈ fjh0[:, 2]
         # the symbolic ω-Jacobian of ε must equal the symbolically-differentiated ∂ωε model
-        nflat = 9 * n_mats
-        @test fj0[1:nflat, 2] ≈ vec(f0)[nflat+1:2nflat] rtol = 1e-9
+        # (data layout is material-major: 27 entries (ε,∂ωε,∂²ωε) per material)
+        for m in 1:n_mats
+            base = 27 * (m - 1)
+            @test fj0[base+1:base+9, 2] ≈ vec(f0)[base+10:base+18] rtol = 1e-9
+            @test fj0[base+10:base+18, 2] ≈ vec(f0)[base+19:base+27] rtol = 1e-9
+        end
     end
 
     @testset "AD gradient correctness" begin
@@ -116,7 +120,7 @@ const backends_forward = Dict(
     @testset "rotated materials" begin
         R = Matrix(RotZ(π / 4))
         LN_rot = rotate(LiNbO₃, R; name=:LiNbO₃_rot45)
-        ε_rot = generate_fn(LN_rot, :ε, :λ)(1.55)
+        ε_rot = ε_fn(LN_rot)(1.55)
         ε_unrot = ε_fn(LiNbO₃)(1.55)
         @test isapprox(Array(ε_rot), R' * Array(ε_unrot) * R; rtol=1e-9) ||
               isapprox(Array(ε_rot), R * Array(ε_unrot) * R'; rtol=1e-9)

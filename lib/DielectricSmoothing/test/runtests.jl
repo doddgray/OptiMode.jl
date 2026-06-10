@@ -31,11 +31,12 @@ function ridge_wg(p)
     wt_half = w_top / 2
     wb_half = wt_half + (t_core * tan(θ))
     tc_half = t_core / 2
-    verts = SMatrix{4,2}(wt_half, -wt_half, -wb_half, wb_half, tc_half, tc_half, -tc_half, -tc_half)
-    core = GeometryPrimitives.Polygon(verts, 1)
-    ax = SMatrix{2,2}([1.0 0.0; 0.0 1.0])
-    b_slab = GeometryPrimitives.Box(SVector{2}([0.0, c_slab_y]), SVector{2}([Δx - edge_gap, t_slab]), ax, 2)
-    b_subs = GeometryPrimitives.Box(SVector{2}([0.0, c_subs_y]), SVector{2}([Δx - edge_gap, t_subs]), ax, 3)
+    # vertices as columns (x;y), counter-clockwise
+    verts = SMatrix{2,4}(wt_half, tc_half, -wt_half, tc_half, -wb_half, -tc_half, wb_half, -tc_half)
+    core = MaterialShape(GeometryPrimitives.Polygon(verts), 1)
+    ax = SMatrix{2,2}(1.0, 0.0, 0.0, 1.0)
+    b_slab = MaterialShape(GeometryPrimitives.Cuboid(SVector(0.0, c_slab_y), SVector(Δx - edge_gap, t_slab), ax), 2)
+    b_subs = MaterialShape(GeometryPrimitives.Cuboid(SVector(0.0, c_subs_y), SVector(Δx - edge_gap, t_subs), ax), 3)
     return (core, b_slab, b_subs)
 end
 
@@ -109,12 +110,12 @@ end
         sm = smooth_ε(shapes0, mat_vals0, minds0, grid)
         @test size(sm) == (3, 3, 3, 32, 24)
         εg = view(sm, :, :, 1, :, :)
-        # pixel deep inside the substrate (SiO₂): smoothed ε equals material ε
-        ε_SiO₂ = ε_views(mat_vals0[:, 2], 1) |> first |> first
-        @test εg[:, :, 16, 2] ≈ ε_SiO₂ rtol = 1e-9
-        # pixel deep inside the core (Si₃N₄)
+        # pixel deep inside the substrate (material 3, MgO:LiNbO₃): smoothed ε equals material ε
+        ε_subs = ε_views(mat_vals0[:, 3], 1) |> first |> first
+        @test εg[:, :, 16, 4] ≈ ε_subs rtol = 1e-9
+        # pixel deep inside the core (material 1, Si₃N₄)
         ε_SiN = ε_views(mat_vals0[:, 1], 1) |> first |> first
-        @test εg[:, :, 16, 14] ≈ ε_SiN rtol = 1e-6
+        @test εg[:, :, 16, 13] ≈ ε_SiN rtol = 1e-6
         # all smoothed diagonal entries bounded by material extremes
         diags = [εg[i, i, ix, iy] for i in 1:3, ix in 1:32, iy in 1:24]
         @test minimum(diags) >= 1.0 - 1e-9

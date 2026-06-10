@@ -76,14 +76,16 @@ const _εₑᵣ_sym_cache = let
     (f_εₑᵣ_sym, fj_εₑᵣ_sym, fjh_εₑᵣ_sym, prot)
 end
 
-# generate out-of-place (non-mutating) functions
-const f_εₑᵣ   = eval_fn_oop(_εₑᵣ_sym_cache[1],_εₑᵣ_sym_cache[4]);
-const fj_εₑᵣ  = eval_fn_oop(_εₑᵣ_sym_cache[2],_εₑᵣ_sym_cache[4]);
-const fjh_εₑᵣ = eval_fn_oop(_εₑᵣ_sym_cache[3],_εₑᵣ_sym_cache[4]);
-# generate in-place (mutating) functions
-const f_εₑᵣ!   = eval_fn_ip(_εₑᵣ_sym_cache[1],_εₑᵣ_sym_cache[4]);
-const fj_εₑᵣ!  = eval_fn_ip(_εₑᵣ_sym_cache[2],_εₑᵣ_sym_cache[4]);
-const fjh_εₑᵣ! = eval_fn_ip(_εₑᵣ_sym_cache[3],_εₑᵣ_sym_cache[4]);
+# Generate the smoothing kernels by evaluating the generated code into *this* module
+# (evaluating into MaterialDispersion would break incremental precompilation).
+# out-of-place (non-mutating) functions:
+const f_εₑᵣ   = Core.eval(@__MODULE__, oop_fn_expr(_εₑᵣ_sym_cache[1],_εₑᵣ_sym_cache[4]));
+const fj_εₑᵣ  = Core.eval(@__MODULE__, oop_fn_expr(_εₑᵣ_sym_cache[2],_εₑᵣ_sym_cache[4]));
+const fjh_εₑᵣ = Core.eval(@__MODULE__, oop_fn_expr(_εₑᵣ_sym_cache[3],_εₑᵣ_sym_cache[4]));
+# in-place (mutating) functions:
+const f_εₑᵣ!   = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[1],_εₑᵣ_sym_cache[4]));
+const fj_εₑᵣ!  = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[2],_εₑᵣ_sym_cache[4]));
+const fjh_εₑᵣ! = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[3],_εₑᵣ_sym_cache[4]));
 
 ∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
 

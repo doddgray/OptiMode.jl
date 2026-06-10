@@ -1,7 +1,7 @@
 export Geometry, fεs, fεs!, fnn̂gs, nn̂gs, fnĝvds, nĝvds, matinds
 export εₘₐₓ, nₘₐₓ, materials, εs
 
-matinds(geom::Vector{<:Shape}) = vcat((matinds0 = map(s->findfirst(m->isequal(get_model(Material(s.data),:ε,:λ),get_model(m,:ε,:λ)), materials(geom)),geom); matinds0),maximum(matinds0)+1)
+matinds(geom::AbstractVector) = vcat((matinds0 = map(s->findfirst(m->isequal(get_model(Material(s.data),:ε,:λ),get_model(m,:ε,:λ)), materials(geom)),geom); matinds0),maximum(matinds0)+1)
 matinds(shapes,mats) = vcat(map(s->findfirst(m->isequal(get_model(Material(s.data),:ε,:λ),get_model(m,:ε,:λ)),mats),shapes),length(mats)+1)
 
 

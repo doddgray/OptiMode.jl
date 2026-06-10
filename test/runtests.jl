@@ -18,7 +18,7 @@ using OptiMode
     ω = 1 / 1.55
     mat_vals = hcat(f_ε([ω]), vcat(vec([1.0 0 0; 0 1.0 0; 0 0 1.0]), zeros(18)))
     grid = Grid(4.0, 3.0, 16, 12)
-    core = OptiMode.DielectricSmoothing.GeometryPrimitives.Box([0.0, 0.0], [1.6, 0.7], [1.0 0.0; 0.0 1.0], 1)
+    core = MaterialShape(OptiMode.DielectricSmoothing.GeometryPrimitives.Cuboid([0.0, 0.0], [1.6, 0.7], [1.0 0.0; 0.0 1.0]), 1)
     shapes = (core,)
     minds = (1, 2)
     sm = smooth_ε(shapes, mat_vals, minds, grid)

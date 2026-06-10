@@ -17,6 +17,7 @@ using Mooncake
 
 const SUITE = BenchmarkGroup()
 
+"simple 2D slab-loaded ridge waveguide geometry, shapes carry material indices"
 function ridge_wg(p)
     w_top, t_core, θ, t_slab = p
     edge_gap = 0.5
@@ -27,11 +28,12 @@ function ridge_wg(p)
     wt_half = w_top / 2
     wb_half = wt_half + (t_core * tan(θ))
     tc_half = t_core / 2
-    verts = SMatrix{4,2}(wt_half, -wt_half, -wb_half, wb_half, tc_half, tc_half, -tc_half, -tc_half)
-    core = GeometryPrimitives.Polygon(verts, 1)
-    ax = SMatrix{2,2}([1.0 0.0; 0.0 1.0])
-    b_slab = GeometryPrimitives.Box(SVector{2}([0.0, c_slab_y]), SVector{2}([Δx - edge_gap, t_slab]), ax, 2)
-    b_subs = GeometryPrimitives.Box(SVector{2}([0.0, c_subs_y]), SVector{2}([Δx - edge_gap, t_subs]), ax, 3)
+    # vertices as columns (x;y), counter-clockwise
+    verts = SMatrix{2,4}(wt_half, tc_half, -wt_half, tc_half, -wb_half, -tc_half, wb_half, -tc_half)
+    core = MaterialShape(GeometryPrimitives.Polygon(verts), 1)
+    ax = SMatrix{2,2}(1.0, 0.0, 0.0, 1.0)
+    b_slab = MaterialShape(GeometryPrimitives.Cuboid(SVector(0.0, c_slab_y), SVector(Δx - edge_gap, t_slab), ax), 2)
+    b_subs = MaterialShape(GeometryPrimitives.Cuboid(SVector(0.0, c_subs_y), SVector(Δx - edge_gap, t_subs), ax), 3)
     return (core, b_slab, b_subs)
 end
 

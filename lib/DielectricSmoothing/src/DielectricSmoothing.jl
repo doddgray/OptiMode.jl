@@ -29,10 +29,11 @@ using SymbolicUtils
 
 ### Material dispersion models ###
 using MaterialDispersion
-using MaterialDispersion: eval_fn_oop, eval_fn_ip, _fj_fjh_sym, ε_tensor, εᵥ
+using MaterialDispersion: oop_fn_expr, ip_fn_expr, _fj_fjh_sym, ε_tensor, εᵥ
 
 ## Includes ##
 include("grid.jl")
+include("shapes.jl")
 include("kottke.jl")
 include("smooth.jl")
 include("geometry.jl")

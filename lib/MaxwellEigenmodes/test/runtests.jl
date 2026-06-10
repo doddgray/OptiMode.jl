@@ -47,7 +47,7 @@ const solver = KrylovKitEigsolve()
         @test isapprox(dot(w, M̂ * v), conj(dot(v, M̂ * w)); rtol=1e-9)
         # out-of-place HMH agrees with mutating operator quadratic form
         mag, mn = mag_mn(k0, grid)
-        @test HMH(v, copy(epsi0), mag, mn) ≈ real(dot(v, M̂ * v)) * (16 * 16) rtol = 1e-6
+        @test HMH(v, copy(epsi0), mag, mn) ≈ real(dot(v, M̂ * v)) rtol = 1e-6
     end
 
     @testset "solve_ω² and solve_k consistency" begin

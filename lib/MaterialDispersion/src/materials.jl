@@ -49,8 +49,8 @@ struct NumMat{T,F1,F2,F3,F4,TC} # <: AbstractMaterial
 end
 
 function NumMat(mat::AbstractMaterial;expr_module=@__MODULE__())
-	eps_model = get_model(mat,:ε,:λ)
-	feps = generate_fn(mat,:ε,:λ; expr_module)
+	eps_model = ε_model_λ(mat)
+	feps = ε_fn(mat)
 	fnng = generate_fn(mat,nn̂g_model(mat),:λ; expr_module)
 	fngvd = generate_fn(mat,nĝvd_model(mat),:λ; expr_module)
 	fchi2 = χ⁽²⁾_fn(mat)
@@ -352,20 +352,20 @@ gvd_model(n_model::AbstractArray{Num}, λ::Num) = gvd_model.(n_model,(λ,))
 
 function ng_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(get_model(mat,:ε,symbol))
+	n_model = sqrt.(ε_model_λ(mat))
 	return ng_model(n_model,λ)
 end
 
 function gvd_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
-	n_model = sqrt.(get_model(mat,:ε,symbol))
+	n_model = sqrt.(ε_model_λ(mat))
 	return gvd_model(n_model,λ)
 end
 
 function nn̂g_model(mat::AbstractMaterial; symbol=:λ)
 	λ = Num(Sym{Real}(symbol))
 	Dλ = Differential(λ)
-	ε_model = get_model(mat,:ε,symbol)
+	ε_model = ε_model_λ(mat)
 	# ω∂ε∂ω_model =   -1 * λ .* expand_derivatives.(Dλ.(ε_model),(true,))
 	# return ω∂ε∂ω_model ./ 2
 	∂∂ω_ωε_model =   (-1 * λ^2) .* expand_derivatives.(Dλ.(ε_model./λ),(true,))
@@ -405,7 +405,21 @@ end
 
 # generate_fn(mat::AbstractMaterial,model_name::Symbol,args...; expr_module=@__MODULE__(), parallel=SerialForm())
 
-ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],get_model(mat,:ε,:λ))
+"""
+    ε_model_λ(mat)
+
+Return the symbolic dielectric tensor model of `mat` as a function of the free
+variable `λ` only. Material models may be stored in terms of frequency `ω` and/or
+vacuum wavelength `λ`; both are left free here and `ω` is then substituted by `1/λ`.
+"""
+function ε_model_λ(mat::AbstractMaterial)
+	λ = Num(Sym{Real}(:λ))
+	ω = Num(Sym{Real}(:ω))
+	model = get_model(mat,:ε,:λ,:ω)
+	return substitute.(model, (Dict(ω => 1/λ),))
+end
+
+ε_fn(mat::AbstractMaterial) = generate_array_fn([Num(Sym{Real}(:λ)) ,],ε_model_λ(mat))
 nn̂g_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nn̂g_model(mat))
 nĝvd_fn(mat::AbstractMaterial) =  generate_array_fn([Num(Sym{Real}(:λ)) ,],nĝvd_model(mat))
 
