@@ -6,7 +6,7 @@
 # FFTW support (Mooncake via `@from_rrule`, Enzyme via `@import_rrule`) reuse this rule
 # through the package extensions.
 
-_zygote_tangent(x) = x === nothing ? ZeroTangent() : x
+_zygote_tangent(x) = x === nothing ? NoTangent() : x
 
 function ChainRulesCore.rrule(::typeof(group_index), k::Real, evec, ω, ε⁻¹, ∂ε_∂ω, grid::Grid)
     y, zpb = Zygote.pullback(

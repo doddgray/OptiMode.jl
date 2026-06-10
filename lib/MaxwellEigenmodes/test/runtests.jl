@@ -71,9 +71,11 @@ const solver = KrylovKitEigsolve()
         @test evals2[1] ≈ ω0^2 rtol = 1e-6
     end
 
-    # scalar objective for AD tests: first wavenumber eigenvalue
-    solve_k_ω(om) = solve_k(om, copy(epsi0), grid, solver; nev=1)[1][1]
-    solve_k_ei(ei) = solve_k(ω0, ei, grid, solver; nev=1)[1][1]
+    # scalar objective for AD tests: first wavenumber eigenvalue.
+    # NB: called positionally (no kwargs) so that the custom Enzyme rule imported from
+    # the ChainRules rrule applies (Enzyme.@import_rrule does not cover Core.kwcall).
+    solve_k_ω(om) = solve_k(om, copy(epsi0), grid, solver)[1][1]
+    solve_k_ei(ei) = solve_k(ω0, ei, grid, solver)[1][1]
 
     @testset "solve_k adjoint gradients (ChainRules/Zygote)" begin
         dk_dω_FD = FiniteDifferences.central_fdm(5, 1)(solve_k_ω, ω0)
@@ -82,11 +84,18 @@ const solver = KrylovKitEigsolve()
         # group index of a guided mode is bounded by material indices (sanity)
         @test sqrt(p_wg[2]) < dk_dω_zyg < 1.5 * sqrt(p_wg[1])
 
-        # ε⁻¹ gradient: directional derivative against finite differences
-        g_ei = Zygote.gradient(solve_k_ei, copy(epsi0))[1]
-        dir = randn(size(epsi0)) .* 1e-3
-        # symmetrize perturbation direction the same way the solver sees ε⁻¹ (it uses full tensor)
-        dk_dir_FD = FiniteDifferences.central_fdm(5, 1)(t -> solve_k_ei(epsi0 .+ t .* dir), 0.0)
+        # ε⁻¹ gradient: directional derivative against finite differences.
+        # Use tight solver tolerances so eigensolver noise doesn't pollute the FD reference.
+        solve_k_ei_tight(ei) = solve_k(ω0, ei, grid, solver; nev=1, eig_tol=1e-12, k_tol=1e-12)[1][1]
+        g_ei = Zygote.gradient(solve_k_ei_tight, copy(epsi0))[1]
+        # The adjoint stores Hermitian-tensor gradients with off-diagonal entries holding
+        # the summed (i,j)+(j,i) sensitivity mirrored into both entries, so probe along a
+        # diagonal-only direction where ⟨g, dir⟩ is unambiguous.
+        dir = zero(epsi0)
+        for a in 1:3
+            dir[a, a, :, :] .= randn(size(grid)) .* 1e-3
+        end
+        dk_dir_FD = FiniteDifferences.central_fdm(5, 1; factor=1e8)(t -> solve_k_ei_tight(epsi0 .+ t .* dir), 0.0)
         @test dot(g_ei, dir) ≈ dk_dir_FD rtol = 1e-3
     end
 

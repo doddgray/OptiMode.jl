@@ -565,11 +565,13 @@ function mag_mn!(mag,mn::AbstractArray{T1,NDp2},k⃗::SVector{3,T2},g⃗) where 
 	local ẑ = SVector{3}(0.,0.,1.)
 	local ŷ = SVector{3}(0.,1.,0.)
 	kpg = zero(k⃗)
-	@fastmath @inbounds for i ∈ eachindex(g⃗)
-		@inbounds kpg = k⃗ - g⃗[i]
-		@inbounds mag[i] = norm(kpg)
-		@inbounds mn[1:3,2,i] .=  ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
-		@inbounds mn[1:3,1,i] .=  normalize( cross( mn[1:3,2,i], kpg )  )
+	@fastmath @inbounds for I ∈ CartesianIndices(g⃗)
+		@inbounds kpg = k⃗ - g⃗[I]
+		@inbounds mag[I] = norm(kpg)
+		n = ( ( abs2(kpg[1]) + abs2(kpg[2]) ) > 0. ) ?  normalize( cross( ẑ, kpg ) ) : ŷ
+		m = normalize( cross( n, kpg ) )
+		@inbounds mn[1:3,2,I] .= n
+		@inbounds mn[1:3,1,I] .= m
 	end
 	# return mag,m,n
 	return mag, mn

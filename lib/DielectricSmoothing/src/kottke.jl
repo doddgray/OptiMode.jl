@@ -11,10 +11,11 @@ to be smoothed differently, see Kottke Phys. Rev. E paper.
 The input 3-vector `n` is assumed to be normalized such that `sum(abs2,n) == 1`
 """
 function normcart(n)
-    h_temp =  [ 0, 0, 1 ] × n # for now ignore "gimbal lock" edge case where n ≈ [0,0,1]
-    h = h_temp ./ (h_temp[1]^2 + h_temp[2]^2)^(1//2)
-	v = n × h   # the third unit vector `v` is just the cross of `n` and `h`
-    S = [ n h v ]  # S is a unitary 3x3 matrix
+    n3 = SVector{3}(n[1], n[2], n[3])
+    h_temp = SVector(-n3[2], n3[1], zero(n3[1]))   # ẑ × n; ignores "gimbal lock" edge case where n ≈ [0,0,1]
+    h = h_temp / (h_temp[1]^2 + h_temp[2]^2)^(1//2)
+    v = n3 × h   # the third unit vector `v` is just the cross of `n` and `h`
+    S = hcat(n3, h, v)  # S is a unitary 3x3 matrix (static, type-stable for AD)
     return S
 end
 

@@ -222,7 +222,7 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 			ω_bar +=  ( 2*ω * (k̄ + k̄ₕ ) / ∂ω²∂k )  
 			# @show ω_bar
 		end
-		return (NoTangent(), ω_bar , ei_bar,ZeroTangent(),NoTangent())
+		return (NoTangent(), ω_bar , ei_bar, NoTangent(), NoTangent())
 	end
 	return ((kmags, evecs), solve_k_pullback)
 end
@@ -331,7 +331,7 @@ function rrule(::typeof(solve_k), ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,
 				@debug "solve_k_pullback" kmags_bar evecs_bar ω_bar ei_bar λ₀s ∂ω²∂ks ω kmags nev 
 			end
 		end
-		return (NoTangent(), ω_bar , ei_bar,ZeroTangent(),NoTangent())
+		return (NoTangent(), ω_bar , ei_bar, NoTangent(), NoTangent())
 	end
 	return ((kmags, evecs), solve_k_pullback)
 end

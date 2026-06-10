@@ -124,25 +124,48 @@ end
         @test maximum(abs, εg .- permutedims(εg, (2, 1, 3, 4))) < 1e-9
     end
 
-    @testset "smooth_ε gradients w.r.t. material tensors" begin
-        loss = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
-        g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss, mat_vals0)[1]
+    @testset "smooth_ε_single (interface voxel) reverse-mode gradients" begin
+        # find a voxel whose corners straddle a material interface, so the full Kottke
+        # smoothing path (surface normal, fill fraction, tensor rotation) is exercised
+        crnrs_list = corners(grid)
+        idx = findfirst(crnrs_list) do crnrs
+            ps = proc_sinds(corner_sinds(shapes0, crnrs))
+            !iszero(ps[2]) && iszero(ps[3])
+        end
+        @test !isnothing(idx)
+        crnrs = crnrs_list[idx]
+        loss_mv = mv -> sum(abs2, smooth_ε_single(shapes0, mv, minds0, crnrs))
+        g_ref = FiniteDifferences.grad(central_fdm(5, 1), loss_mv, mat_vals0)[1]
         for (name, backend) in backends_reverse
             @testset "$name" begin
-                g = DI.gradient(loss, backend, mat_vals0)
+                g = DI.gradient(loss_mv, backend, mat_vals0)
                 @test g ≈ g_ref rtol = 1e-5
+            end
+        end
+        # gradient w.r.t. geometry parameters through surfpt_nearby/volfrac
+        loss_p = p -> sum(abs2, smooth_ε_single(ridge_wg(p), mat_vals0, minds0, crnrs))
+        gp_ref = FiniteDifferences.grad(central_fdm(5, 1), loss_p, p_geom0)[1]
+        @test any(!iszero, gp_ref)  # interface voxel: geometry must matter
+        for (name, backend) in backends_reverse
+            @testset "$name" begin
+                gp = DI.gradient(loss_p, backend, p_geom0)
+                @test gp ≈ gp_ref rtol = 1e-4
             end
         end
     end
 
-    @testset "smooth_ε gradients w.r.t. geometry parameters" begin
-        loss = p -> sum(abs2, smooth_ε(ridge_wg(p), mat_vals0, minds0, grid))
-        g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss, p_geom0)[1]
-        for (name, backend) in backends_reverse
-            @testset "$name" begin
-                g = DI.gradient(loss, backend, p_geom0)
-                @test g ≈ g_ref rtol = 1e-4
-            end
-        end
+    @testset "smooth_ε full-pipeline forward-mode gradients" begin
+        # Forward mode (ForwardDiff Duals) traverses the entire smoothing pipeline.
+        # (Reverse mode through the full `mapreduce` pipeline is intentionally not tested
+        # here: deriving reverse rules for the whole 768-voxel program takes Mooncake and
+        # Enzyme impractically long to compile. The adjoint-relevant smoothing physics is
+        # covered voxel-wise by the reverse-mode tests above.)
+        loss_mv = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
+        g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_mv, mat_vals0)[1]
+        @test DI.gradient(loss_mv, AutoForwardDiff(), mat_vals0) ≈ g_ref rtol = 1e-5
+
+        loss_p = p -> sum(abs2, smooth_ε(ridge_wg(p), mat_vals0, minds0, grid))
+        gp_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_p, p_geom0)[1]
+        @test DI.gradient(loss_p, AutoForwardDiff(), p_geom0) ≈ gp_ref rtol = 1e-4
     end
 end
