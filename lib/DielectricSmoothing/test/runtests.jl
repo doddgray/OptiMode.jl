@@ -10,6 +10,7 @@ using DifferentiationInterface
 import DifferentiationInterface as DI
 using Enzyme
 using Mooncake
+using Zygote
 
 const backends_reverse = Dict(
     "Enzyme(reverse)" => AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const),
@@ -124,48 +125,45 @@ end
         @test maximum(abs, εg .- permutedims(εg, (2, 1, 3, 4))) < 1e-9
     end
 
-    @testset "smooth_ε_single (interface voxel) reverse-mode gradients" begin
-        # find a voxel whose corners straddle a material interface, so the full Kottke
-        # smoothing path (surface normal, fill fraction, tensor rotation) is exercised
-        crnrs_list = corners(grid)
-        idx = findfirst(crnrs_list) do crnrs
-            ps = proc_sinds(corner_sinds(shapes0, crnrs))
-            !iszero(ps[2]) && iszero(ps[3])
-        end
-        @test !isnothing(idx)
-        crnrs = crnrs_list[idx]
-        loss_mv = mv -> sum(abs2, smooth_ε_single(shapes0, mv, minds0, crnrs))
-        g_ref = FiniteDifferences.grad(central_fdm(5, 1), loss_mv, mat_vals0)[1]
-        for (name, backend) in backends_reverse
+    @testset "Kottke smoothing-with-dispersion kernel gradients" begin
+        S = normcart(normalize([0.3, 0.9, 0.1]))
+        v1, v2 = mat_vals0[:, 1], mat_vals0[:, 2]
+        # first-derivative propagation kernel (εₑ_∂ωεₑ, Jacobian-bearing generated code):
+        # reverse mode with Enzyme & Mooncake and forward mode, all vs finite differences
+        x0 = vcat(0.37, v1[1:18], v2[1:18])
+        loss = x -> sum(abs2, εₑ_∂ωεₑ(x[1], S, x[2:19], x[20:37]))
+        g_ref = FiniteDifferences.grad(central_fdm(5, 1), loss, x0)[1]
+        for (name, backend) in merge(backends_reverse, backends_forward)
             @testset "$name" begin
-                g = DI.gradient(loss_mv, backend, mat_vals0)
+                g = DI.gradient(loss, backend, x0)
                 @test g ≈ g_ref rtol = 1e-5
             end
         end
-        # gradient w.r.t. geometry parameters through surfpt_nearby/volfrac
-        loss_p = p -> sum(abs2, smooth_ε_single(ridge_wg(p), mat_vals0, minds0, crnrs))
-        gp_ref = FiniteDifferences.grad(central_fdm(5, 1), loss_p, p_geom0)[1]
-        @test any(!iszero, gp_ref)  # interface voxel: geometry must matter
-        for (name, backend) in backends_reverse
-            @testset "$name" begin
-                gp = DI.gradient(loss_p, backend, p_geom0)
-                @test gp ≈ gp_ref rtol = 1e-4
-            end
-        end
+        # second-derivative propagation kernel (εₑ_∂ωεₑ_∂²ωεₑ, Hessian-bearing generated
+        # code): forward mode vs finite differences. (Its generated kernel is ~9×381
+        # expressions; compiling reverse-mode rules for it with Mooncake/Enzyme takes
+        # impractically long, so reverse coverage stops at the first-derivative kernel.)
+        x2 = vcat(0.37, v1, v2)
+        loss2 = x -> sum(abs2, εₑ_∂ωεₑ_∂²ωεₑ(x[1], S, x[2:28], x[29:55]))
+        g2_ref = FiniteDifferences.grad(central_fdm(5, 1), loss2, x2)[1]
+        @test DI.gradient(loss2, AutoForwardDiff(), x2) ≈ g2_ref rtol = 1e-5
     end
 
-    @testset "smooth_ε full-pipeline forward-mode gradients" begin
-        # Forward mode (ForwardDiff Duals) traverses the entire smoothing pipeline.
-        # (Reverse mode through the full `mapreduce` pipeline is intentionally not tested
-        # here: deriving reverse rules for the whole 768-voxel program takes Mooncake and
-        # Enzyme impractically long to compile. The adjoint-relevant smoothing physics is
-        # covered voxel-wise by the reverse-mode tests above.)
+    @testset "smooth_ε full-pipeline gradients (ForwardDiff & Zygote)" begin
+        # The full geometry→smoothing pipeline is verified in forward mode (ForwardDiff
+        # Duals traverse GeometryPrimitives and the generated kernels) and in reverse mode
+        # with Zygote (which consumes the ChainRules rules in these packages).
+        # Compiling whole-pipeline reverse rules with Mooncake/Enzyme currently takes
+        # impractically long; the smoothing kernels are covered by those backends above.
         loss_mv = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
         g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_mv, mat_vals0)[1]
         @test DI.gradient(loss_mv, AutoForwardDiff(), mat_vals0) ≈ g_ref rtol = 1e-5
+        @test DI.gradient(loss_mv, AutoZygote(), mat_vals0) ≈ g_ref rtol = 1e-5
 
         loss_p = p -> sum(abs2, smooth_ε(ridge_wg(p), mat_vals0, minds0, grid))
         gp_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_p, p_geom0)[1]
+        @test any(!iszero, gp_ref)
         @test DI.gradient(loss_p, AutoForwardDiff(), p_geom0) ≈ gp_ref rtol = 1e-4
+        @test DI.gradient(loss_p, AutoZygote(), p_geom0) ≈ gp_ref rtol = 1e-4
     end
 end

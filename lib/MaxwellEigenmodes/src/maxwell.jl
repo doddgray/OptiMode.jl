@@ -88,43 +88,43 @@ function ε⁻¹_dot(d⃗::AbstractArray{T,4},ε⁻¹) where T
 	@tullio e⃗[a,ix,iy,iz] :=  ε⁻¹[a,b,ix,iy,iz] * d⃗[b,ix,iy,iz]  #fastmath=false
 end
 
-function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
+function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
-function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,3},m::AbstractArray{<:Real,4},n::AbstractArray{<:Real,4}) where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	HMₖH(Ha,ε⁻¹,mag,m,n)
 end
 
-function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn)::T where T<:Real
+function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn) where T<:Real
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
-function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},mn::AbstractArray{T,5})::T where T<:Real
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,3},mn::AbstractArray{<:Real,5}) where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	HMₖH(Ha,ε⁻¹,mag,mn)
 end
 
-function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n)::T where T<:Real
+function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
-function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,4},n::AbstractArray{T,4})::T where T<:Real
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,3},m::AbstractArray{<:Real,4},n::AbstractArray{<:Real,4}) where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	HMH(Ha,ε⁻¹,mag,m,n)
 end
 
-function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn)::T where T<:Real
+function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,mn) where T<:Real
 	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
 end
 
-function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,3},m::AbstractArray{T,5})::T where T<:Real
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,3},mn::AbstractArray{<:Real,5}) where T<:Real
 	Nx,Ny,Nz = size(mag)
 	Ha = reshape(H,(2,Nx,Ny,Nz))
 	HMH(Ha,ε⁻¹,mag,mn)
@@ -205,43 +205,43 @@ function ε⁻¹_dot(d⃗::AbstractArray{T,3},ε⁻¹) where T
 	@tullio e⃗[a,ix,iy] :=  ε⁻¹[a,b,ix,iy] * d⃗[b,ix,iy]  #fastmath=false
 end
 
-function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
+function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
-function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,2},m::AbstractArray{<:Real,3},n::AbstractArray{<:Real,3}) where T<:Real
 	Nx,Ny = size(mag)
 	Ha = reshape(H,(2,Nx,Ny))
 	HMₖH(Ha,ε⁻¹,mag,m,n)
 end
 
-function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn)::T where T<:Real
+function HMₖH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn) where T<:Real
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
-function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,2},mn::AbstractArray{<:Real,4}) where T<:Real
 	Nx,Ny = size(mag)
 	Ha = reshape(H,(2,Nx,Ny))
 	HMₖH(Ha,ε⁻¹,mag,mn)
 end
 
-function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n)::T where T<:Real
+function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3])))
 	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
-function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},m::AbstractArray{T,3},n::AbstractArray{T,3})::T where T<:Real
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,2},m::AbstractArray{<:Real,3},n::AbstractArray{<:Real,3}) where T<:Real
 	Nx,Ny = size(mag)
 	Ha = reshape(H,(2,Nx,Ny))
 	HMH(Ha,ε⁻¹,mag,m,n)
 end
 
-function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn)::T where T<:Real
+function HMH(H::AbstractArray{Complex{T},3},ε⁻¹,mag,mn) where T<:Real
 	real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:3) ), real(ε⁻¹)), (2:3)),mn,mag) ) )
 end
 
-function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{T,2},mn::AbstractArray{T,4})::T where T<:Real
+function HMH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,2},mn::AbstractArray{<:Real,4}) where T<:Real
 	Nx,Ny = size(mag)
 	Ha = reshape(H,(2,Nx,Ny))
 	HMH(Ha,ε⁻¹,mag,mn)

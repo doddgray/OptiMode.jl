@@ -88,7 +88,25 @@ const f_εₑᵣ!   = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[1],_
 const fj_εₑᵣ!  = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[2],_εₑᵣ_sym_cache[4]));
 const fjh_εₑᵣ! = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[3],_εₑᵣ_sym_cache[4]));
 
-∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)))[:,2:end]  * vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), (3,3) )
+
+# Type-stable packing of (r₁, ε₁, ε₂) into the 19-vector consumed by the generated
+# kernels. Equivalent to `vcat(r₁, vec(ε₁), vec(ε₂))` but avoids the union-typed
+# `_typed_vcat!` path, which Enzyme's type analysis rejects.
+@inline function _pack_kottke_input(r₁::Real, A::AbstractMatrix, B::AbstractMatrix)
+    T = promote_type(typeof(r₁), eltype(A), eltype(B))
+    x = Vector{T}(undef, 1 + length(A) + length(B))
+    @inbounds x[1] = r₁
+    @inbounds for i in eachindex(A)
+        x[1+i] = A[i]
+    end
+    nA = length(A)
+    @inbounds for i in eachindex(B)
+        x[1+nA+i] = B[i]
+    end
+    return x
+end
+
+∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(_pack_kottke_input(r₁,ε₁,ε₂))[:,2:end]  * _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂), (3,3) )
 
 @inline ∂ωεₑᵣ(r₁,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds ∂ωεₑᵣ(
     r₁,
@@ -100,10 +118,10 @@ const fjh_εₑᵣ! = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[3],_
 
 function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     fj_εₑᵣ_12 = similar(ε₁,9,20)
-    fj_εₑᵣ!(fj_εₑᵣ_12,vcat(r₁,vec(ε₁),vec(ε₂)));
+    fj_εₑᵣ!(fj_εₑᵣ_12,_pack_kottke_input(r₁,ε₁,ε₂));
     f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
     εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
-    v_∂ω = vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂));
+    v_∂ω = _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂);
     ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
     return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12))
 end
@@ -119,10 +137,10 @@ function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁_∂ωε₁::AbstractVector{<:Re
 end
 
 function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::T1,ε₁::AbstractMatrix{T2},ε₂::AbstractMatrix{T3},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real}) where {T1<:Real,T2<:Real,T3<:Real}
-    fjh_εₑᵣ_12 = fjh_εₑᵣ(vcat(r₁,vec(ε₁),vec(ε₂)));
+    fjh_εₑᵣ_12 = fjh_εₑᵣ(_pack_kottke_input(r₁,ε₁,ε₂));
     f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:20], reshape(fjh_εₑᵣ_12[:,21:381],(9,19,19));
     εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
-    v_∂ω, v_∂²ω = vcat(0.0,vec(∂ω_ε₁),vec(∂ω_ε₂)), vcat(0.0,vec(∂²ω_ε₁),vec(∂²ω_ε₂));
+    v_∂ω, v_∂²ω = _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂), _pack_kottke_input(0.0,∂²ω_ε₁,∂²ω_ε₂);
     ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
     ∂ω²_εₑᵣ_12 = @views reshape( [dot(v_∂ω,h_εₑᵣ_12[i,:,:],v_∂ω) for i=1:9] + j_εₑᵣ_12*v_∂²ω , (3,3) );
     return vcat(vec(εₑᵣ_12), vec(∂ω_εₑᵣ_12), vec(∂ω²_εₑᵣ_12))
