@@ -1,0 +1,23 @@
+# MaxwellEigenmodes.jl
+
+Differentiable plane-wave electromagnetic eigenmode solver for the OptiMode photonics
+tool suite, operating on smoothed dielectric tensor data on finite-difference grids
+(following the MPB formulation).
+
+- `HelmholtzMap`: matrix-free Maxwell operator `[(k+g)×] ε⁻¹ [(k+g)×]` in a transverse
+  plane-wave basis with FFTW-planned transforms and a cheap preconditioner.
+- `solve_ω²`: iterative eigensolves with KrylovKit, IterativeSolvers LOBPCG, or a
+  vendored DFTK-style LOBPCG.
+- `solve_k`: Newton solve for the propagation constant `|k|(ω)` of guided modes.
+- Adjoint-method gradients: ChainRules `rrule`s for `solve_k`, `eig_adjt` (generic
+  iterative eigenpair adjoint), `my_linsolve`, and the k-space basis fields `mag_mn`.
+
+## AD interfaces
+
+Zygote consumes the ChainRules rules directly. Package extensions bridge the same
+adjoint rules to Mooncake (`Mooncake.@from_rrule`) and Enzyme (`Enzyme.@import_rrule`),
+so `solve_k` can sit inside larger programs differentiated with either engine.
+
+Gradient correctness is verified in `test/runtests.jl` against FiniteDifferences.jl
+(eigensolve-based finite differences of `|k|(ω)` and directional derivatives w.r.t.
+ε⁻¹). Benchmarks: `benchmark/benchmarks.jl`.

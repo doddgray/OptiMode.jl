@@ -1,0 +1,40 @@
+name = "DielectricSmoothing"
+uuid = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
+authors = ["Dodd Gray"]
+version = "0.1.0"
+
+[deps]
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+SymbolicUtils = "d1185830-fcd6-423d-90d6-eec64667417b"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+
+[sources]
+MaterialDispersion = {path = "../MaterialDispersion"}
+
+[weakdeps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+
+[extensions]
+DielectricSmoothingEnzymeExt = "Enzyme"
+DielectricSmoothingMooncakeExt = "Mooncake"
+
+[compat]
+GeometryPrimitives = "0.5"
+julia = "1.10"
+
+[extras]
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[targets]
+test = ["DifferentiationInterface", "Enzyme", "FiniteDifferences", "ForwardDiff", "Mooncake", "Test", "Zygote"]
