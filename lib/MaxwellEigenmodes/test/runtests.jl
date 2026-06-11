@@ -10,6 +10,11 @@ using Enzyme
 using Mooncake
 using Zygote
 
+# MPB-backend tests are opt-in: they need PythonCall plus the Python `meep`/`meep.mpb`
+# modules (e.g. conda-forge `pymeep` via CondaPkg). Enable with OPTIMODE_TEST_MPB=true.
+const TEST_MPB = get(ENV, "OPTIMODE_TEST_MPB", "false") == "true"
+TEST_MPB && @eval using PythonCall
+
 """
 Analytic, smoothly-varying isotropic dielectric profile for a 2D waveguide-like structure:
 a Gaussian index bump on a uniform background. Returns the (3,3,Nx,Ny) inverse dielectric
@@ -109,6 +114,51 @@ const solver = KrylovKitEigsolve()
                 g = DI.derivative(solve_k_ω, backend, ω0)
                 @test g ≈ dk_dω_FD rtol = 1e-4
             end
+        end
+    end
+
+    @testset "MPB backend (PythonCall)" begin
+        solver_mpb = MPBSolver()
+        @test solver_mpb isa MaxwellEigenmodes.AbstractEigensolver
+        if !TEST_MPB
+            # without PythonCall the backend must fail with an instructive error
+            err = try
+                solve_k(ω0, copy(epsi0), grid, solver_mpb)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException && occursin("PythonCall", err.msg)
+        else
+            ext = Base.get_extension(MaxwellEigenmodes, :MaxwellEigenmodesPythonCallExt)
+            @test ext !== nothing
+            @test ext.mpb_available()
+
+            # MPB and the native solver share the same plane-wave discretization and the
+            # same (pre-smoothed) dielectric data, so their |k|(ω) must agree closely.
+            kmags_kk, evecs_kk = solve_k(ω0, copy(epsi0), grid, solver; nev=2)
+            kmags_mpb, evecs_mpb = solve_k(ω0, copy(epsi0), grid, solver_mpb; nev=2)
+            @test length(kmags_mpb) == 2
+            @test kmags_mpb[1] ≈ kmags_kk[1] rtol = 1e-4
+            @test kmags_mpb[2] ≈ kmags_kk[2] rtol = 1e-4
+
+            # MPB's eigenvectors are valid eigenvectors of our HelmholtzMap
+            for (km, ev) in zip(kmags_mpb, evecs_mpb)
+                M̂ = HelmholtzMap(km, copy(epsi0), grid)
+                @test norm(M̂ * ev - ω0^2 .* ev) / norm(ev) < 1e-3
+                @test HMH(Vector(ev), copy(epsi0), mag_mn(km, grid)...) ≈ ω0^2 rtol = 1e-4
+            end
+
+            # solve_ω² path (fixed k, MPB `run`)
+            ms_mpb = ModeSolver(kmags_mpb[1], copy(epsi0), grid; nev=2)
+            ω²_mpb, _ = solve_ω²(ms_mpb, solver_mpb; nev=2)
+            @test ω²_mpb[1] ≈ ω0^2 rtol = 1e-4
+
+            # the solver-generic adjoint rrule makes the MPB backend differentiable
+            solve_k_ω_mpb(om) = solve_k(om, copy(epsi0), grid, solver_mpb)[1][1]
+            dk_dω_FD = FiniteDifferences.central_fdm(3, 1)(solve_k_ω_mpb, ω0)
+            dk_dω_zyg = Zygote.gradient(solve_k_ω_mpb, ω0)[1]
+            @test dk_dω_zyg ≈ dk_dω_FD rtol = 1e-3
         end
     end
 

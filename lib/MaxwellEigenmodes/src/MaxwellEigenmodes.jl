@@ -66,5 +66,6 @@ include("grads/solve.jl")
 include("solvers/iterativesolvers.jl")
 include("solvers/krylovkit.jl")
 include("solvers/dftk.jl")
+include("solvers/mpb.jl")
 
 end # module MaxwellEigenmodes

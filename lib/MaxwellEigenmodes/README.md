@@ -9,6 +9,13 @@ tool suite, operating on smoothed dielectric tensor data on finite-difference gr
 - `solve_ω²`: iterative eigensolves with KrylovKit, IterativeSolvers LOBPCG, or a
   vendored DFTK-style LOBPCG.
 - `solve_k`: Newton solve for the propagation constant `|k|(ω)` of guided modes.
+- `MPBSolver`: an [MPB](https://mpb.readthedocs.io) backend driven through the Python
+  `meep.mpb` module via PythonCall.jl (a package extension; load `PythonCall` and make
+  conda-forge `pymeep` importable, e.g. `using CondaPkg; CondaPkg.add("pymeep")`).
+  The smoothed dielectric data is fed to MPB as a material function, so MPB and the
+  native solvers operate on identical discretizations, and the solver-generic adjoint
+  `rrule` makes the MPB backend differentiable too. Enable its tests with
+  `OPTIMODE_TEST_MPB=true`.
 - Adjoint-method gradients: ChainRules `rrule`s for `solve_k`, `eig_adjt` (generic
   iterative eigenpair adjoint), `my_linsolve`, and the k-space basis fields `mag_mn`.
 

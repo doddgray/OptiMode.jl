@@ -16,7 +16,7 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 |---|---|
 | [`MaterialDispersion`](lib/MaterialDispersion) | Symbolic dielectric material dispersion models (Sellmeier, thermo-optic, χ⁽²⁾), a material library (LiNbO₃, Si₃N₄, SiO₂, Si, Ge, …), and fast generated functions for ε(ω,T) and its frequency derivatives. |
 | [`DielectricSmoothing`](lib/DielectricSmoothing) | Finite-difference spatial `Grid` types and sub-pixel ("Kottke") smoothing of dielectric tensors across material interfaces, mapping geometry + material data to smoothed ε/∂ωε/∂²ωε arrays. |
-| [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. |
+| [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`) driven through Python `meep.mpb` via a PythonCall.jl package extension. |
 | [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, and mode classification/filtering. |
 
 The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis`.
@@ -104,8 +104,26 @@ julia --project=lib/MaterialDispersion/benchmark -e 'using Pkg; Pkg.instantiate(
 julia --project=lib/MaterialDispersion/benchmark lib/MaterialDispersion/benchmark/benchmarks.jl
 ```
 
-Pre-refactor code that is not currently maintained (MPB/PyCall bindings, HDF5 sweep
-I/O, old monolithic tests) is preserved under `legacy/`.
+### MPB backend
+
+`MaxwellEigenmodes.MPBSolver` runs the eigensolves with [MPB](https://mpb.readthedocs.io)
+through the Python `meep.mpb` module, replacing the legacy PyCall bindings with a
+PythonCall.jl package extension:
+
+```julia
+using PythonCall                      # activates the extension
+# one-time Python setup: using CondaPkg; CondaPkg.add("pymeep")
+kmags, evecs = solve_k(ω, ε⁻¹, grid, MPBSolver(); nev=2)
+```
+
+The smoothed dielectric tensors are passed to MPB as a material function (no files or
+Python-side interpolation), so MPB and the native solvers share one discretization and
+their results agree to solver tolerance; the solver-generic adjoint `rrule` makes
+`solve_k` with the MPB backend differentiable as well. MPB tests are opt-in via
+`OPTIMODE_TEST_MPB=true`.
+
+Pre-refactor code that is not currently maintained (the old PyCall MPB bindings, HDF5
+sweep I/O, old monolithic tests) is preserved under `legacy/`.
 
 If you find this solver useful in your own research please consider citing our paper [[2]](#2) and the original MPB paper [[1]](#1).
 If you find this solver broken or buggy please post an issue so that we can try to fix and improve it.

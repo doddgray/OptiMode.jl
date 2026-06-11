@@ -16,7 +16,7 @@
 module MaxwellEigenmodesEnzymeExt
 
 using MaxwellEigenmodes
-using MaxwellEigenmodes: solve_k, KrylovKitEigsolve, IterativeSolversLOBPCG, DFTK_LOBPCG
+using MaxwellEigenmodes: solve_k, KrylovKitEigsolve, IterativeSolversLOBPCG, DFTK_LOBPCG, MPBSolver
 using DielectricSmoothing: Grid
 using Logging: NullLogger
 using ChainRulesCore
@@ -35,7 +35,7 @@ function _install_rules()
     # Bridge the adjoint-method rrule for solve_k (2D & 3D grids, all bundled eigensolvers).
     # The macrocall is evaluated (and thus expanded) at runtime so that hygiene is handled
     # by the normal macro-expansion machinery.
-    for TSolver in (:(KrylovKitEigsolve{NullLogger}), :(IterativeSolversLOBPCG{NullLogger}), :(DFTK_LOBPCG{NullLogger}))
+    for TSolver in (:(KrylovKitEigsolve{NullLogger}), :(IterativeSolversLOBPCG{NullLogger}), :(DFTK_LOBPCG{NullLogger}), :(MPBSolver{NullLogger}))
         for (TGrid, TEps) in ((:(Grid{2,Float64}), :(Array{Float64,4})), (:(Grid{3,Float64}), :(Array{Float64,5})))
             Core.eval(@__MODULE__,
                 :(Enzyme.@import_rrule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)))
