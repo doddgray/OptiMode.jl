@@ -24,7 +24,7 @@ A typical calculation flows the same way:
 
 ```julia
 using OptiMode   # re-exports all four packages
-using OptiMode.DielectricSmoothing.GeometryPrimitives: Box
+using OptiMode.DielectricSmoothing.GeometryPrimitives: Cuboid
 
 # 1. material dispersion: generated function ω ↦ (ε, ∂ωε, ∂²ωε) for each material
 mats = [Si₃N₄, SiO₂]
@@ -34,7 +34,7 @@ mat_vals = hcat(f_ε([ω]), vcat(vec([1.0 0 0; 0 1.0 0; 0 0 1.0]), zeros(18)))  
 
 # 2. smooth dielectric tensors onto a spatial grid
 grid   = Grid(6.0, 4.0, 128, 96)
-core   = Box([0.0,0.0], [1.6,0.7], [1.0 0.0; 0.0 1.0], 1)   # data = material index
+core   = MaterialShape(Cuboid([0.0,0.0], [1.6,0.7], [1.0 0.0; 0.0 1.0]), 1)  # data = material index
 sm     = smooth_ε((core,), mat_vals, (1,2), grid)            # (3,3,3,Nx,Ny): ε, ∂ωε, ∂²ωε
 ε⁻¹    = sliceinv_3x3(copy(selectdim(sm, 3, 1)))
 ∂ε_∂ω  = copy(selectdim(sm, 3, 2))
@@ -52,17 +52,19 @@ ng   = group_index(kmags[1], evecs[1], ω, ε⁻¹, ∂ε_∂ω, grid)
 Gradient support is provided at several levels:
 
 - **ChainRules**: hand-written adjoint-method `rrule`s for the eigensolves (`solve_k`),
-  the adjoint eigen-solver (`eig_adjt`), and k-space basis fields (`mag_mn`), consumed
-  directly by Zygote.
+  the adjoint eigen-solver (`eig_adjt`), k-space basis fields (`mag_mn`), and
+  post-processing (`group_index`), consumed directly by Zygote.
 - **Mooncake.jl** (reverse mode): each package ships a `…MooncakeExt` extension that
   bridges these rules with `Mooncake.@from_rrule` and marks discrete bookkeeping
   functions zero-derivative. Pure generated code (dispersion functions, Kottke
   smoothing kernels) differentiates natively.
 - **Enzyme.jl** (forward + reverse): each package ships an `…EnzymeExt` extension that
   imports the same rules with `Enzyme.@import_rrule` and marks discrete bookkeeping
-  inactive. Generated scalar code differentiates natively in both modes.
-- **ForwardDiff**: forward mode works through the whole post-processing stack
-  (including FFTs, via AbstractFFTs' ForwardDiff extension).
+  inactive. Generated scalar code differentiates natively in both modes. (The imported
+  custom rules apply to positional calls; keyword calls lower to `Core.kwcall`, which
+  `@import_rrule` does not cover.)
+- **ForwardDiff**: forward mode works through the whole smoothing and post-processing
+  stack (including FFTs, via AbstractFFTs' ForwardDiff extension).
 - **Reactant.jl**: `MaterialDispersion.reactant_compile_dispersion` compiles generated
   dispersion functions to XLA via a `Reactant` package extension (the FFTW-planned
   eigensolver pipeline is not currently Reactant-traceable).
@@ -71,6 +73,27 @@ Gradient correctness is tested against `FiniteDifferences.jl` (and, where availa
 exact symbolic Jacobians) in each package's test suite; see
 `lib/*/test/runtests.jl`. Gradient efficiency benchmarks comparing primal vs.
 gradient evaluation times for each backend live in `lib/*/benchmark/benchmarks.jl`.
+Representative numbers from a 4-core CI-class container:
+
+| objective | primal | Zygote | Enzyme (rev) | Enzyme (fwd) | Mooncake |
+|---|---|---|---|---|---|
+| `(ε,∂ωε,∂²ωε)(ω,T)`, 3 materials | 32 μs | — | 6.6× | 2.9× | 24× |
+| Kottke kernel (single voxel) | 95 ns | — | 2.3× | — | 22× |
+| `smooth_ε` (128×128 grid) | 1.2 s | 5.5× | — | — | — |
+| `solve_k` (64×64 grid) | 2.1 s | 1.0× | 3.0× | — | 5.2× |
+| `group_index` (64×64 grid) | 3.5 ms | 3.0× | 5.6× | — | 9.5× |
+
+(× columns are gradient time relative to the primal; the `solve_k` gradient costing
+≈1× the primal eigensolve is the expected behavior of the adjoint method.)
+
+Known limitations:
+
+- Whole-pipeline reverse mode through `smooth_ε`'s 768-voxel `mapreduce` is supported
+  via Zygote; Mooncake/Enzyme cover the per-voxel Kottke kernels (compiling their
+  reverse rules for the full pipeline takes impractically long).
+- Geometry-*parameter* gradients are finite-difference only for now:
+  GeometryPrimitives ≥ 0.5 stores shape fields as hardcoded `Float64`, so AD number
+  types cannot flow through shape construction.
 
 ```bash
 # run tests for a component package

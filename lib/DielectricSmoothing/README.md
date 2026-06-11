@@ -18,5 +18,12 @@ ForwardDiff, Enzyme, and Mooncake; shape-index bookkeeping (`corner_sinds`,
 `proc_sinds`) is marked non-differentiable for all backends (ChainRules
 `@non_differentiable`, `Mooncake.@zero_adjoint`, `EnzymeRules.inactive`).
 
-Gradient correctness (w.r.t. material tensors and geometry parameters) is verified in
-`test/runtests.jl` against FiniteDifferences.jl. Benchmarks: `benchmark/benchmarks.jl`.
+Gradients of the full geometry→smoothing pipeline w.r.t. the material tensor data are
+supported in forward mode (ForwardDiff) and reverse mode (Zygote via ChainRules);
+the per-voxel Kottke kernels are additionally covered by Enzyme and Mooncake.
+Geometry-*parameter* sensitivities are currently finite-difference only:
+GeometryPrimitives ≥ 0.5 stores shape fields as hardcoded `Float64`, so AD number
+types cannot flow through shape construction.
+
+Gradient correctness is verified in `test/runtests.jl` against FiniteDifferences.jl
+(and exact symbolic Jacobians for the kernels). Benchmarks: `benchmark/benchmarks.jl`.

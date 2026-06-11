@@ -106,6 +106,20 @@ const fjh_εₑᵣ! = Core.eval(@__MODULE__, ip_fn_expr(_εₑᵣ_sym_cache[3],_
     return x
 end
 
+# `_pack_kottke_input` fills its output in place, which Zygote cannot trace; provide the
+# (trivial, concatenation-splitting) reverse rule. Enzyme/Mooncake differentiate the
+# mutation natively and do not need this.
+function ChainRulesCore.rrule(::typeof(_pack_kottke_input), r₁::Real, A::AbstractMatrix, B::AbstractMatrix)
+    y = _pack_kottke_input(r₁, A, B)
+    nA = length(A)
+    szA, szB = size(A), size(B)
+    function _pack_kottke_input_pullback(ȳ)
+        ȳv = ChainRulesCore.unthunk(ȳ)
+        return (NoTangent(), ȳv[1], reshape(ȳv[2:1+nA], szA), reshape(ȳv[2+nA:end], szB))
+    end
+    return y, _pack_kottke_input_pullback
+end
+
 ∂ωεₑᵣ(r₁,ε₁,ε₂,∂ω_ε₁,∂ω_ε₂)   = @views @inbounds reshape( fj_εₑᵣ(_pack_kottke_input(r₁,ε₁,ε₂))[:,2:end]  * _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂), (3,3) )
 
 @inline ∂ωεₑᵣ(r₁,ε₁_∂ωε₁,ε₂_∂ωε₂) = @inbounds ∂ωεₑᵣ(
@@ -119,7 +133,8 @@ end
 function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     fj_εₑᵣ_12 = similar(ε₁,9,20)
     fj_εₑᵣ!(fj_εₑᵣ_12,_pack_kottke_input(r₁,ε₁,ε₂));
-    f_εₑᵣ_12, j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,1], fj_εₑᵣ_12[:,2:end];
+    f_εₑᵣ_12 = fj_εₑᵣ_12[:,1];   # copy (not view): keeps downstream vcat homogeneous for Enzyme
+    j_εₑᵣ_12 = @views @inbounds fj_εₑᵣ_12[:,2:end];
     εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
     v_∂ω = _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂);
     ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
@@ -138,7 +153,8 @@ end
 
 function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::T1,ε₁::AbstractMatrix{T2},ε₂::AbstractMatrix{T3},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real}) where {T1<:Real,T2<:Real,T3<:Real}
     fjh_εₑᵣ_12 = fjh_εₑᵣ(_pack_kottke_input(r₁,ε₁,ε₂));
-    f_εₑᵣ_12, j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,1], fjh_εₑᵣ_12[:,2:20], reshape(fjh_εₑᵣ_12[:,21:381],(9,19,19));
+    f_εₑᵣ_12 = fjh_εₑᵣ_12[:,1];   # copy (not view): keeps downstream vcat homogeneous for Enzyme
+    j_εₑᵣ_12, h_εₑᵣ_12 = @views @inbounds fjh_εₑᵣ_12[:,2:20], reshape(fjh_εₑᵣ_12[:,21:381],(9,19,19));
     εₑᵣ_12 = reshape(f_εₑᵣ_12,(3,3))
     v_∂ω, v_∂²ω = _pack_kottke_input(0.0,∂ω_ε₁,∂ω_ε₂), _pack_kottke_input(0.0,∂²ω_ε₁,∂²ω_ε₂);
     ∂ω_εₑᵣ_12 = reshape( j_εₑᵣ_12 * v_∂ω, (3,3) );
