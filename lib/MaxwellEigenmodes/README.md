@@ -36,3 +36,6 @@ so `solve_k` can sit inside larger programs differentiated with either engine.
 Gradient correctness is verified in `test/runtests.jl` against FiniteDifferences.jl
 (eigensolve-based finite differences of `|k|(ω)` and directional derivatives w.r.t.
 ε⁻¹). Benchmarks: `benchmark/benchmarks.jl`.
+
+Full documentation with the underlying physics/mathematics and usage examples:
+[`docs/maxwell_eigenmodes.md`](../../docs/maxwell_eigenmodes.md) at the repository root.

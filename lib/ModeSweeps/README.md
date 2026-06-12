@@ -73,3 +73,6 @@ HDF5 field files) atomically with `.done`/`.failed` markers; `batch_status` and
 `gather_batch(...; partial=true)` therefore work at any time during execution, failed
 tasks are reported with their error text (`tasks/task_NNNNNN.failed`), and partial
 results load exactly like completed ones.
+
+Full documentation with the underlying physics/mathematics and usage examples:
+[`docs/mode_sweeps.md`](../../docs/mode_sweeps.md) at the repository root.

@@ -7,6 +7,25 @@ This package extends the functionality of MPB by implementing a "pull-back" (vec
 The "pull-back" function works by iteratively solving the adjoint equations for the electromagnetic Helmholtz eigen-problem.
 As demonstrated in our paper, these gradients can be further back-propagated to parameters defining an optical waveguide geometry and used to optimize a waveguide for some desired modal properties.
 
+## Documentation
+
+Component-level documentation — with the physics and mathematics of each stage
+(typeset equations, diagrams) and usage examples — lives in [`docs/`](docs):
+[overview & units](docs/README.md) ·
+[material dispersion](docs/material_dispersion.md) ·
+[dielectric smoothing](docs/dielectric_smoothing.md) ·
+[Maxwell eigenmodes](docs/maxwell_eigenmodes.md) ·
+[mode analysis](docs/mode_analysis.md) ·
+[mode sweeps](docs/mode_sweeps.md) ·
+[automatic differentiation](docs/automatic_differentiation.md).
+Function-level reference documentation is in docstrings (`?solve_k`, `?smooth_ε`, …
+in the REPL). Runnable examples live in [`examples/`](examples).
+
+A **Python interface** exposing the same pipeline with NumPy-native APIs lives in
+[`python/`](python) (package `optimode`, via JuliaCall); see
+[docs/python.md](docs/python.md) and
+[`python/examples/`](python/examples).
+
 ## Package structure
 
 OptiMode is organized as a monorepo of five component packages living in `lib/`, with

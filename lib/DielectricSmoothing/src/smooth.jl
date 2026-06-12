@@ -34,6 +34,18 @@ end
 
 @non_differentiable corner_sinds(shapes::Any,corners::Any)
 
+"""
+    proc_sinds(corner_sinds::NTuple{4}) / proc_sinds(corner_sinds::NTuple{8})
+
+Classify a pixel (voxel) from the foreground-shape indices at its 4 (8) corners,
+encoding the result so the smoothing kernel can branch cheaply:
+
+- all corners in one shape → `(s, 0, 0, …)`: pixel is *uniform*, copy material `s`;
+- exactly two shapes present → `(s₁, s₂, 0, …)`: pixel straddles *one interface*,
+  apply Kottke averaging between materials `s₁` and `s₂`;
+- otherwise the corner indices are returned unchanged (≥3 materials meet — a corner
+  pixel) and the caller falls back to a naive arithmetic average.
+"""
 function proc_sinds(corner_sinds::NTuple{4,T}) where T<:Int
 	unq = unique(corner_sinds)
 	sinds_proc = isone(lastindex(unq)) ? (first(unq),0,0,0) :
@@ -50,7 +62,17 @@ end
 
 @non_differentiable proc_sinds(crnr_sinds::Any)
 
-function smooth_ε_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real} 
+"""
+    smooth_ε_single(shapes, mat_vals, minds, crnrs) -> Vector (length 27)
+
+Smoothed `(ε, ∂ωε, ∂²ωε)` data for the single pixel whose corner positions are
+`crnrs`. Uniform pixels copy their material's column of `mat_vals`; single-interface
+pixels locate the interface (`surfpt_nearby`), compute the material-1 volume fraction
+(`volfrac`) and apply the dispersion-propagating Kottke kernel
+[`εₑ_∂ωεₑ_∂²ωεₑ`](@ref); pixels where ≥3 materials meet use a naive corner average.
+See [`smooth_ε`](@ref) for the argument conventions.
+"""
+function smooth_ε_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}}) where{NC,ND,T<:Real}
     ps = proc_sinds(corner_sinds(shapes,crnrs))
     if iszero(ps[2])
         return mat_vals[:,minds[first(ps)]]
@@ -73,7 +95,35 @@ function smooth_ε_single(shapes,mat_vals,minds,crnrs::NTuple{NC,SVector{ND,T}})
     end
 end
 
-function smooth_ε(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real} 
+"""
+    smooth_ε(shapes, mat_vals, minds, grid) -> Array{Float64,(2+1+ND)}
+
+Render a shape-based geometry to smoothed dielectric-tensor fields on `grid`.
+
+Arguments:
+- `shapes`: foreground-to-background-ordered tuple/list of `MaterialShape`s (the first
+  shape containing a point wins); points outside all shapes belong to the background
+  material `length(shapes)+1`.
+- `mat_vals`: matrix whose `j`-th column is material `j`'s data
+  `vcat(vec(ε), vec(∂ωε), vec(∂²ωε))` (27 entries, e.g. a column of
+  `MaterialDispersion._f_ε_mats(mats, (:ω,))([ω])`).
+- `minds`: map from shape/background slot to column of `mat_vals`,
+  e.g. `(1, 2, 3)` for two shapes + background.
+
+Returns a `(3, 3, 3, size(grid)...)` array whose third axis indexes
+``(ε, ∂ε/∂ω, ∂^2ε/∂ω^2)``; each pixel is processed by [`smooth_ε_single`](@ref):
+exact material data in uniform pixels, anisotropic Kottke averaging
+([`avg_param`](@ref)) with exact derivative propagation across single material
+interfaces.
+
+```julia
+sm   = smooth_ε(shapes, mat_vals, (1, 2), grid)
+ε    = copy(selectdim(sm, 3, 1))     # (3,3,Nx,Ny)
+∂ωε  = copy(selectdim(sm, 3, 2))
+ε⁻¹  = sliceinv_3x3(ε)               # input for solve_k
+```
+"""
+function smooth_ε(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real}
 	smoothed_vals = mapreduce(vcat,corners(grid)) do crnrs
 		smooth_ε_single(shapes,mat_vals,minds,crnrs)
 	end

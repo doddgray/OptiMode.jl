@@ -29,3 +29,6 @@ types cannot flow through shape construction.
 
 Gradient correctness is verified in `test/runtests.jl` against FiniteDifferences.jl
 (and exact symbolic Jacobians for the kernels). Benchmarks: `benchmark/benchmarks.jl`.
+
+Full documentation with the underlying physics/mathematics and usage examples:
+[`docs/dielectric_smoothing.md`](../../docs/dielectric_smoothing.md) at the repository root.

@@ -141,9 +141,47 @@ function solve_k(ms::ModeSolver{ND,T},ω::T,ε⁻¹::AbstractArray{T},solver::Ab
 	solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter)
 end
 
+"""
+    solve_k(ω, ε⁻¹, grid, solver; nev=1, k_tol=1e-8, eig_tol=1e-8, ...)
+        -> (kmags, evecs)
+
+Find the propagation constants and fields of the first `nev` guided eigenmodes at
+(temporal) frequency `ω` (μm⁻¹, with ``ω = 1/λ`` and ``c = 1``): the values
+``|k|`` along ``\\hat{z}`` and transverse eigenvectors ``H`` satisfying
+
+```math
+\\hat{M}(k)\\,\\vec{H} = ω^2\\,\\vec{H},
+```
+
+where ``\\hat{M}`` is the plane-wave Maxwell operator ([`HelmholtzMap`](@ref)) built
+from the smoothed inverse-permittivity field `ε⁻¹` (`(3,3,size(grid)...)`, e.g.
+`sliceinv_3x3` of a `DielectricSmoothing.smooth_ε` slice).
+
+Since eigensolvers naturally compute ``ω^2(k)`` ([`solve_ω²`](@ref)) but waveguide
+problems fix ``ω``, the dispersion relation is *inverted* with a Newton iteration
+
+```math
+k_{j+1} = k_j - \\frac{ω^2(k_j) - ω^2}{∂ω^2/∂k|_{k_j}},
+```
+
+where the exact slope ``∂ω^2/∂k = \\langle H|\\hat{M}_k|H\\rangle`` comes from the
+Hellmann–Feynman theorem ([`HMₖH`](@ref)) at no extra cost — each Newton step costs one
+eigensolve, warm-started from the previous step. Returns mode effective indices via
+`neff = kmags ./ ω`; eigenvectors are phase-canonicalized (largest E-field component
+real and positive).
+
+Keyword arguments: `nev` number of bands; `k_tol` Newton tolerance on `|k|`;
+`eig_tol` eigensolver tolerance; `max_eigsolves` Newton iteration budget; `kguess`,
+`Hguess` optional warm starts (used by some backends).
+
+A `ChainRulesCore.rrule` implements the adjoint method for this function, giving
+gradients of `(kmags, evecs)` w.r.t. `ω` and `ε⁻¹` at ≈1 extra eigensolve-equivalent
+cost; see `eig_adjt`. Solver backends: `KrylovKitEigsolve` (native CPU), `DFTK_LOBPCG`,
+`IterativeSolversLOBPCG`, `GPUSolver` (CUDA/Float32/Float64), `MPBSolver` (Python MPB).
+"""
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
-	f_filter=nothing,overwrite=false) where {ND,T<:Real} 
+	f_filter=nothing,overwrite=false) where {ND,T<:Real}
 	ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
 	solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
 end

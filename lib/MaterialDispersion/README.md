@@ -26,3 +26,6 @@ Reactant loaded) compiles generated dispersion functions to XLA.
 
 Gradient correctness is verified in `test/runtests.jl` against the exact symbolic
 Jacobians and FiniteDifferences.jl. Benchmarks: `benchmark/benchmarks.jl`.
+
+Full documentation with the underlying physics/mathematics and usage examples:
+[`docs/material_dispersion.md`](../../docs/material_dispersion.md) at the repository root.

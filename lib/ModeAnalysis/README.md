@@ -23,3 +23,6 @@ extensions bridge to Mooncake (`@from_rrule`) and Enzyme (`@import_rrule`). Forw
 mode works with ForwardDiff through AbstractFFTs' Dual support. Gradient correctness is
 verified in `test/runtests.jl` against FiniteDifferences.jl and against the analytic
 GVD from `ng_gvd`. Benchmarks: `benchmark/benchmarks.jl`.
+
+Full documentation with the underlying physics/mathematics and usage examples:
+[`docs/mode_analysis.md`](../../docs/mode_analysis.md) at the repository root.

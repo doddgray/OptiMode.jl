@@ -122,9 +122,7 @@ function _dot(χ::AbstractArray{T,4},v₁::AbstractVector,v₂::AbstractVector,v
 end
 
 
-"""
-Tensor utilities
-"""
+### Tensor utilities ###
 function _sliceinv_3x3_cols(Af::AbstractMatrix{T}) where {T<:Number}
         out = similar(Af)
         Threads.@threads for j in axes(Af,2)
@@ -133,6 +131,15 @@ function _sliceinv_3x3_cols(Af::AbstractMatrix{T}) where {T<:Number}
         return out
 end
 
+"""
+    sliceinv_3x3(A) -> Array
+
+Pointwise (per-pixel) inverse of a tensor field: for `A` of shape
+`(3, 3, Nx, Ny[, Nz])`, return the array of the same shape with each 3×3 slice
+inverted (multithreaded, via static-matrix inversion). Used to convert between the
+smoothed permittivity `ε` and the inverse permittivity `ε⁻¹` consumed by
+[`HelmholtzMap`](@ref)/[`solve_k`](@ref).
+"""
 function sliceinv_3x3(A::AbstractArray{T,4},gridsize::NTuple{2,Int}=(size(A,3),size(A,4))) where {T<:Number}
         reshape(_sliceinv_3x3_cols(reshape(A,(9,prod(gridsize)))),(3,3,gridsize...))
 end

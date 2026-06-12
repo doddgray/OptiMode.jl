@@ -38,3 +38,7 @@ Manifest.toml
 
 # Julia Manifest (Should be generated automatically)
 **Manifest.toml
+# Python wrapper artifacts
+__pycache__/
+*.egg-info/
+.pytest_cache/

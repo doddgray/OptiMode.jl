@@ -18,21 +18,43 @@ export kxinv_tc!, ed_approx!, HMₖH, HMH, tc, ct, eid!
 # 3D
 
 """
-    tc: v⃗ (transverse vector) → a⃗ (cartesian vector)
+    tc(H, mn)
+
+Transverse → Cartesian: map a field of transverse polarization amplitudes
+`H[1:2, ...] = (h₁, h₂)` to 3-component Cartesian vectors
+``\\vec{h} = h_1\\hat{m} + h_2\\hat{n}`` using the basis array `mn` from
+[`mag_mn`](@ref). Inverse (adjoint) of [`ct`](@ref).
 """
 function tc(H::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
     @tullio h[a,ix,iy,iz] := H[b,ix,iy,iz] * mn[a,b,ix,iy,iz]
 end
 
 """
-    ct: a⃗ (cartesian vector) → v⃗ (transverse vector)
+    ct(h, mn)
+
+Cartesian → transverse: project a field of Cartesian 3-vectors onto the
+``(\\hat{m}, \\hat{n})`` polarization basis, ``h_b = \\vec{h}·\\hat{e}_b``. Inverse
+(adjoint) of [`tc`](@ref).
 """
 function ct(h::AbstractArray{T,4},mn) where T<:Union{Real,Complex}
     @tullio H[a,ix,iy,iz] := h[b,ix,iy,iz] * mn[b,a,ix,iy,iz]
 end
 
 """
-    kx_tc: a⃗ (cartesian vector) = k⃗ × v⃗ (transverse vector)
+    kx_tc(H, mn, mag)
+
+Spectral curl applied to a transverse field: maps transverse amplitudes
+``(h_1, h_2)`` to the Cartesian vector field
+
+```math
+(\\vec{k}+\\vec{G}) × \\vec{h} = |\\vec{k}+\\vec{G}|\\,(h_1\\hat{n} - h_2\\hat{m}),
+```
+
+(up to a factor ``i`` carried implicitly by symmetry of the full operator), using the
+identities ``\\widehat{(k+G)}×\\hat{m} = \\hat{n}`` and ``\\widehat{(k+G)}×\\hat{n} =
+-\\hat{m}``. This is the D-field generator of [`HelmholtzMap`](@ref):
+`d = fft(kx_tc(H, mn, mag))`. [`kx_ct`](@ref) is the corresponding Cartesian →
+transverse curl (its negative adjoint).
 """
 function kx_tc(H::AbstractArray{T,4},mn,mag) where T
 	kxscales = [1.; -1.]
@@ -88,6 +110,23 @@ function ε⁻¹_dot(d⃗::AbstractArray{T,4},ε⁻¹) where T
 	@tullio e⃗[a,ix,iy,iz] :=  ε⁻¹[a,b,ix,iy,iz] * d⃗[b,ix,iy,iz]  #fastmath=false
 end
 
+"""
+    HMₖH(H, ε⁻¹, mag, mn)
+
+Quadratic form ``\\langle H | \\hat{M}_k | H \\rangle`` of the wavevector derivative
+``\\hat{M}_k = ∂\\hat{M}/∂k`` of the Helmholtz operator. By the Hellmann–Feynman
+theorem this gives the modal group velocity,
+
+```math
+\\frac{∂ω^2}{∂k} = \\langle H|\\hat{M}_k|H\\rangle\\,/\\,\\langle H|H\\rangle
+\\quad ⟹ \\quad
+v_g = \\frac{∂ω}{∂k} = \\frac{\\langle H|\\hat{M}_k|H\\rangle}{2ω}
+```
+
+for a normalized eigenvector, the key ingredient of group-index and adjoint-gradient
+calculations (`ng = 2ω / ⟨H|M̂ₖ|H⟩` in these `c = 1` units, see
+`ModeAnalysis.group_index`).
+"""
 function HMₖH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( zx_tc(H,mn), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
@@ -109,6 +148,15 @@ function HMₖH(H::AbstractVector{Complex{T}},ε⁻¹,mag::AbstractArray{<:Real,
 	HMₖH(Ha,ε⁻¹,mag,mn)
 end
 
+"""
+    HMH(H, A, mag, mn)
+
+Quadratic form ``\\langle H | \\hat{M}[A] | H \\rangle`` of a Helmholtz-type operator
+built with the (inverse-permittivity-like) tensor field `A` in place of ``ε^{-1}``.
+With `A = ε⁻¹` and a normalized eigenvector this returns the eigenvalue ``ω^2``; with
+`A = ε⁻¹·(∂ε/∂ω)·ε⁻¹` it evaluates the dispersive perturbation term
+``\\langle H|∂\\hat{M}/∂ω|H\\rangle`` used in group-index calculations.
+"""
 function HMH(H::AbstractArray{Complex{T},4},ε⁻¹,mag,m,n) where T<:Real
 	mn = vcat(reshape(m,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])),reshape(n,(1,size(m)[1],size(m)[2],size(m)[3],size(m)[4])))
 	-real( dot(H, kx_ct( ifft( ε⁻¹_dot( fft( kx_tc(H,mn,mag), (2:4) ), real(flat(ε⁻¹))), (2:4)),mn,mag) ) )
@@ -456,6 +504,30 @@ end
 
 mag_m_n!(mag,m,n,kz::T,g⃗) where T <: Real = mag_m_n!(mag,m,n,SVector{3,T}(0.,0.,kz),g⃗)
 
+"""
+    mag_m_n(k⃗, g⃗s) -> (mag, m⃗, n⃗)
+    mag_m_n(kmag::Real, g⃗s; k̂=ẑ)
+
+Construct the transverse polarization basis of the plane-wave Helmholtz problem. For
+each reciprocal-lattice vector ``\\vec{G}`` the magnetic field is expanded in the two
+unit vectors perpendicular to the shifted wavevector ``\\vec{k}+\\vec{G}`` (computed
+here as `k⃗ - g⃗[i]`; the sign convention is absorbed into the basis):
+
+```math
+\\hat{n} = \\frac{\\hat{z}×(\\vec{k}+\\vec{G})}{|\\hat{z}×(\\vec{k}+\\vec{G})|},
+\\qquad
+\\hat{m} = \\hat{n}×\\widehat{(\\vec{k}+\\vec{G})},
+\\qquad
+\\mathrm{mag} = |\\vec{k}+\\vec{G}|,
+```
+
+with ``\\hat{n} = \\hat{y}`` at the gimbal-lock point ``\\vec{k}+\\vec{G} ∥ \\hat{z}``.
+Expanding ``\\vec{H} = \\sum_{\\vec{G}} (h_1\\hat{m} + h_2\\hat{n})
+e^{i(\\vec{k}+\\vec{G})·\\vec{r}}`` enforces the transversality constraint
+``∇·\\vec{H} = 0`` exactly and halves the unknowns: eigenvectors have length
+`2*length(grid)`. Returns the scalar field `mag` and `SVector` fields `m⃗`, `n⃗`;
+[`mag_mn`](@ref) packs the latter into one `(3, 2, size(grid)...)` array.
+"""
 function mag_m_n(k⃗::SVector{3,T1},g⃗s::AbstractArray{SVector{3,T2}}) where {T1<:Real,T2<:Real}
 	# for iz ∈ axes(g⃗s,3), iy ∈ axes(g⃗s,2), ix ∈ axes(g⃗s,1) #, l in 0:0
     T = promote_type(T1,T2)
@@ -531,6 +603,16 @@ function rrule(::typeof(mag_m_n),k⃗::SVector{3,T},g⃗::AbstractArray{SVector{
     return (mag_m⃗_n⃗ , mag_m_n_pullback)
 end
 
+"""
+    mag_mn(k, grid) -> (mag, mn)
+    mag_mn(kmag::Real, grid; k̂=ẑ)
+
+Like [`mag_m_n`](@ref) but returning the polarization basis packed as a single
+`(3, 2, size(grid)...)` array `mn` with `mn[:,1,..] = m̂` and `mn[:,2,..] = n̂` — the
+layout consumed by the field-mapping kernels [`tc`](@ref), [`kx_tc`](@ref), etc. and
+by [`HelmholtzMap`](@ref). Differentiable: a `ChainRulesCore.rrule` (built on
+`∇ₖmag_mn`) provides exact `k̄` pullbacks.
+"""
 function mag_mn(k::SVector{3,T1},g::Grid{ND,T2}) where {T1<:Real,ND,T2<:Real}
 	mag, m⃗, n⃗ = mag_m_n(k,g⃗(g))
 	# mn = copy(reshape(reinterpret(T1,hcat.(m⃗,n⃗)),(3,2,size(g)...)))
@@ -720,6 +802,35 @@ end
 ################################################################################
 """
 
+"""
+    HelmholtzMap(k⃗, ε⁻¹, grid; shift=0) <: LinearMap
+
+Matrix-free representation of the plane-wave Maxwell ("Helmholtz") operator at Bloch
+wavevector ``\\vec{k}``,
+
+```math
+\\hat{M}(k)\\,\\vec{H} =
+(\\vec{k}+\\vec{G})× \\Big[ ε^{-1}\\, \\mathcal{F}\\,
+\\big((\\vec{k}+\\vec{G})×\\vec{H}\\big) \\Big]_{\\mathcal{F}^{-1}},
+```
+
+i.e. the source-free curl-curl equation ``∇×(ε^{-1}∇×\\vec{H}) = ω^2\\vec{H}``
+(``c = 1``) expressed in the transverse plane-wave basis of [`mag_m_n`](@ref) — the
+same formulation as MPB (Johnson & Joannopoulos, Opt. Express 8, 173 (2001)). Acting
+on a transverse field it performs, in order:
+
+1. `kx_tc` — spectral curl, producing the D-field in k-space;
+2. inverse FFT to real space (in-place planned FFTs `𝓕!`);
+3. pointwise application of the smoothed inverse-permittivity tensor `ε⁻¹` (E = ε⁻¹D);
+4. forward FFT back to k-space;
+5. `kx_ct` — second curl, projected back onto the transverse basis.
+
+`M̂` is Hermitian and positive-semidefinite for real, lossless `ε`, with eigenvalues
+``ω^2``; `mul!`/`*` and adjoints work as for any `LinearMap` (size
+`2N(grid) × 2N(grid)`). The optional spectral `shift` implements
+``\\hat{M} - σ\\hat{I}`` for shift-invert workflows. Fields `mag`, `mn` cache the
+polarization basis at the current `k⃗`; use `update_k!`/`update_ε⁻¹` to mutate.
+"""
 mutable struct HelmholtzMap{ND,T,NDp1,NDp2} <: LinearMap{T}
     k⃗::SVector{3,T}
 	Nx::Int
@@ -742,10 +853,26 @@ mutable struct HelmholtzMap{ND,T,NDp1,NDp2} <: LinearMap{T}
 	shift::T
 end
 
+"""
+    HelmholtzPreconditioner(M̂::HelmholtzMap) <: LinearMap
+
+Approximate-inverse preconditioner for [`HelmholtzMap`](@ref): a diagonal
+(in k-space) estimate ``\\hat{P} ≈ \\hat{M}^{-1}`` built from
+``|\\vec{k}+\\vec{G}|^{-2}`` and the spatially averaged permittivity, used to
+accelerate iterative eigensolvers and the adjoint linear solves.
+"""
 mutable struct HelmholtzPreconditioner{ND,T,NDp1,NDp2} <: LinearMap{T}
 	M̂::HelmholtzMap{ND,T,NDp1,NDp2}
 end
 
+"""
+    ModeSolver(k, ε⁻¹, grid; nev=1, maxiter=100, tol=1e-8)
+
+Workspace bundling a [`HelmholtzMap`](@ref) `M̂`, its preconditioner `P̂`, and storage
+for `nev` eigenpairs: eigenvector matrix `H⃗` (`2N(grid) × nev`), eigenvalues `ω²` and
+group-velocity factors `∂ω²∂k`. Reused across [`solve_ω²`](@ref) calls and Newton
+iterations of [`solve_k`](@ref) so FFT plans and basis arrays are allocated once.
+"""
 mutable struct ModeSolver{ND,T,NDp1,NDp2}
 	grid::Grid{ND,T}
 	M̂::HelmholtzMap{ND,T,NDp1,NDp2}
