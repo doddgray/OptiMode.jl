@@ -8,6 +8,7 @@ DielectricSmoothing = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
 MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
 MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
 ModeAnalysis = "9a3c1c2f-0c6b-44f1-b8a4-8f3e2c7d9b54"
+ModeSweeps = "b3a6f8c2-94d1-4e7a-bb0e-6f1d2a83c905"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [sources]
@@ -15,6 +16,7 @@ DielectricSmoothing = {path = "lib/DielectricSmoothing"}
 MaterialDispersion = {path = "lib/MaterialDispersion"}
 MaxwellEigenmodes = {path = "lib/MaxwellEigenmodes"}
 ModeAnalysis = {path = "lib/ModeAnalysis"}
+ModeSweeps = {path = "lib/ModeSweeps"}
 
 [compat]
 Reexport = "1"

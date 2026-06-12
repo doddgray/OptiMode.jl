@@ -9,7 +9,7 @@ As demonstrated in our paper, these gradients can be further back-propagated to 
 
 ## Package structure
 
-OptiMode is organized as a monorepo of four component packages living in `lib/`, with
+OptiMode is organized as a monorepo of five component packages living in `lib/`, with
 the top-level `OptiMode` module acting as a thin umbrella that re-exports all of them:
 
 | Package | Purpose |
@@ -18,8 +18,9 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 | [`DielectricSmoothing`](lib/DielectricSmoothing) | Finite-difference spatial `Grid` types and sub-pixel ("Kottke") smoothing of dielectric tensors across material interfaces, mapping geometry + material data to smoothed ε/∂ωε/∂²ωε arrays. |
 | [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`, Python `meep.mpb` via PythonCall.jl) and a CUDA-GPU-capable, Float32/Float64 backend (`GPUSolver`) with a device-resident adjoint. |
 | [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, and mode classification/filtering. |
+| [`ModeSweeps`](lib/ModeSweeps) | Batched/asynchronous deployment of mode simulations as SLURM array jobs (or local processes): parameter grids & frequency sweeps, persistent batch state, live status, partial gathering, summary-vs-full-field transfer, and tabular (CSV/TSV/JSON) result I/O. |
 
-The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis`.
+The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis` (← `ModeSweeps`).
 A typical calculation flows the same way:
 
 ```julia
@@ -103,6 +104,25 @@ julia --project=lib/MaterialDispersion -e 'using Pkg; Pkg.test()'
 julia --project=lib/MaterialDispersion/benchmark -e 'using Pkg; Pkg.instantiate()'
 julia --project=lib/MaterialDispersion/benchmark lib/MaterialDispersion/benchmark/benchmarks.jl
 ```
+
+### Cluster sweeps (SLURM)
+
+`ModeSweeps` deploys batched mode simulations asynchronously — e.g. parallelized
+frequency sweeps combined with geometry/material parameter sweeps — as SLURM array
+jobs on a cluster with the same packages installed:
+
+```julia
+batch = frequency_sweep("ridge_wg_setup.jl"; ω=0.55:0.005:0.75, w_top=[1.4,1.7,2.0],
+                        nev=2, slurm=SlurmConfig(time="0:30:00", max_concurrent=50))
+batch_status(batch)                      # live status while running (works via squeue too)
+rows = gather_batch(batch)               # partial results OK; per-band neff, ng, GVD,
+                                         # Aeff & polarization; writes summary.{csv,tsv,json}
+rows = load_summary(".../summary.csv")   # reload anytime for analysis
+```
+
+Batch state is persisted at deployment, so status/gathering also work from new Julia
+sessions; workers optionally store full mode-field data (HDF5) instead of only the
+summary table. See [`lib/ModeSweeps`](lib/ModeSweeps) for details.
 
 ### GPU backend
 
