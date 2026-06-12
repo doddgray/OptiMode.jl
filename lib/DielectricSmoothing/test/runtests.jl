@@ -125,6 +125,20 @@ end
         @test maximum(abs, εg .- permutedims(εg, (2, 1, 3, 4))) < 1e-9
     end
 
+    @testset "smooth_scalar (per-material scalar maps, e.g. Kerr n₂)" begin
+        # per-material scalar values, e.g. Kerr coefficients n₂ [μm²/W]; vacuum bg = 0
+        vals = [2.4e-7, 1.0e-8, 5.0e-9, 0.0]
+        n2 = smooth_scalar(shapes0, vals, minds0, grid)
+        @test size(n2) == size(grid)
+        # pixels deep inside a single material take exactly that material's value
+        @test n2[16, 13] ≈ vals[1] rtol = 1e-9   # core (same pixel as smooth_ε primal test)
+        @test n2[16, 4] ≈ vals[3] rtol = 1e-9    # substrate
+        # all smoothed values bounded by the material extremes …
+        @test all(v -> minimum(vals) - 1e-15 <= v <= maximum(vals) + 1e-15, n2)
+        # … and interface pixels are strict volume-fraction mixtures
+        @test any(v -> minimum(vals) + 1e-12 < v < maximum(vals) - 1e-12, n2)
+    end
+
     @testset "Kottke smoothing-with-dispersion kernel gradients" begin
         S = normcart(normalize([0.3, 0.9, 0.1]))
         v1, v2 = mat_vals0[:, 1], mat_vals0[:, 2]

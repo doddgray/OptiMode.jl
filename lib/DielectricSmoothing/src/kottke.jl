@@ -19,12 +19,40 @@ function normcart(n)
     return S
 end
 
+"""
+    τ_trans(ε)
+
+Kottke's τ-transform of a dielectric tensor expressed in interface coordinates (axis 1
+normal to the interface). Writing ``ε`` in blocks with ``ε_{11}`` the
+normal-normal component,
+
+```math
+τ(ε) = \\begin{pmatrix}
+ -1/ε_{11}        &  ε_{12}/ε_{11}                       & ε_{13}/ε_{11} \\\\
+ ε_{21}/ε_{11}    &  ε_{22} - ε_{21}ε_{12}/ε_{11}        & ε_{23} - ε_{21}ε_{13}/ε_{11} \\\\
+ ε_{31}/ε_{11}    &  ε_{32} - ε_{31}ε_{12}/ε_{11}        & ε_{33} - ε_{31}ε_{13}/ε_{11}
+\\end{pmatrix}.
+```
+
+The τ variables are chosen so that the fields they multiply (``D_⊥`` and ``E_∥``) are
+*continuous* across the interface, making a plain volume-weighted average of `τ`
+physically correct; the smoothed tensor is recovered with [`τ⁻¹_trans`](@ref). For a
+diagonal ε and an axis-aligned interface this reproduces the classic rule: harmonic
+mean for the normal component, arithmetic mean for tangential components. See Kottke,
+Farjadpour & Johnson, Phys. Rev. E **77**, 036611 (2008).
+"""
 function τ_trans(ε)
     return               [     -inv(ε[1,1])            ε[1,2]/ε[1,1]                           ε[1,3]/ε[1,1]
                                 ε[2,1]/ε[1,1]       ε[2,2] - ε[2,1]*ε[1,2]/ε[1,1]           ε[2,3] - ε[2,1]*ε[1,3]/ε[1,1]
                                 ε[3,1]/ε[1,1]       ε[3,2] - ε[3,1]*ε[1,2]/ε[1,1]           ε[3,3] - ε[3,1]*ε[1,3]/ε[1,1]       ]
 end
 
+"""
+    τ⁻¹_trans(τ)
+
+Inverse of [`τ_trans`](@ref): recover a dielectric tensor from averaged τ variables,
+``τ^{-1}(τ(ε)) = ε``.
+"""
 function τ⁻¹_trans(τ)
     return           [      -inv(τ[1,1])           -τ[1,2]/τ[1,1]                          -τ[1,3]/τ[1,1]
                             -τ[2,1]/τ[1,1]       τ[2,2] - τ[2,1]*τ[1,2]/τ[1,1]           τ[2,3] - τ[2,1]*τ[1,3]/τ[1,1]
@@ -32,11 +60,24 @@ function τ⁻¹_trans(τ)
 end
 
 """
-Kottke averaging of two dielectric tensors `ε₁`, `ε₂` across a planar material interface whose normal vector `n₁₂` pointing from material 1 to material 2.
-`n₁₂` is the first column of the unitary rotation matrix `S` which rotates `ε₁` and `ε₂` into the "frame of the interface" so that dielectric tensor
-elements interacting with E-fields parallel and perpendicular to the interface can be averaged differently.
+    avg_param(ε₁, ε₂, S, r₁)
 
-`r₁` is the ratio of the averaging volume filled by material 1. The normal vector mentioned above should point out from material 1 to material 2.
+Kottke sub-pixel average of two dielectric tensors `ε₁`, `ε₂` meeting at a (locally)
+planar interface inside one pixel:
+
+```math
+\\tilde{ε} = S\\, τ^{-1}\\!\\Big( r_1\\, τ(S^Tε_1S) + (1-r_1)\\, τ(S^Tε_2S) \\Big) S^T,
+```
+
+where `S = normcart(n̂₁₂)` rotates into interface coordinates (first axis along the
+unit normal `n̂₁₂` pointing from material 1 into material 2), `r₁ ∈ [0,1]` is the
+volume fraction of the pixel occupied by material 1, and `τ`/`τ⁻¹` are the
+continuity-respecting transforms [`τ_trans`](@ref)/[`τ⁻¹_trans`](@ref). This
+anisotropic smoothing eliminates the first-order staircasing error of a discretized
+material interface (Kottke, Farjadpour & Johnson, Phys. Rev. E **77**, 036611 (2008)).
+
+[`avg_param_rot`](@ref) is the same average for tensors already expressed in interface
+coordinates (no `S` rotation).
 """
 function avg_param(ε₁, ε₂, S, r₁)
     τ1 = τ_trans( transpose(S) * ε₁ * S ) # express param1 in S coordinates, and apply τ transform
@@ -130,6 +171,21 @@ end
     reshape(ε₂_∂ωε₂[10:18],(3,3)),
 )
 
+"""
+    εₑᵣ_∂ωεₑᵣ(r₁, ε₁, ε₂, ∂ω_ε₁, ∂ω_ε₂) -> Vector (length 18)
+
+Smoothed dielectric tensor *and its exact frequency derivative* in interface ("rotated")
+coordinates. Because the Kottke average ``ε_e = f(r_1, ε_1, ε_2)`` is a closed-form
+algebraic map, the chain rule gives the dispersion of the smoothed tensor exactly:
+
+```math
+\\frac{∂ε_e}{∂ω} = \\frac{∂f}{∂ε_1}\\frac{∂ε_1}{∂ω} + \\frac{∂f}{∂ε_2}\\frac{∂ε_2}{∂ω},
+```
+
+evaluated here with the symbolically generated Jacobian kernel `fj_εₑᵣ`. Returns
+`vcat(vec(εₑ), vec(∂ωεₑ))`. Vector-input methods take the per-material data packed as
+`vcat(vec(ε), vec(∂ωε))`.
+"""
 function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     fj_εₑᵣ_12 = similar(ε₁,9,20)
     fj_εₑᵣ!(fj_εₑᵣ_12,_pack_kottke_input(r₁,ε₁,ε₂));
@@ -151,6 +207,20 @@ function εₑᵣ_∂ωεₑᵣ(r₁::Real,ε₁_∂ωε₁::AbstractVector{<:Re
     )
 end
 
+"""
+    εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁, ε₁, ε₂, ∂ω_ε₁, ∂ω_ε₂, ∂²ω_ε₁, ∂²ω_ε₂) -> Vector (length 27)
+
+Like [`εₑᵣ_∂ωεₑᵣ`](@ref) but also propagating the *second* frequency derivative through
+the smoothing map via the symbolically generated Jacobian+Hessian kernel `fjh_εₑᵣ`:
+
+```math
+\\frac{∂^2ε_e}{∂ω^2} = \\sum_m \\frac{∂f}{∂ε_m}\\frac{∂^2ε_m}{∂ω^2}
+ + \\sum_{m,n} \\frac{∂^2 f}{∂ε_m∂ε_n}\\frac{∂ε_m}{∂ω}\\frac{∂ε_n}{∂ω}.
+```
+
+Returns `vcat(vec(εₑ), vec(∂ωεₑ), vec(∂²ωεₑ))`; this is the kernel behind the third
+slice of [`smooth_ε`](@ref)'s output, used for group-velocity-dispersion calculations.
+"""
 function εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁::T1,ε₁::AbstractMatrix{T2},ε₂::AbstractMatrix{T3},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real}) where {T1<:Real,T2<:Real,T3<:Real}
     fjh_εₑᵣ_12 = fjh_εₑᵣ(_pack_kottke_input(r₁,ε₁,ε₂));
     f_εₑᵣ_12 = fjh_εₑᵣ_12[:,1];   # copy (not view): keeps downstream vcat homogeneous for Enzyme
@@ -178,6 +248,13 @@ function _rotate(S::AbstractMatrix{<:Real},ε::AbstractMatrix{<:Real})
     transpose(S) * (ε * S)
 end
 
+"""
+    εₑ_∂ωεₑ(r₁, S, ε₁, ε₂, ∂ω_ε₁, ∂ω_ε₂) -> Vector (length 18)
+
+Lab-frame version of [`εₑᵣ_∂ωεₑᵣ`](@ref): rotates the input tensors into interface
+coordinates with `S = normcart(n̂)`, applies the dispersion-propagating Kottke kernel,
+and rotates the results back, `εₑ = S εₑᵣ Sᵀ`.
+"""
 function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real})
     res_rot = εₑᵣ_∂ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂))
     eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))
@@ -198,6 +275,15 @@ function εₑ_∂ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁_∂ωε₁:
     return vcat(eps,deps)
 end
 
+"""
+    εₑ_∂ωεₑ_∂²ωεₑ(r₁, S, ε₁, ε₂, ∂ω_ε₁, ∂ω_ε₂, ∂²ω_ε₁, ∂²ω_ε₂) -> Vector (length 27)
+
+Lab-frame version of [`εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ`](@ref): Kottke smoothing with exact
+propagation of first and second frequency derivatives, rotated into/out of interface
+coordinates by `S = normcart(n̂)`. The vector-input method takes per-material data
+packed as `vcat(vec(ε), vec(∂ωε), vec(∂²ωε))` — the per-material column layout produced
+by `MaterialDispersion._f_ε_mats`.
+"""
 function εₑ_∂ωεₑ_∂²ωεₑ(r₁::Real,S::AbstractMatrix{<:Real},ε₁::AbstractMatrix{<:Real},ε₂::AbstractMatrix{<:Real},∂ω_ε₁::AbstractMatrix{<:Real},∂ω_ε₂::AbstractMatrix{<:Real},∂²ω_ε₁::AbstractMatrix{<:Real},∂²ω_ε₂::AbstractMatrix{<:Real})
     res_rot = εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r₁,_rotate(S,ε₁),_rotate(S,ε₂),_rotate(S,∂ω_ε₁),_rotate(S,∂ω_ε₂),_rotate(S,∂²ω_ε₁),_rotate(S,∂²ω_ε₂))
     eps = @inbounds vec(_rotate(transpose(S),reshape(res_rot[1:9],(3,3))))

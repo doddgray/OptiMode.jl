@@ -18,6 +18,17 @@ export KrylovKitEigsolve, solve_ω²
 # """
 # mutable struct KrylovKitEigsolve <: AbstractEigensolver end
 
+"""
+    KrylovKitEigsolve()
+
+Default CPU eigensolver backend: finds the smallest-real eigenvalues ``ω^2`` of the
+`HelmholtzMap` with `KrylovKit.eigsolve` (Krylov–Schur/Lanczos, matrix-free). Use as
+the `solver` argument of `solve_ω²`/`solve_k`:
+
+```julia
+kmags, evecs = solve_k(ω, ε⁻¹, grid, KrylovKitEigsolve(); nev=2)
+```
+"""
 mutable struct KrylovKitEigsolve{L<:AbstractLogger} <: AbstractEigensolver{L}
     logger::L
 end

@@ -13,6 +13,7 @@
 #   - MaxwellEigenmodes:   plane-wave electromagnetic eigenmode solver with
 #                          adjoint-based AD rules
 #   - ModeAnalysis:        post-processing of mode solver results
+#   - ModeSweeps:          batched/asynchronous (SLURM) mode-simulation sweeps
 #
 # The component packages live in `lib/` within this repository.
 
@@ -24,5 +25,6 @@ using Reexport
 @reexport using DielectricSmoothing
 @reexport using MaxwellEigenmodes
 @reexport using ModeAnalysis
+@reexport using ModeSweeps
 
 end # module OptiMode

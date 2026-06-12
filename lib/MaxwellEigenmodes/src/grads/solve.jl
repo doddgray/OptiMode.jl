@@ -26,6 +26,15 @@ function herm(A::AbstractArray{T,5}) where {T<:Number}
 end
 
 
+"""
+    herm_back(∂z_∂A)
+
+Pullback companion of [`herm`](@ref): map the cotangent of a hermitized tensor field
+back to the cotangent of its raw argument,
+``\\bar{A}_{ij} = w_{ij}(\\bar{H}_{ij} + \\bar{H}_{ji}^*)`` with weights ``w`` = ½ on
+the diagonal and 1 off it — so that gradients of objectives written in terms of
+`herm(A)` are correct for unsymmetrized `A` inputs.
+"""
 function herm_back(∂z_∂A::AbstractArray{T,4}) where {T<:Number}
 	half_diag = [ 0.5 1.0 1.0 ; 1.0 0.5 1.0 ; 1.0 1.0 0.5 ]
 	@tullio ∂z_∂A_herm[i,j,ix,iy] := ∂z_∂A[i,j,ix,iy]*half_diag[i,j] + conj(∂z_∂A)[j,i,ix,iy]*half_diag[i,j] nograd=half_diag
@@ -441,6 +450,17 @@ following local structures
 						=	  (  [ ẑ × ]ₜc  )ᵀ
 """
 
+"""
+    ε⁻¹_bar(d⃗, λ⃗d, Nx, Ny[, Nz]) -> Array (3,3,Nx,Ny[,Nz])
+
+Cotangent (gradient) of a Helmholtz-operator quadratic form w.r.t. the
+inverse-permittivity field: accumulates the per-pixel 3×3 blocks of
+``-\\mathrm{Re}\\,(λ_d ⊗ d^†)`` from the (vec'd, k-space-curl) D-field `d⃗` of the
+forward pass and the corresponding adjoint-field product `λ⃗d`. Off-diagonal entries
+hold the summed ``(i,j)+(j,i)`` sensitivity mirrored into both slots, consistent with
+backpropagation through Hermitian tensor fields (see [`herm_back`](@ref)). This is
+the workhorse of the `solve_k` adjoint `rrule`.
+"""
 function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny, Nz) where T<:Real
 	# # capture 3x3 block diagonal elements of outer product -| λ⃗d X d⃗ |
 	# # into (3,3,Nx,Ny,Nz) array. This is the gradient of ε⁻¹ tensor field
@@ -449,7 +469,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny, Nz) where
 	eīf = zeros(T,3,3,Nx,Ny,Nz)
 	# @avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
 	for iz=1:Nz,iy=1:Ny,ix=1:Nx
-		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		# column-major linear voxel index of (:,ix,iy,iz) in the vec'd (3,Nx,Ny,Nz) field data
+		q = (Nx * Ny * (iz-1) + Nx * (iy-1) + ix)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
 		end
@@ -475,7 +496,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	# eīf = bufferfrom(zero(eltype(real(d⃗)),3,3,Nx,Ny))
 	# @avx for iy=1:Ny,ix=1:Nx
 	for iy=1:Ny,ix=1:Nx
-		q = (Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		# column-major linear pixel index of (:,ix,iy) in the vec'd (3,Nx,Ny) field data
+		q = (Nx * (iy-1) + ix)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
 		end

@@ -116,7 +116,20 @@ function Eperp_max(E::AbstractArray{T,4}) where T
 end
 
 """
-Calculate the effective area `𝓐` of a mode-field `E` with modal effective index `n` and modal group index `ng`
+    𝓐(n, ng, E)   (alias `effective_area`)
+
+Effective area of a mode field `E` with effective index `n` and group index `ng`,
+
+```math
+𝓐 = \\frac{1}{n\\,n_g\\,\\max|E_⊥|^2},
+```
+
+for `E` in the dispersive energy normalization of `E⃗(...; normalized=true)`
+(``\\int E^*·(∂ε/∂ω)·E\\,dV = 1``); this measures the area over which the mode power
+is spread relative to its peak transverse field. Note: for *nonlinear* (Kerr/SPM)
+calculations the standard nonlinear effective area
+``A_{eff} = (\\int I\\,dA)^2 / \\int I^2\\,dA`` computed from
+[`mode_intensity`](@ref) is usually the appropriate quantity.
 """
 𝓐(n,ng,E) = inv( n * ng * Eperp_max(E)^2)
 const effective_area = 𝓐

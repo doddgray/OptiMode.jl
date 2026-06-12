@@ -176,6 +176,21 @@ function E⃗(evecs::AbstractVector{TV}, ms::ModeSolver{ND,T}) where {ND,T<:Real
 end
 
 
+"""
+    E⃗(k, evec, ε⁻¹, ∂ε_∂ω, grid; canonicalize=true, normalized=true) -> Array
+
+Real-space electric field of a mode solution, reconstructed from the transverse
+eigenvector via ``\\vec{D} ∝ (\\vec{k}+\\vec{G})×\\vec{H}`` (spectral curl `kx_tc` +
+FFT) and ``\\vec{E} = ε^{-1}\\vec{D}``. Returns a complex `(3, size(grid)...)` array.
+
+- `canonicalize=true` multiplies by a global phase making the largest-magnitude
+  component purely real (convenient for plotting and perturbation integrals).
+- `normalized=true` rescales so that ``\\int \\vec{E}^*·(∂ε/∂ω)·\\vec{E}\\,dV = 1``
+  (the dispersive energy normalization used by the group-index machinery; pass the
+  smoothed `∂ε_∂ω` field).
+
+See also [`H⃗`](@ref), [`S⃗`](@ref), `ModeAnalysis.poynting_z`.
+"""
 function E⃗(k,evec::AbstractArray{Complex{T}},ε⁻¹,∂ε_∂ω,grid::Grid{ND}; canonicalize=true, normalized=true)::Array{Complex{T},ND+1} where {ND,T<:Real}
 	evec_gridshape = reshape(evec,(2,size(grid)...))
 	magmn = mag_mn(k,grid)
@@ -201,6 +216,14 @@ E⃗z(ms::ModeSolver) = [ E[3,eachindex(ms.grid)...] for E in E⃗(ms;svecs=fals
 import Base: abs2
 abs2(v::SVector) = real(dot(v,v))
 
+"""
+    S⃗(ms::ModeSolver)
+
+Time-averaged Poynting-vector fields ``\\vec{S} = \\mathrm{Re}(\\vec{E}^* × \\vec{H})``
+of the modes currently stored in `ms` (arbitrary overall normalization). `S⃗x`/`S⃗y`/
+`S⃗z` return single Cartesian components; for power-normalized intensity profiles see
+`ModeAnalysis.mode_intensity`.
+"""
 function S⃗(ms::ModeSolver{ND,T}; svecs=true) where {ND,T<:Real}
 	# Ssvs = real.( cross.( conj.(E⃗(ms)), H⃗(ms) ) )
 	Ssvs = map((E,H)->real.( cross.( conj.(E), H) ), E⃗(ms), H⃗(ms) )

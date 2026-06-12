@@ -51,6 +51,15 @@ LinearAlgebra.ldiv!(c,A::LinearMaps.LinearMap,b) = mul!(c,A',b)
 
 export k_guess
 
+"""
+    k_guess(ω, ε⁻¹)
+
+Initial guess for the propagation constant of a guided mode at frequency `ω`:
+``k_0 = ω\\,n_{max}`` with ``n_{max} = \\max\\sqrt{ε}`` estimated from the smallest
+diagonal entry of the inverse-permittivity field `ε⁻¹`. Guided modes satisfy
+``ω\\,n_{clad} < k < ω\\,n_{max}``, so this starts the `solve_k` Newton iteration just
+above the solution.
+"""
 k_guess(ω,ε⁻¹::AbstractArray{<:Real,4}) = first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:]) for a=1:3]))
 k_guess(ω,ε⁻¹::AbstractArray{<:Real,5}) = first(ω) * sqrt(1/minimum([minimum(ε⁻¹[a,a,:,:,:]) for a=1:3]))
 k_guess(ω,geom) = nₘₐₓ(ω,geom) * ω
@@ -66,5 +75,7 @@ include("grads/solve.jl")
 include("solvers/iterativesolvers.jl")
 include("solvers/krylovkit.jl")
 include("solvers/dftk.jl")
+include("solvers/mpb.jl")
+include("solvers/gpu.jl")
 
 end # module MaxwellEigenmodes

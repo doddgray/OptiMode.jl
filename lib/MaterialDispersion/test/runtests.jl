@@ -117,6 +117,36 @@ const backends_forward = Dict(
         end
     end
 
+    @testset "Kerr coefficient n₂" begin
+        # standard library values [μm²/W]
+        @test kerr_n2(Si₃N₄) == 2.4e-7
+        @test kerr_n2(SiO₂) == 2.6e-8
+        # materials without an :n₂ model are linear (n₂ = 0)
+        @test kerr_n2(LiNbO₃) == 0.0
+        # constant models are wavelength-independent
+        @test kerr_n2(Si₃N₄, 1.06) == kerr_n2(Si₃N₄, 1.55)
+
+        # non-mutating override leaves the original material untouched
+        m = with_kerr_n2(SiO₂, 3.0e-8)
+        @test kerr_n2(m) == 3.0e-8
+        @test kerr_n2(SiO₂) == 2.6e-8
+
+        # wavelength-dependent symbolic model n₂(λ) = a + b·λ²
+        λs = MaterialDispersion.Num(MaterialDispersion.Sym{Real}(:λ))
+        md = with_kerr_n2(SiO₂, 2.0e-8 + 1.0e-8 * λs^2)
+        @test kerr_n2(md, 1.0) ≈ 3.0e-8 rtol = 1e-12
+        @test kerr_n2(md, 2.0) ≈ 6.0e-8 rtol = 1e-12
+
+        # in-place setter
+        m2 = with_kerr_n2(SiO₂, 0.0)
+        set_kerr_n2!(m2, 5.0e-8)
+        @test kerr_n2(m2) == 5.0e-8
+
+        # n₂ is a scalar: rotation passes through to the parent material
+        R = Matrix(RotZ(π / 4))
+        @test kerr_n2(rotate(Si₃N₄, R; name=:Si₃N₄_rot45)) == 2.4e-7
+    end
+
     @testset "rotated materials" begin
         R = Matrix(RotZ(π / 4))
         LN_rot = rotate(LiNbO₃, R; name=:LiNbO₃_rot45)

@@ -10,6 +10,39 @@ export Grid, δx, δy, δz, δV, x⃗, xc, yc, zc, x⃗c, N, g⃗, _fftaxes,
 	corners, vxlmin, vxlmax, my_fftfreq
 export δ, x, y, z # TODO: remove these functions, their names are too short and likely to cause problems
 
+"""
+    Grid(Δx, Δy, Nx, Ny)            -> Grid{2}
+    Grid(Δx, Δy, Δz, Nx, Ny, Nz)    -> Grid{3}
+
+A uniform finite-difference spatial grid: a rectangular cell of physical size
+`Δx × Δy (× Δz)` (μm) centered on the origin, discretized into `Nx × Ny (× Nz)`
+pixels (voxels). Pixel *centers* lie at
+
+```math
+x_i = -\\frac{Δx}{2} + (i-1)\\,δx, \\qquad δx = \\frac{Δx}{N_x}, \\quad i = 1…N_x
+```
+
+(and similarly in y/z), so the cell spans `[-Δx/2, Δx/2)` with periodic boundary
+conditions implied by the plane-wave (FFT) basis of the eigensolver:
+
+```text
+        ┌──┬──┬──┬──┐  ↑           ●  pixel centers x(g) × y(g)
+        ├──●──┼──●──┤  │           ┼  pixel corners (used by `corners` for
+        ├──┼──┼──┼──┤  Δy             sub-pixel smoothing)
+        ├──●──┼──●──┤  │
+        └──┴──┴──┴──┘  ↓
+          ←── Δx ──→
+```
+
+`Grid` acts like an `AbstractArray` of pixel-center coordinates: `size`, `length`,
+`eltype` (`SVector{3}`), iteration and indexing are defined. Key accessors:
+
+- [`x`](@ref), [`y`](@ref), [`z`](@ref): coordinate vectors of pixel centers
+- [`δx`](@ref), [`δy`](@ref), [`δz`](@ref), [`δV`](@ref): pixel pitches and volume
+- [`x⃗`](@ref): array of `SVector{3}` pixel-center positions
+- [`corners`](@ref): pixel-corner tuples for interface detection
+- [`g⃗`](@ref): reciprocal-lattice (spatial-frequency) vectors of the FFT basis
+"""
 struct Grid{ND,T}
 	Δx::T
     Δy::T
@@ -37,6 +70,11 @@ Grid(Δx::T, Δy::T, Nx::Int, Ny::Int) where {T<:Real} = Grid{2,T}(
     1,
 )
 
+"""
+    δx(g::Grid), δy(g::Grid), δz(g::Grid)
+
+Pixel pitch along each axis, e.g. `δx(g) = g.Δx / g.Nx` (μm).
+"""
 δx(g::Grid) = g.Δx / g.Nx
 δy(g::Grid) = g.Δy / g.Ny
 δz(g::Grid) = g.Δz / g.Nz
@@ -50,6 +88,12 @@ function δ(g::Grid{3})
 	g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
 end
 
+"""
+    δV(g::Grid)
+
+Pixel area (2D, μm²) or voxel volume (3D, μm³): `δx(g)*δy(g)[*δz(g)]`. Integrals of
+gridded fields are evaluated as `sum(field) * δV(g)`.
+"""
 δV(g::Grid{2}) = g.Δx * g.Δy / ( g.Nx * g.Ny )
 δV(g::Grid{3}) = g.Δx * g.Δy * g.Δz / ( g.Nx * g.Ny * g.Nz )
 
@@ -66,6 +110,13 @@ function myrange(a::Real,b::Real,N::Int)
 end
 
 ### Grid Points (Voxel/Pixel Center Positions) ###
+"""
+    x(g::Grid), y(g::Grid), z(g::Grid)
+
+Coordinate vectors of the pixel/voxel *centers* along each axis: `Nx` (`Ny`, `Nz`)
+uniformly spaced values starting at `-Δx/2` with pitch `δx(g)` (the cell is
+origin-centered and periodic, so the right edge `+Δx/2` is the image of the left).
+"""
 function x(g::Grid{ND,T})::Vector{T}  where {ND,T<:Real}
  	# ( ( g.Δx / g.Nx ) .* (0:(g.Nx-1))) .- g.Δx/2.
 	myrange(-g.Δx/2, g.Δx/2 - g.Δx/g.Nx, g.Nx)
@@ -174,6 +225,13 @@ end
 end
 
 ### Reciprocal Lattice Axes and Vectors (from fftfreqs) ###
+"""
+    _fftaxes(g::Grid)
+
+The array axes along which spatial FFTs act for fields stored as
+`(components, Nx, Ny[, Nz])` arrays: `2:3` in 2D, `2:4` in 3D (axis 1 indexes field
+components).
+"""
 @inline _fftaxes(gr::Grid{2}) = (2:3)
 @inline _fftaxes(gr::Grid{3}) = (2:4)
 
@@ -184,6 +242,16 @@ function my_fftfreq(n::Int,fs::Real)
 	iseven(n) ? [0:n÷2-1; -n÷2:-1]*fs/n	: [0:(n-1)÷2; -(n-1)÷2:-1]*fs/n
 end
 
+"""
+    g⃗(g::Grid)
+
+Array of reciprocal-lattice vectors ``\\vec{G}`` of the periodic cell, in FFT
+frequency order: `G⃗[i,j] = (gx[i], gy[j], 0)` with `gx = fftfreq(Nx, Nx/Δx)` etc.
+All spatial frequencies in this package are in cycles/μm (consistent with `ω = 1/λ`
+and `k = n_eff/λ`; no factors of 2π appear). These are the plane-wave basis
+frequencies of the Helmholtz eigenproblem, which involves the shifted magnitudes
+`|k⃗ - G⃗|` computed by `MaxwellEigenmodes.mag_m_n`.
+"""
 function g⃗(gr::Grid{2,T})::Array{SVector{3, T}, 2} where T<:Real
 	[	SVector{3,T}(gx,gy,0.) for  gx in my_fftfreq(gr.Nx,gr.Nx/gr.Δx),
 							   		gy in my_fftfreq(gr.Ny,gr.Ny/gr.Δy)		]
@@ -220,6 +288,14 @@ end
 	( SVector{3,T}(xx,yy,zz) for xx in xc(g), yy in yc(g), zz in zc(g) )
 end
 
+"""
+    corners(g::Grid)
+
+For every pixel (voxel), the tuple of its 4 (8) corner positions as `SVector{ND}`s,
+returned as an array shaped like the grid. Sub-pixel smoothing
+([`smooth_ε`](@ref)/[`smooth_scalar`](@ref)) classifies each pixel by evaluating which
+shape is foreground at each of its corners.
+"""
 function corners(g::Grid{2,T}) where T<:Real
 
 	xcs = xc(g)
