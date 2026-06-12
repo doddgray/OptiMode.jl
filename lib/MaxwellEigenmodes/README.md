@@ -16,6 +16,14 @@ tool suite, operating on smoothed dielectric tensor data on finite-difference gr
   native solvers operate on identical discretizations, and the solver-generic adjoint
   `rrule` makes the MPB backend differentiable too. Enable its tests with
   `OPTIMODE_TEST_MPB=true`.
+- `GPUSolver(T; device)`: a device- and precision-generic backend (`T ∈ (Float32,
+  Float64)`) built from broadcast-only kernels, AbstractFFTs plans, and KrylovKit, so
+  the identical code runs on the CPU (`device=:cpu`, the tested reference path) and on
+  NVIDIA GPUs (`device=:cuda` via a CUDA.jl package extension — `using CUDA`). Its
+  adjoint (`rrule` for `solve_k`) is implemented with the same device-generic
+  operations, so gradient back-propagation through GPU-accelerated mode solves also
+  runs on the GPU. Enable CUDA-device tests with `OPTIMODE_TEST_CUDA=true`; grid-size
+  scaling benchmarks across backends live in `benchmark/scaling.jl`.
 - Adjoint-method gradients: ChainRules `rrule`s for `solve_k`, `eig_adjt` (generic
   iterative eigenpair adjoint), `my_linsolve`, and the k-space basis fields `mag_mn`.
 

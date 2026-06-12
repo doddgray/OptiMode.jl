@@ -15,6 +15,11 @@ using Zygote
 const TEST_MPB = get(ENV, "OPTIMODE_TEST_MPB", "false") == "true"
 TEST_MPB && @eval using PythonCall
 
+# CUDA-device tests are opt-in (require a functional GPU): OPTIMODE_TEST_CUDA=true.
+# The same GPUSolver code path is always tested on the CPU (device=:cpu).
+const TEST_CUDA = get(ENV, "OPTIMODE_TEST_CUDA", "false") == "true"
+TEST_CUDA && @eval using CUDA
+
 """
 Analytic, smoothly-varying isotropic dielectric profile for a 2D waveguide-like structure:
 a Gaussian index bump on a uniform background. Returns the (3,3,Nx,Ny) inverse dielectric
@@ -159,6 +164,72 @@ const solver = KrylovKitEigsolve()
             dk_dω_FD = FiniteDifferences.central_fdm(3, 1)(solve_k_ω_mpb, ω0)
             dk_dω_zyg = Zygote.gradient(solve_k_ω_mpb, ω0)[1]
             @test dk_dω_zyg ≈ dk_dω_FD rtol = 1e-3
+        end
+    end
+
+    @testset "GPUSolver (device- & precision-generic backend)" begin
+        kk_ref, _ = solve_k(ω0, copy(epsi0), grid, solver; nev=2, k_tol=1e-11, eig_tol=1e-11)
+        dk_dω_FD = FiniteDifferences.central_fdm(5, 1)(solve_k_ω, ω0)
+
+        for (T, rtol_k, atol_res, rtol_g) in (
+            (Float64, 1e-7, 1e-8, 1e-4),
+            (Float32, 1e-5, 1e-4, 5e-3),
+        )
+            @testset "T=$T (cpu device)" begin
+                solver_g = GPUSolver(T; device=:cpu)
+                # |k|(ω) matches the native Float64 solver to precision-appropriate tolerance
+                kg, evg = solve_k(ω0, copy(epsi0), grid, solver_g; nev=2)
+                @test kg ≈ kk_ref rtol = rtol_k
+                # eigenvectors are valid eigenvectors of the (Float64) HelmholtzMap
+                for (km, ev) in zip(kg, evg)
+                    M̂ = HelmholtzMap(km, copy(epsi0), grid)
+                    @test norm(M̂ * ev - ω0^2 .* ev) / norm(ev) < atol_res
+                end
+                # solve_ω² round-trip at the solved k
+                ms_g = ModeSolver(kg[1], copy(epsi0), grid; nev=2)
+                ω²_g, _ = solve_ω²(ms_g, solver_g; nev=2)
+                @test ω²_g[1] ≈ ω0^2 rtol = 10 * rtol_k
+                # adjoint: dk/dω through the device-generic rrule vs finite differences
+                fT = om -> solve_k(om, copy(epsi0), grid, solver_g)[1][1]
+                @test Zygote.gradient(fT, ω0)[1] ≈ dk_dω_FD rtol = rtol_g
+            end
+        end
+
+        @testset "adjoint dε⁻¹ directional derivative (Float64, cpu device)" begin
+            solver_g = GPUSolver(Float64; device=:cpu)
+            fei = ei -> solve_k(ω0, ei, grid, solver_g; nev=1, k_tol=1e-11, eig_tol=1e-11)[1][1]
+            g_ei = Zygote.gradient(fei, copy(epsi0))[1]
+            dir = zero(epsi0)
+            for a in 1:3
+                dir[a, a, :, :] .= randn(size(grid)) .* 1e-3
+            end
+            d_FD = FiniteDifferences.central_fdm(5, 1; factor=1e8)(t -> fei(epsi0 .+ t .* dir), 0.0)
+            @test dot(g_ei, dir) ≈ d_FD rtol = 1e-3
+        end
+
+        if !TEST_CUDA
+            # without the CUDA extension the :cuda device must fail with an instructive error
+            err = try
+                solve_k(ω0, copy(epsi0), grid, GPUSolver(Float32))  # device defaults to :cuda
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException && occursin("CUDA", err.msg)
+        else
+            @testset "CUDA device" begin
+                @test CUDA.functional()
+                for (T, rtol_k, rtol_g) in ((Float64, 1e-7, 1e-4), (Float32, 1e-5, 5e-3))
+                    solver_c = GPUSolver(T; device=:cuda)
+                    kc, evc = solve_k(ω0, copy(epsi0), grid, solver_c; nev=2)
+                    @test kc ≈ kk_ref rtol = rtol_k
+                    # GPU and CPU runs of the same generic code agree to solver tolerance
+                    kg, _ = solve_k(ω0, copy(epsi0), grid, GPUSolver(T; device=:cpu); nev=2)
+                    @test kc ≈ kg rtol = 10 * rtol_k
+                    fC = om -> solve_k(om, copy(epsi0), grid, solver_c)[1][1]
+                    @test Zygote.gradient(fC, ω0)[1] ≈ dk_dω_FD rtol = rtol_g
+                end
+            end
         end
     end
 

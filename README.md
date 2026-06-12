@@ -16,7 +16,7 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 |---|---|
 | [`MaterialDispersion`](lib/MaterialDispersion) | Symbolic dielectric material dispersion models (Sellmeier, thermo-optic, χ⁽²⁾), a material library (LiNbO₃, Si₃N₄, SiO₂, Si, Ge, …), and fast generated functions for ε(ω,T) and its frequency derivatives. |
 | [`DielectricSmoothing`](lib/DielectricSmoothing) | Finite-difference spatial `Grid` types and sub-pixel ("Kottke") smoothing of dielectric tensors across material interfaces, mapping geometry + material data to smoothed ε/∂ωε/∂²ωε arrays. |
-| [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`) driven through Python `meep.mpb` via a PythonCall.jl package extension. |
+| [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`, Python `meep.mpb` via PythonCall.jl) and a CUDA-GPU-capable, Float32/Float64 backend (`GPUSolver`) with a device-resident adjoint. |
 | [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, and mode classification/filtering. |
 
 The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis`.
@@ -103,6 +103,27 @@ julia --project=lib/MaterialDispersion -e 'using Pkg; Pkg.test()'
 julia --project=lib/MaterialDispersion/benchmark -e 'using Pkg; Pkg.instantiate()'
 julia --project=lib/MaterialDispersion/benchmark lib/MaterialDispersion/benchmark/benchmarks.jl
 ```
+
+### GPU backend
+
+`MaxwellEigenmodes.GPUSolver` is a device- and precision-generic eigensolver backend:
+
+```julia
+using CUDA                                    # activates the extension (NVIDIA GPUs)
+kmags, evecs = solve_k(ω, ε⁻¹, grid, GPUSolver(Float32); nev=2)          # GPU, single precision
+kmags, evecs = solve_k(ω, ε⁻¹, grid, GPUSolver(Float64; device=:cpu))    # same code on CPU
+```
+
+The solver core uses only backend-agnostic operations (broadcast kernels, AbstractFFTs
+plans — FFTW on `Array`, CUFFT on `CuArray` — and KrylovKit), so one code path serves
+both devices and both precisions; inputs/outputs stay host `Float64` for pipeline
+interoperability. The adjoint for `solve_k` is implemented in the same device-generic
+style (`KrylovKit.linsolve` for the adjoint linear solve plus broadcast accumulation of
+ε̄⁻¹ and k̄), so gradient back-propagation through GPU-accelerated solves also runs on
+the GPU. Correctness vs. the native solver and vs. finite differences is tested at both
+precisions on the CPU path in every test run; CUDA-device tests are opt-in via
+`OPTIMODE_TEST_CUDA=true`. `benchmark/scaling.jl` benchmarks `solve_k` and its adjoint
+gradient across backends as a function of grid size.
 
 ### MPB backend
 
