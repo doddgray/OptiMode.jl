@@ -123,7 +123,20 @@ style (`KrylovKit.linsolve` for the adjoint linear solve plus broadcast accumula
 the GPU. Correctness vs. the native solver and vs. finite differences is tested at both
 precisions on the CPU path in every test run; CUDA-device tests are opt-in via
 `OPTIMODE_TEST_CUDA=true`. `benchmark/scaling.jl` benchmarks `solve_k` and its adjoint
-gradient across backends as a function of grid size.
+gradient across backends as a function of grid size. CPU-path results from the same
+4-core container (solve / adjoint-gradient seconds; GPU columns appear when run on a
+machine with a functional CUDA device):
+
+| grid | KrylovKit F64 | GPUSolver F64 (cpu) | GPUSolver F32 (cpu) | max |k| rel. dev. |
+|---|---|---|---|---|
+| 32×32 | 0.20 / 0.17 | 0.11 / 0.09 | 0.030 / 0.024 | 3×10⁻⁸ |
+| 64×64 | 1.8 / 1.8 | 1.1 / 1.1 | 0.35 / 0.37 | 1×10⁻⁶ |
+| 128×128 | 11 / 12 | 7.0 / 7.2 | 3.4 / 3.5 | 1×10⁻⁷ |
+| 256×256 | 125 / 126 | 80 / 79 | 48 / 38 | 7×10⁻⁶ |
+
+Even on the CPU the device-generic backend outpaces the legacy path (warm-started
+Newton iterations save eigensolves), and Float32 roughly halves runtimes again; the
+adjoint gradient costs ≈1× the primal solve at every size.
 
 ### MPB backend
 
