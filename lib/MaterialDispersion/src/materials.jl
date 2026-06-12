@@ -6,6 +6,7 @@ using SymbolicUtils.Code: toexpr, MakeArray
 export AbstractMaterial, Material, RotatedMaterial, get_model, generate_fn, Δₘ_factors, Δₘ
 export rotate, unique_axes, nn̂g, nĝvd, nn̂g_model, nn̂g_fn, nĝvd_model, nĝvd_fn, ε_fn
 export n²_sym_fmt1, n_sym_cauchy, has_model, χ⁽²⁾_fn, material_name, n_model, ng_model, gvd_model
+export kerr_n2, with_kerr_n2, set_kerr_n2!
 export NumMat 
 
 
@@ -441,6 +442,56 @@ end
 
 nn̂g(mat::AbstractMaterial,lm::Real) = SMatrix{3,3}(nn̂g_fn(mat)(lm))
 nĝvd(mat::AbstractMaterial,lm::Real) = SMatrix{3,3}(nĝvd_fn(mat)(lm))
+
+"""
+################################################################################
+#                                                                              #
+#            Kerr nonlinearity: intensity-dependent refractive index           #
+#                                                                              #
+################################################################################
+
+Materials may carry an intensity-dependent refractive-index coefficient `n₂`
+(`n(I) = n₀ + n₂ I`) in units of μm²/W, stored as the `:n₂` model entry — either a
+constant `Real` or a symbolic expression in the vacuum wavelength `λ` (μm) and/or
+frequency `ω` (μm⁻¹). Materials without an `:n₂` model are linear (`n₂ = 0`).
+"""
+
+"""
+    kerr_n2(mat, λ=1.55) -> Float64
+
+Intensity-dependent refractive-index coefficient `n₂` of a material in μm²/W at vacuum
+wavelength `λ` (μm). Returns `0.0` for materials without a specified `:n₂` model
+(including raw dielectric data and `NumMat`s built without one).
+"""
+function kerr_n2(mat::Material, λ::Real=1.55)
+	haskey(mat.models, :n₂) || return 0.0
+	model = mat.models[:n₂]
+	# Num <: Real, so explicitly exclude symbolic models from the constant fast path
+	(model isa Number && !(model isa Num)) && return Float64(model)
+	m = get_model(mat, :n₂, :λ, :ω)
+	λv = Num(Sym{Real}(:λ))
+	ωv = Num(Sym{Real}(:ω))
+	val = substitute(m, Dict(λv => λ, ωv => 1 / λ))
+	return Float64(Symbolics.value(val))
+end
+kerr_n2(mat::RotatedMaterial, λ::Real=1.55) = kerr_n2(mat.parent, λ)  # n₂ is scalar: rotation-invariant
+kerr_n2(::Any, λ::Real=1.55) = 0.0
+
+"""
+    with_kerr_n2(mat, n2) -> Material
+
+Return a copy of `mat` with the Kerr coefficient model `:n₂` set to `n2` — a constant
+in μm²/W or a symbolic expression in `λ` (μm) / `ω` (μm⁻¹).
+"""
+with_kerr_n2(mat::Material, n2) =
+	Material(merge(mat.models, Dict{Any,Any}(:n₂ => n2)), mat.defaults, mat.name, mat.color)
+
+"""
+    set_kerr_n2!(mat, n2) -> Material
+
+In-place version of [`with_kerr_n2`](@ref) (the `models` Dict is mutated).
+"""
+set_kerr_n2!(mat::Material, n2) = (mat.models[:n₂] = n2; mat)
 
 """
 ################################################################################

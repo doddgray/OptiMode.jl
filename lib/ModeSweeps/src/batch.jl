@@ -113,10 +113,14 @@ scalar/vector values which is expanded with `param_grid`).
 `setup_file` is a Julia script defining the problem for one parameter set. It is copied
 into the batch directory and `include`d by each worker, and must define
 
-    make_problem(p::NamedTuple) -> (; ε⁻¹, ∂ε_∂ω, grid [, ∂²ε_∂ω²])
+    make_problem(p::NamedTuple) -> (; ε⁻¹, ∂ε_∂ω, grid [, ∂²ε_∂ω², n₂])
 
 mapping a parameter set to the smoothed inverse dielectric tensor, its frequency
-derivative(s) and the spatial grid. By convention `p.ω` is the optical frequency. The
+derivative(s) and the spatial grid. By convention `p.ω` is the optical frequency.
+If the problem additionally supplies a Kerr-coefficient map `n₂` (μm²/W, e.g. from
+`DielectricSmoothing.smooth_scalar`) and the parameter set an optical power `p.P`
+(W), each task performs a first-order power-corrected solve (`solve_k_kerr`) —
+making power sweeps just another batch parameter (`param_grid(ω=…, P=…)`). The
 script must contain the `using` statements it needs (the worker runs it inside a fresh
 module with the OptiMode component packages already loaded).
 

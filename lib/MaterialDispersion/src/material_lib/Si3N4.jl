@@ -50,6 +50,10 @@ function make_Si₃N₄(;p_n²=p_n²_Si₃N₄)
 		:ng		=>	ng,
 		:gvd	=>	gvd,
 		:ε 		=> 	diagm([n², n², n²]),
+		# Kerr (intensity-dependent index) coefficient n₂ ≈ 2.4×10⁻¹⁹ m²/W = 2.4×10⁻⁷ μm²/W
+		# for stoichiometric LPCVD Si₃N₄ near 1.55 μm; see Ikeda et al., Opt. Express 16,
+		# 12987 (2008) and Krückel et al., Opt. Express 25, 15370 (2017).
+		:n₂		=>	2.4e-7,			# μm²/W
 	])
 	defaults =	Dict([
 		:ω		=>		inv(0.8),	# μm⁻¹

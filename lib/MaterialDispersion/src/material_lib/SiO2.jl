@@ -52,6 +52,9 @@ function make_SiO₂(;p_n²=p_n²_SiO₂)
 		:ng		=>	ng,
 		:gvd	=>	gvd,
 		:ε 		=> 	diagm([n², n², n²]),
+		# Kerr (intensity-dependent index) coefficient n₂ ≈ 2.6×10⁻²⁰ m²/W = 2.6×10⁻⁸ μm²/W
+		# for fused silica near 1.55 μm; see G. P. Agrawal, "Nonlinear Fiber Optics".
+		:n₂		=>	2.6e-8,			# μm²/W
 	])
 	defaults =	Dict([
 		:ω		=>		inv(0.8),	# μm⁻¹

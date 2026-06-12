@@ -12,7 +12,9 @@ Collect the results of a deployed batch into a flat summary table: a
 with one row per task × band, containing the swept parameters, `task`, `band`,
 `status`, and the summary quantities `kmag`, `neff` (effective index), `ng` (group
 index), `gvd`, `Aeff` (effective area) and the polarization fractions
-`pol_x`/`pol_y`/`pol_z` (+ dominant `pol_axis`).
+`pol_x`/`pol_y`/`pol_z` (+ dominant `pol_axis`), plus the Kerr columns `dneff_kerr`
+(power-dependent effective-index shift) and `dn_max` (peak index perturbation) for
+power-corrected solves (zero for linear solves).
 
 - `partial=true`: gather whatever is finished so far (works while the batch is still
   running); rows for unfinished tasks are omitted and failed tasks get a row per band
@@ -49,6 +51,8 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
                     gvd=Float64(bd.gvd), Aeff=Float64(bd.Aeff),
                     pol_x=Float64(bd.pol_x), pol_y=Float64(bd.pol_y), pol_z=Float64(bd.pol_z),
                     pol_axis=Int(bd.pol_axis),
+                    dneff_kerr=haskey(bd, :dneff_kerr) ? Float64(bd.dneff_kerr) : 0.0,
+                    dn_max=haskey(bd, :dn_max) ? Float64(bd.dn_max) : 0.0,
                 )))
             end
         elseif isfile(base * ".failed")
@@ -57,6 +61,7 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
                     band=b, status="failed",
                     kmag=NaN, neff=NaN, ng=NaN, gvd=NaN, Aeff=NaN,
                     pol_x=NaN, pol_y=NaN, pol_z=NaN, pol_axis=0,
+                    dneff_kerr=NaN, dn_max=NaN,
                 )))
             end
         end

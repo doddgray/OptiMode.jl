@@ -10,6 +10,8 @@ for the OptiMode differentiable photonics tool suite.
   material dispersion derivatives through the smoothing.
 - `smooth_ε(shapes, mat_vals, minds, grid)` maps a GeometryPrimitives.jl shape list +
   per-material `(ε, ∂ωε, ∂²ωε)` data to smoothed tensor fields on the grid.
+- `smooth_scalar(shapes, vals, minds, grid)` maps per-material scalars (e.g. Kerr
+  `n₂` coefficients) to a volume-fraction-averaged scalar field on the same grid.
 
 ## AD interfaces
 

@@ -11,7 +11,7 @@ and tabular result I/O.
 using ModeSweeps
 
 # 1. problem definition: a script defining `make_problem(p::NamedTuple)`
-#    -> (; ε⁻¹, ∂ε_∂ω, grid [, ∂²ε_∂ω²]); by convention p.ω is the frequency.
+#    -> (; ε⁻¹, ∂ε_∂ω, grid [, ∂²ε_∂ω², n₂]); by convention p.ω is the frequency.
 #    It is copied into the batch directory and include'd by every worker.
 
 # 2. deploy: a parallelized frequency sweep combined with geometry/material sweeps
@@ -41,8 +41,15 @@ fd = load_fields(batch, 7)                      # (; ω, kmags, evecs, Es, …)
 
 Each summary row holds the swept parameters plus, per band: wavenumber `kmag`,
 effective index `neff`, group index `ng`, group velocity dispersion `gvd`, effective
-area `Aeff`, and polarization fractions `pol_x`/`pol_y`/`pol_z` with the dominant
-`pol_axis`. Rows are Tables.jl-compatible (`DataFrame(rows)` just works).
+area `Aeff`, polarization fractions `pol_x`/`pol_y`/`pol_z` with the dominant
+`pol_axis`, and the Kerr columns `dneff_kerr`/`dn_max` (zero for linear solves). Rows
+are Tables.jl-compatible (`DataFrame(rows)` just works).
+
+**Kerr power sweeps**: if `make_problem` returns an `n₂` map (μm²/W, e.g. from
+`DielectricSmoothing.smooth_scalar` + `MaterialDispersion.kerr_n2`), any parameter set
+containing an optical power `P` (W) is solved with the first-order power correction
+(`ModeAnalysis.solve_k_kerr`), so power sweeps deploy exactly like any other parameter
+sweep — see `examples/kerr_power_sweep_setup.jl` at the repository root.
 
 ## Execution backends
 

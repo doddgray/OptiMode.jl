@@ -449,7 +449,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny, Nz) where
 	eīf = zeros(T,3,3,Nx,Ny,Nz)
 	# @avx for iz=1:Nz,iy=1:Ny,ix=1:Nx
 	for iz=1:Nz,iy=1:Ny,ix=1:Nx
-		q = (Nz * (iz-1) + Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		# column-major linear voxel index of (:,ix,iy,iz) in the vec'd (3,Nx,Ny,Nz) field data
+		q = (Nx * Ny * (iz-1) + Nx * (iy-1) + ix)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy,iz] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
 		end
@@ -475,7 +476,8 @@ function ε⁻¹_bar(d⃗::AbstractVector{Complex{T}}, λ⃗d, Nx, Ny) where T<:
 	# eīf = bufferfrom(zero(eltype(real(d⃗)),3,3,Nx,Ny))
 	# @avx for iy=1:Ny,ix=1:Nx
 	for iy=1:Ny,ix=1:Nx
-		q = (Ny * (iy-1) + ix) # (Ny * (iy-1) + i)
+		# column-major linear pixel index of (:,ix,iy) in the vec'd (3,Nx,Ny) field data
+		q = (Nx * (iy-1) + ix)
 		for a=1:3 # loop over diagonal elements: {11, 22, 33}
 			eīf[a,a,ix,iy] = real( -λ⃗d[3*q-2+a-1] * conj(d⃗[3*q-2+a-1]) )
 		end

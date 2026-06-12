@@ -9,6 +9,11 @@ tool suite.
   dispersion (plus the real-space E-field) from a single mode solution.
 - Mode classification and filtering: `E_relpower_xyz`, `count_E_nodes`, `mode_viable`,
   `mode_idx`, effective area `𝓐`.
+- First-order Kerr (intensity-dependent index) mode corrections: `solve_k_kerr(ω, P,
+  ε⁻¹, ∂ε_∂ω, n₂, grid, solver)` re-solves each mode with the dielectric perturbation
+  `Δε = 2n₀·n₂(x,y)·I(x,y)` induced by its own intensity profile at optical power `P`
+  (W, all assumed in that mode); building blocks `poynting_z`, `mode_intensity` and
+  `kerr_dielectric_perturbation` are exported separately.
 
 ## AD interfaces
 

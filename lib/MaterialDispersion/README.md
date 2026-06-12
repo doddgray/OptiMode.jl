@@ -11,6 +11,10 @@ tool suite.
   Jacobians/Hessians w.r.t. the parameters.
 - Material rotation (`rotate`), Miller's-delta χ⁽²⁾ scaling (`Δₘ`), and group
   index/GVD models (`ng_model`, `gvd_model`, `nn̂g_model`, `nĝvd_model`).
+- Kerr (intensity-dependent index) coefficients `n₂` in μm²/W — constant or symbolic
+  in wavelength — via `kerr_n2(mat, λ)` / `with_kerr_n2` / `set_kerr_n2!`; standard
+  library values for Si₃N₄ (`2.4e-7`) and SiO₂ (`2.6e-8`), and `n₂ = 0` for materials
+  without a specified model.
 
 ## AD interfaces
 

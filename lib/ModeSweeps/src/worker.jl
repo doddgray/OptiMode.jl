@@ -69,7 +69,19 @@ function _solve_and_summarize(p::NamedTuple, prob::NamedTuple, solver, nev::Int,
     ∂²ε_∂ω² = hasproperty(prob, :∂²ε_∂ω²) ? prob.∂²ε_∂ω² : nothing
     ε = sliceinv_3x3(ε⁻¹)
 
-    kmags, evecs = solve_k(ω, copy(ε⁻¹), grid, solver; nev, solver_kwargs...)
+    # Optional first-order Kerr correction: active when the problem supplies an n₂ map
+    # (μm²/W; see DielectricSmoothing.smooth_scalar) and the parameter set an optical
+    # power `P` (W). Each band is corrected assuming the full power in that mode.
+    P = haskey(p, :P) ? Float64(p.P) : 0.0
+    local kmags, evecs, kmags_lin, dn_max
+    if P > 0 && hasproperty(prob, :n₂)
+        res = solve_k_kerr(ω, P, ε⁻¹, ∂ε_∂ω, prob.n₂, grid, solver; nev, solver_kwargs...)
+        kmags, evecs = res.kmags, res.evecs
+        kmags_lin, dn_max = res.kmags_lin, res.dn_max
+    else
+        kmags, evecs = solve_k(ω, copy(ε⁻¹), grid, solver; nev, solver_kwargs...)
+        kmags_lin, dn_max = kmags, zeros(length(kmags))
+    end
 
     bands = Vector{Dict{String,Any}}(undef, length(kmags))
     Es = save_fields ? Vector{Array{ComplexF64}}(undef, length(kmags)) : nothing
@@ -97,6 +109,8 @@ function _solve_and_summarize(p::NamedTuple, prob::NamedTuple, solver, nev::Int,
             "pol_y" => relpwr[2],
             "pol_z" => relpwr[3],
             "pol_axis" => argmax(relpwr),
+            "dneff_kerr" => (kmag - kmags_lin[b]) / ω,
+            "dn_max" => dn_max[b],
         )
         save_fields && (Es[b] = E)
     end

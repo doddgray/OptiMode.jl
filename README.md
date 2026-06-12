@@ -14,10 +14,10 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 
 | Package | Purpose |
 |---|---|
-| [`MaterialDispersion`](lib/MaterialDispersion) | Symbolic dielectric material dispersion models (Sellmeier, thermo-optic, χ⁽²⁾), a material library (LiNbO₃, Si₃N₄, SiO₂, Si, Ge, …), and fast generated functions for ε(ω,T) and its frequency derivatives. |
+| [`MaterialDispersion`](lib/MaterialDispersion) | Symbolic dielectric material dispersion models (Sellmeier, thermo-optic, χ⁽²⁾, Kerr `n₂`), a material library (LiNbO₃, Si₃N₄, SiO₂, Si, Ge, …), and fast generated functions for ε(ω,T) and its frequency derivatives. |
 | [`DielectricSmoothing`](lib/DielectricSmoothing) | Finite-difference spatial `Grid` types and sub-pixel ("Kottke") smoothing of dielectric tensors across material interfaces, mapping geometry + material data to smoothed ε/∂ωε/∂²ωε arrays. |
 | [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`, Python `meep.mpb` via PythonCall.jl) and a CUDA-GPU-capable, Float32/Float64 backend (`GPUSolver`) with a device-resident adjoint. |
-| [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, and mode classification/filtering. |
+| [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, mode classification/filtering, and first-order Kerr (intensity-dependent index) mode corrections (`solve_k_kerr`). |
 | [`ModeSweeps`](lib/ModeSweeps) | Batched/asynchronous deployment of mode simulations as SLURM array jobs (or local processes): parameter grids & frequency sweeps, persistent batch state, live status, partial gathering, summary-vs-full-field transfer, and tabular (CSV/TSV/JSON) result I/O. |
 
 The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis` (← `ModeSweeps`).
@@ -123,6 +123,39 @@ rows = load_summary(".../summary.csv")   # reload anytime for analysis
 Batch state is persisted at deployment, so status/gathering also work from new Julia
 sessions; workers optionally store full mode-field data (HDF5) instead of only the
 summary table. See [`lib/ModeSweeps`](lib/ModeSweeps) for details.
+
+### Kerr nonlinearity (power-dependent modes)
+
+Materials can carry an intensity-dependent refractive-index coefficient `n₂`
+(μm²/W) — a constant or a symbolic function of wavelength — under the `:n₂` model key.
+The library ships standard values for Si₃N₄ (`2.4e-7`) and SiO₂ (`2.6e-8`); materials
+without an `:n₂` model are linear (`kerr_n2(mat) == 0`):
+
+```julia
+kerr_n2(Si₃N₄)                       # 2.4e-7 μm²/W at the default λ = 1.55 μm
+m = with_kerr_n2(SiO₂, 2.0e-8 + 1.0e-8*λ^2)   # custom / wavelength-dependent model
+```
+
+`solve_k_kerr` applies a first-order power correction to each mode: the modal
+intensity profile `I(x,y)` (z-Poynting flux, normalized so ∫I dA equals a specified
+optical power `P` in W, assumed to reside entirely in that mode — no cross coupling)
+induces `Δn = n₂(x,y)·I(x,y)`, and the mode is re-solved with the perturbed dielectric
+tensor. The per-material `n₂` values are mapped onto the grid with the same sub-pixel
+volume-fraction smoothing as the dielectric data:
+
+```julia
+n2_map = smooth_scalar(shapes, kerr_n2.(mats, λ), minds, grid)   # n₂(x,y) [μm²/W]
+res = solve_k_kerr(ω, P, ε⁻¹, ∂ε_∂ω, n2_map, grid, KrylovKitEigsolve(); nev=1)
+Δneff = (res.kmags[1] - res.kmags_lin[1]) / ω    # power-dependent index shift
+```
+
+For a 1.60×0.80 μm Si₃N₄ waveguide in SiO₂ at 1.55 μm this reproduces the textbook
+self-phase-modulation estimate `Δneff ≈ n₂P/Aeff` to a few percent (γ ≈ 0.95 W⁻¹m⁻¹);
+see [`examples/kerr_si3n4_waveguide.jl`](examples/kerr_si3n4_waveguide.jl). Power
+sweeps deploy as `ModeSweeps` batches like any other parameter: if `make_problem`
+returns an `n₂` map, parameter sets containing a power `P` are solved with the Kerr
+correction and the gathered rows include `dneff_kerr` and `dn_max` columns
+([`examples/kerr_power_sweep_setup.jl`](examples/kerr_power_sweep_setup.jl)).
 
 ### GPU backend
 

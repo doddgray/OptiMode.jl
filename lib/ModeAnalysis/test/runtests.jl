@@ -117,6 +117,83 @@ end
         @test dot(g_ei, dir_ei) + dot(g_de, dir_de) ≈ d_FD rtol = 1e-4
     end
 
+    @testset "Kerr power-dependent mode correction" begin
+        # Si₃N₄-like rectangular waveguide (1.6 × 0.8 μm core) in SiO₂-like cladding at
+        # λ = 1.55 μm, with the standard Kerr coefficients n₂(Si₃N₄) = 2.4e-7 μm²/W and
+        # n₂(SiO₂) = 2.6e-8 μm²/W.
+        gK = Grid(4.0, 3.0, 32, 24)
+        ωK = 1 / 1.55
+        n_core, n_clad = 1.996, 1.444
+        n2_core, n2_clad = 2.4e-7, 2.6e-8
+        w, h = 1.6, 0.8
+        NxK, NyK = size(gK)
+        epsK = zeros(3, 3, NxK, NyK)
+        depsK = zeros(3, 3, NxK, NyK)
+        n2map = zeros(NxK, NyK)
+        # realistic material dispersion ∂ε/∂ω = 2n·(ng-n)/ω with ng(Si₃N₄)≈2.07, ng(SiO₂)≈1.46
+        dε_core = 2 * n_core * (2.07 - n_core) * 1.55
+        dε_clad = 2 * n_clad * (1.462 - n_clad) * 1.55
+        for (iy, yy) in enumerate(y(gK)), (ix, xx) in enumerate(x(gK))
+            inside = (abs(xx) <= w / 2) && (abs(yy) <= h / 2)
+            for a in 1:3
+                epsK[a, a, ix, iy] = (inside ? n_core : n_clad)^2
+                depsK[a, a, ix, iy] = inside ? dε_core : dε_clad
+            end
+            n2map[ix, iy] = inside ? n2_core : n2_clad
+        end
+        epsiK = sliceinv_3x3(epsK)
+
+        # P = 0 reproduces the linear solve exactly
+        res0 = solve_k_kerr(ωK, 0.0, epsiK, depsK, n2map, gK, solver; nev=1, k_tol=1e-10)
+        @test res0.kmags == res0.kmags_lin
+        @test res0.evecs[1] == res0.evecs_lin[1]
+        @test res0.dn_max == [0.0]
+        k_lin, ev_lin = res0.kmags_lin[1], res0.evecs_lin[1]
+        @test k_lin / ωK > n_clad   # guided
+
+        # modal intensity is normalized to carry the full power: ∫ I dA = P
+        P = 5.0
+        I = mode_intensity(k_lin, ev_lin, epsiK, gK, P)
+        @test sum(I) * δV(gK) ≈ P rtol = 1e-12
+        @test maximum(I) * δV(gK) < P / 10   # power spread over many pixels, none dominant
+
+        # the Kerr perturbation is diagonal, nonnegative, and Δε = 2 n₀ Δn
+        Δε, Δn = kerr_dielectric_perturbation(I, n2map, epsK)
+        @test minimum(Δn) >= -1e-6 * maximum(Δn)   # ≥ 0 up to spectral ringing
+        @test maximum(Δn) ≈ n2_core * maximum(I) rtol = 1e-12
+        @test Δε[1, 1, 16, 12] ≈ 2 * n_core * Δn[16, 12] rtol = 1e-12
+        @test iszero(Δε[1, 2, :, :])
+
+        # power-corrected solves: Δneff > 0 and ∝ P to first order
+        res1 = solve_k_kerr(ωK, P, epsiK, depsK, n2map, gK, solver; nev=1, k_tol=1e-12, eig_tol=1e-12)
+        res2 = solve_k_kerr(ωK, 2P, epsiK, depsK, n2map, gK, solver; nev=1, k_tol=1e-12, eig_tol=1e-12)
+        Δneff1 = (res1.kmags[1] - res1.kmags_lin[1]) / ωK
+        Δneff2 = (res2.kmags[1] - res2.kmags_lin[1]) / ωK
+        @test Δneff1 > 0
+        @test res1.dn_max[1] > 0
+        @test Δneff2 ≈ 2 * Δneff1 rtol = 5e-2
+        @test res2.dn_max[1] ≈ 2 * res1.dn_max[1] rtol = 1e-9
+
+        # magnitude agrees with the textbook SPM estimate Δneff ≈ n₂(core)·P/Aeff with
+        # the standard nonlinear effective area Aeff = (∫I dA)² / ∫I² dA
+        AeffK = P^2 / (sum(abs2, I) * δV(gK))
+        @test 0.3 < AeffK < 3.0   # μm²-scale mode
+        @test 0.2 < Δneff1 / (n2_core * P / AeffK) < 1.5
+
+        # adjoint consistency: the Kerr Δk matches ⟨∂k/∂ε⁻¹, Δ(ε⁻¹)⟩ from the
+        # solve_k adjoint rule (the perturbation is small enough to be linear)
+        P10 = 10.0
+        I10 = mode_intensity(k_lin, ev_lin, epsiK, gK, P10)
+        Δε10, _ = kerr_dielectric_perturbation(I10, n2map, epsK)
+        epsi_NL = sliceinv_3x3(epsK .+ Δε10)
+        kref = solve_k(ωK, copy(epsiK), gK, solver; nev=1, k_tol=1e-12, eig_tol=1e-12)[1][1]
+        k_NL = solve_k(ωK, copy(epsi_NL), gK, solver; nev=1, k_tol=1e-12, eig_tol=1e-12)[1][1]
+        g_ei = Zygote.gradient(
+            ei -> solve_k(ωK, ei, gK, solver; nev=1, k_tol=1e-12, eig_tol=1e-12)[1][1],
+            copy(epsiK))[1]
+        @test dot(g_ei, epsi_NL .- epsiK) ≈ k_NL - kref rtol = 5e-2
+    end
+
     @testset "mode classification" begin
         E0 = E⃗(k0, copy(ev0), epsi0, deps0, grid; canonicalize=true, normalized=false)
         @test size(E0) == (3, size(grid)...)

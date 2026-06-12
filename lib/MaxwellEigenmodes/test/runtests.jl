@@ -39,7 +39,7 @@ function gaussian_wg_epsi(p, grid::Grid{2})
     return epsi
 end
 
-const grid = Grid(6.0, 4.0, 16, 16)
+const grid = Grid(6.0, 4.0, 24, 16)   # non-square Nx≠Ny: catches x/y index mix-ups in adjoints
 const p_wg = [4.2, 2.1, 1.0, 0.6]
 const epsi0 = gaussian_wg_epsi(p_wg, grid)
 const ω0 = 1 / 1.55
@@ -49,10 +49,10 @@ const solver = KrylovKitEigsolve()
     @testset "HelmholtzMap operator" begin
         k0 = k_guess(ω0, epsi0)
         M̂ = HelmholtzMap(k0, copy(epsi0), grid)
-        @test size(M̂) == (2 * 16 * 16, 2 * 16 * 16)
+        @test size(M̂) == (2 * N(grid), 2 * N(grid))
         @test ishermitian(M̂)
-        v = randn(ComplexF64, 2 * 16 * 16)
-        w = randn(ComplexF64, 2 * 16 * 16)
+        v = randn(ComplexF64, 2 * N(grid))
+        w = randn(ComplexF64, 2 * N(grid))
         # Hermiticity check on random vectors
         @test isapprox(dot(w, M̂ * v), conj(dot(v, M̂ * w)); rtol=1e-9)
         # out-of-place HMH agrees with mutating operator quadratic form

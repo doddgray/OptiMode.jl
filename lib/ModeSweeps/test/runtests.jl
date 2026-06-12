@@ -32,9 +32,35 @@ function make_problem(p)
 end
 """
 
+# Setup for the Kerr power-sweep batch: rectangular Si₃N₄-like core in SiO₂-like
+# cladding with the standard Kerr coefficients as an n₂ map; returning `n₂` from
+# `make_problem` makes any parameter set with an optical power `P` (W) trigger a
+# power-corrected solve in the worker.
+const KERR_SETUP_SRC = """
+function make_problem(p)
+    grid = Grid(4.0, 3.0, 24, 18)
+    Nx, Ny = size(grid)
+    eps = zeros(3, 3, Nx, Ny)
+    n2map = zeros(Nx, Ny)
+    deps = zeros(3, 3, Nx, Ny)
+    for (iy, yy) in enumerate(y(grid)), (ix, xx) in enumerate(x(grid))
+        inside = (abs(xx) <= 0.8) && (abs(yy) <= 0.4)
+        n = inside ? 1.996 : 1.444
+        for a in 1:3
+            eps[a, a, ix, iy] = n^2
+            deps[a, a, ix, iy] = inside ? 0.46 : 0.08    # realistic ∂ε/∂ω
+        end
+        n2map[ix, iy] = inside ? 2.4e-7 : 2.6e-8
+    end
+    return (; ε⁻¹=sliceinv_3x3(eps), ∂ε_∂ω=deps, ∂²ε_∂ω²=zeros(size(eps)), grid, n₂=n2map)
+end
+"""
+
 const TESTDIR = mktempdir()
 const SETUP_FILE = joinpath(TESTDIR, "test_setup.jl")
 write(SETUP_FILE, SETUP_SRC)
+const KERR_SETUP_FILE = joinpath(TESTDIR, "kerr_setup.jl")
+write(KERR_SETUP_FILE, KERR_SETUP_SRC)
 
 "poll a batch until it completes (or times out); returns the final status"
 function wait_for_batch(batch; timeout=600, poll=5)
@@ -182,6 +208,31 @@ end
         @test isnan(bad.neff) && bad.task == 2
         # strict gathering refuses an incomplete/failed batch
         @test_throws ErrorException gather_batch(batch; partial=false)
+    end
+
+    @testset "Kerr power-sweep batch" begin
+        dir = joinpath(TESTDIR, "kerr")
+        batch = deploy_batch(KERR_SETUP_FILE, param_grid(ω=1 / 1.55, P=[0.0, 5.0, 10.0]);
+            name="kerrtest", dir, nev=1, backend=:local,
+            solver="KrylovKitEigsolve()", solver_kwargs=(; k_tol=1e-10, eig_tol=1e-10))
+        st = wait_for_batch(batch)
+        @test st.done == 3 && st.failed == 0
+
+        rows = sort(gather_batch(batch); by=r -> r.P)
+        @test length(rows) == 3
+        @test all(r -> hasproperty(r, :dneff_kerr) && hasproperty(r, :dn_max), rows)
+        # P = 0: linear solve, no Kerr shift
+        @test rows[1].P == 0.0 && rows[1].dneff_kerr == 0.0 && rows[1].dn_max == 0.0
+        # P > 0: positive shift, ∝ P to first order
+        @test rows[2].dneff_kerr > 0 && rows[3].dneff_kerr > 0
+        @test rows[3].dneff_kerr ≈ 2 * rows[2].dneff_kerr rtol = 5e-2
+        @test rows[3].dn_max > rows[2].dn_max > 0
+        # reported neff is the power-corrected one: neff(P) - neff(0) == dneff_kerr
+        @test rows[2].neff - rows[1].neff ≈ rows[2].dneff_kerr rtol = 1e-2
+        # Kerr columns survive the tabular round trip
+        re = load_summary(joinpath(dir, "summary.csv"))
+        @test hasproperty(first(re), :dneff_kerr) && hasproperty(first(re), :dn_max)
+        @test sort([r.dneff_kerr for r in re]) ≈ sort([r.dneff_kerr for r in rows])
     end
 
     @testset "frequency_sweep sugar" begin

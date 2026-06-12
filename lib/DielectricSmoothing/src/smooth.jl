@@ -1,4 +1,4 @@
-export corner_sinds, proc_sinds, smooth_ε, smooth_ε_single, vec3D 
+export corner_sinds, proc_sinds, smooth_ε, smooth_ε_single, smooth_scalar, smooth_scalar_single, vec3D 
 
 """
     corner_sinds(shapes, points)
@@ -95,3 +95,38 @@ end
 vec3D(v::SVector{3}) = v
 vec3D(v::SVector{2}) = SVector(v[1],v[2],zero(v[1]))
 vec3D(v::SVector{1}) = SVector(v[1],zero(v[1]),zero(v[1]))
+
+
+"""
+    smooth_scalar_single(shapes, vals, minds, crnrs)
+
+Volume-fraction-weighted value of a scalar material property (e.g. the Kerr
+coefficient `n₂`) for one pixel/voxel with corners `crnrs`. Pixels inside a single
+material take that material's value; interface pixels mix the two values linearly by
+fill fraction (first-order accurate, appropriate for perturbative properties).
+"""
+function smooth_scalar_single(shapes, vals, minds, crnrs::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
+    ps = proc_sinds(corner_sinds(shapes, crnrs))
+    if iszero(ps[2])
+        return Float64(vals[minds[first(ps)]])
+    elseif iszero(ps[3])
+        xyz = sum(crnrs) / NC
+        r₀_n⃗ = surfpt_nearby(xyz, shapes[ps[1]])
+        rvol = volfrac((vxlmin(crnrs), vxlmax(crnrs)), last(r₀_n⃗), first(r₀_n⃗))
+        return rvol * Float64(vals[minds[ps[1]]]) + (1 - rvol) * Float64(vals[minds[ps[2]]])
+    else
+        return sum(i -> Float64(vals[minds[i]]), ps) / NC
+    end
+end
+
+"""
+    smooth_scalar(shapes, vals, minds, grid) -> Array{Float64}
+
+Map a per-material scalar property (`vals`, indexed like the material columns used by
+[`smooth_ε`](@ref), with `minds` assigning shapes → materials and the final entry the
+background) onto the spatial grid with linear volume-fraction mixing at interfaces.
+Used e.g. to build the Kerr-coefficient map `n₂(x,y)` for power-dependent mode solves.
+"""
+function smooth_scalar(shapes, vals::AbstractVector{<:Real}, minds, grid::Grid{ND,TG}) where {ND,TG<:Real}
+    return reshape(map(crnrs -> smooth_scalar_single(shapes, vals, minds, crnrs), corners(grid)), size(grid))
+end
