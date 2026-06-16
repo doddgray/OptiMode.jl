@@ -132,6 +132,28 @@ sm  = smooth_ε(shapes, mat_vals, (1,2), grid)   # (3,3,3,Nx,Ny): ε, ∂ωε, �
 n2map = smooth_scalar(shapes, [kerr_n2(m, 1.55) for m in mats], (1,2), grid)
 ```
 
+### Differentiating w.r.t. geometry
+
+Because the smoothed tensors are continuous, differentiable functions of where each
+boundary sits, `smooth_ε` is differentiable w.r.t. *geometry* parameters — not just
+material data — when shapes carry an AD-compatible element type (GeometryPrimitives
+≥ 0.6). Forward mode propagates through the full pipeline:
+
+```julia
+using ForwardDiff
+import DifferentiationInterface as DI
+
+geometry(p) = (w, h = p; (MaterialShape(Cuboid([0.,0.], [w,h], [1. 0.; 0. 1.]), 1),))
+loss(p) = sum(abs2, smooth_ε(geometry(p), mat_vals, (1,2), grid))
+g = DI.gradient(loss, AutoForwardDiff(), [1.6, 0.8])   # ∂loss/∂(w,h)
+```
+
+The sensitivity arises in the boundary pixels: as `p` moves a boundary, the surface
+point/normal (`surfpt_nearby`) and fill fraction (`volfrac`) of each interface pixel
+change, and with them the Kottke-smoothed tensor. See
+[Automatic differentiation § Geometry-parameter gradients](automatic_differentiation.md#geometry-parameter-gradients)
+for reverse-mode (Mooncake) and backend support.
+
 ## Key API
 
 | function | purpose |

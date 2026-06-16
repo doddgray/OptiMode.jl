@@ -111,9 +111,18 @@ Known limitations:
 - Whole-pipeline reverse mode through `smooth_ε`'s 768-voxel `mapreduce` is supported
   via Zygote; Mooncake/Enzyme cover the per-voxel Kottke kernels (compiling their
   reverse rules for the full pipeline takes impractically long).
-- Geometry-*parameter* gradients are finite-difference only for now:
-  GeometryPrimitives ≥ 0.5 stores shape fields as hardcoded `Float64`, so AD number
-  types cannot flow through shape construction.
+- Geometry-*parameter* gradients (widths, thicknesses, sidewall angles, positions) are
+  supported via the [`claude/geometry-gradient-ad-no6zct`](https://github.com/doddgray/GeometryPrimitives.jl/tree/claude/geometry-gradient-ad-no6zct)
+  branch of `doddgray/GeometryPrimitives.jl` (parametric shape eltype, AD-compatible
+  `surfpt_nearby`/`volfrac`): forward mode (ForwardDiff) through the full
+  geometry→smoothing pipeline, and reverse mode (Mooncake) at the per-interface-pixel
+  Kottke kernel. (Enzyme segfaults on the StaticArrays inverse in Cuboid
+  `surfpt_nearby`; Zygote hits a non-`SVector` normal in `volfrac`.)
+- Sensitivities of the mode quantities (effective index, group index, GVD, mode fields)
+  w.r.t. geometry are obtained by composing forward-mode geometry→dielectric Jacobians
+  with the reverse-mode (adjoint) eigensolve — the standard inverse-design pattern —
+  verified against finite differences in the umbrella `geometry-parameter sensitivities`
+  testset (`test/runtests.jl`).
 
 ```bash
 # run tests for a component package

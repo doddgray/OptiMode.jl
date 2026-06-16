@@ -178,12 +178,44 @@ end
         @test DI.gradient(loss_mv, AutoForwardDiff(), mat_vals0) ≈ g_ref rtol = 1e-5
         @test DI.gradient(loss_mv, AutoZygote(), mat_vals0) ≈ g_ref rtol = 1e-5
 
-        # Geometry-parameter sensitivities: GeometryPrimitives ≥ 0.5 stores shape fields
-        # as hardcoded Float64, so AD number types cannot flow through shape
-        # construction; check the finite-difference sensitivity is well-defined instead.
+        # Geometry-parameter sensitivities: with GeometryPrimitives ≥ 0.6 the shape
+        # element type is parametric and the geometric queries (`surfpt_nearby`,
+        # `volfrac`) are AD-compatible, so AD number types flow through shape
+        # construction. Forward mode (ForwardDiff) propagates through the full
+        # geometry→smoothing pipeline; verify it against finite differences.
         loss_p = p -> sum(abs2, smooth_ε(ridge_wg(p), mat_vals0, minds0, grid))
-        gp_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_p, p_geom0)[1]
+        gp_ref = FiniteDifferences.grad(central_fdm(5, 1), loss_p, p_geom0)[1]
         @test any(!iszero, gp_ref)
         @test all(isfinite, gp_ref)
+        @test DI.gradient(loss_p, AutoForwardDiff(), p_geom0) ≈ gp_ref rtol = 1e-4
+    end
+
+    @testset "geometry-parameter gradients (Kottke kernel)" begin
+        # Geometry parameters enter the smoothing through the interface queries
+        # `surfpt_nearby` (surface point + normal) and `volfrac` (fill fraction) feeding
+        # the Kottke kernel. At one interface pixel — held fixed in space while the shape
+        # boundary sweeps across it — these compose into a clean, union-free function that
+        # reverse-mode Mooncake handles (in addition to forward-mode ForwardDiff). The
+        # full-pipeline `mapreduce` over a union of pixel branches is forward-mode /
+        # finite-difference only for the reverse backends, as for material data.
+        ε1 = SMatrix{3,3}(reshape(mat_vals0[1:9, 1], 3, 3))   # Si₃N₄ tensor
+        ε2 = SMatrix{3,3}(reshape(mat_vals0[1:9, 2], 3, 3))   # SiO₂ tensor
+        xyz = SVector(0.8, 0.0)                               # fixed pixel center
+        vmin = SVector(0.75, -0.05)
+        vmax = SVector(0.85, 0.05)
+        # (w, h, cx): the core's right edge cx + w/2 sweeps the fixed pixel
+        function kernel_geom(p)
+            w, h, cx = p
+            core = GeometryPrimitives.Cuboid(SVector(cx, 0.0), SVector(w, h),
+                SMatrix{2,2}(1.0, 0.0, 0.0, 1.0))
+            r = GeometryPrimitives.surfpt_nearby(xyz, core)
+            rvol = GeometryPrimitives.volfrac((vmin, vmax), last(r), first(r))
+            return sum(abs2, avg_param(ε1, ε2, normcart(DielectricSmoothing.vec3D(last(r))), rvol))
+        end
+        pk0 = [1.6, 0.8, 0.0]
+        gk_ref = FiniteDifferences.grad(central_fdm(5, 1), kernel_geom, pk0)[1]
+        @test any(!iszero, gk_ref)                            # nonzero edge sensitivity
+        @test DI.gradient(kernel_geom, AutoForwardDiff(), pk0) ≈ gk_ref rtol = 1e-4
+        @test DI.gradient(kernel_geom, AutoMooncake(; config=nothing), pk0) ≈ gk_ref rtol = 1e-4
     end
 end

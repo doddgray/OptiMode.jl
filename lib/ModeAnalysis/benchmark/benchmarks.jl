@@ -7,7 +7,9 @@
 
 using BenchmarkTools
 using LinearAlgebra
+using MaterialDispersion
 using DielectricSmoothing
+using DielectricSmoothing.GeometryPrimitives: Cuboid
 using MaxwellEigenmodes
 using ModeAnalysis
 using ModeAnalysis: Zygote
@@ -15,6 +17,7 @@ using DifferentiationInterface
 import DifferentiationInterface as DI
 using Enzyme
 using Mooncake
+using ForwardDiff
 
 const SUITE = BenchmarkGroup()
 
@@ -50,6 +53,51 @@ SUITE["gradient"]["Zygote(reverse)"] = @benchmarkable Zygote.gradient($f_ω, $ω
 SUITE["gradient"]["Mooncake(reverse)"] = @benchmarkable DI.derivative($f_ω, AutoMooncake(; config=nothing), $ω0)
 SUITE["gradient"]["Enzyme(reverse)"] = @benchmarkable DI.derivative($f_ω, AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const), $ω0)
 
+# --- geometry-parameter sensitivities (forward geometry + reverse adjoint) ----------
+# Hybrid AD gradient of mode quantities w.r.t. waveguide geometry (a Si₃N₄ core (w,h) in
+# SiO₂): ForwardDiff Jacobian of the smoothed dielectric fields w.r.t. geometry composed
+# with the reverse-mode adjoint of the eigensolve/post-processing. Requires the GP AD
+# branch for Duals to flow through shape construction + Kottke smoothing.
+const _geom_grid = Grid(4.0, 3.0, 32, 24)
+const _geom_solver = KrylovKitEigsolve()
+let
+    fε, _ = _f_ε_mats([Si₃N₄, SiO₂], (:ω,))
+    global _geom_matvals = hcat(fε([ω0]), vcat(vec(Matrix(1.0I, 3, 3)), zeros(18)))
+end
+_geom_shapes(p) = (MaterialShape(Cuboid([0.0, 0.0], [p[1], p[2]], [1.0 0.0; 0.0 1.0]), 1),)
+function _geom_diel(p)
+    sm = smooth_ε(_geom_shapes(p), _geom_matvals, (1, 2), _geom_grid)
+    sliceinv_3x3(copy(selectdim(sm, 3, 1))), copy(selectdim(sm, 3, 2))
+end
+const _p_geom = [1.6, 0.8]
+const _ei_g, _de_g = _geom_diel(_p_geom)
+const _Npix_g = length(vec(_ei_g))
+_diel_flat(q) = (d = _geom_diel(q); vcat(vec(d[1]), vec(d[2])))
+# forward part: geometry Jacobian of the dielectric fields
+_fwd_geom_jac() = ForwardDiff.jacobian(_diel_flat, _p_geom)
+# reverse part: adjoint cotangents of n_eff / n_g w.r.t. the dielectric fields
+_neff_diel(ei) = solve_k(ω0, ei, _geom_grid, _geom_solver; nev=1, k_tol=1e-11)[1][1] / ω0
+function _ng_diel(ei, de)
+    k, ev = solve_k(ω0, ei, _geom_grid, _geom_solver; nev=1, k_tol=1e-11)
+    group_index(k[1], ev[1], ω0, ei, de, _geom_grid)
+end
+# full hybrid geometry gradients
+function _grad_neff_geom()
+    J = _fwd_geom_jac()
+    ḡei = Zygote.gradient(_neff_diel, copy(_ei_g))[1]
+    J[1:_Npix_g, :]' * vec(ḡei)
+end
+function _grad_ng_geom()
+    J = _fwd_geom_jac()
+    gei, gde = Zygote.gradient(_ng_diel, copy(_ei_g), copy(_de_g))
+    J[1:_Npix_g, :]' * vec(gei) .+ J[_Npix_g+1:2_Npix_g, :]' * vec(gde)
+end
+
+SUITE["primal"]["solve_k_32x24"] = @benchmarkable solve_k($ω0, copy($_ei_g), $_geom_grid, $_geom_solver; nev=1, k_tol=1e-11)
+SUITE["geometry-gradient"]["fwd_diel_jacobian"] = @benchmarkable _fwd_geom_jac()
+SUITE["geometry-gradient"]["neff(forward+reverse)"] = @benchmarkable _grad_neff_geom()
+SUITE["geometry-gradient"]["ng(forward+reverse)"] = @benchmarkable _grad_ng_geom()
+
 function run_and_report(suite)
     results = run(suite; verbose=false)
     t_primal = minimum(results["primal"]["group_index_64x64"]).time
@@ -59,6 +107,13 @@ function run_and_report(suite)
     for name in keys(results["gradient"])
         t = minimum(results["gradient"][name]).time
         println(rpad("gradient $name:", 28), "$(t/1e6) ms   ($(round(t/t_primal; digits=1))× primal)")
+    end
+    t_solve = minimum(results["primal"]["solve_k_32x24"]).time
+    println("\n=== geometry-parameter sensitivities (32×24 grid) ===")
+    println("primal solve_k:      $(t_solve/1e6) ms")
+    for name in ("fwd_diel_jacobian", "neff(forward+reverse)", "ng(forward+reverse)")
+        t = minimum(results["geometry-gradient"][name]).time
+        println(rpad("geom gradient $name:", 36), "$(t/1e6) ms   ($(round(t/t_solve; digits=1))× solve_k)")
     end
     return results
 end
