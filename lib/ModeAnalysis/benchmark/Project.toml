@@ -2,6 +2,10 @@
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 ModeAnalysis = "9a3c1c2f-0c6b-44f1-b8a4-8f3e2c7d9b54"
 DielectricSmoothing = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
@@ -10,4 +14,6 @@ MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
 [sources]
 ModeAnalysis = {path = ".."}
 DielectricSmoothing = {path = "../../DielectricSmoothing"}
+GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "claude/geometry-gradient-ad-no6zct"}
+MaterialDispersion = {path = "../../MaterialDispersion"}
 MaxwellEigenmodes = {path = "../../MaxwellEigenmodes"}

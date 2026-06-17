@@ -37,6 +37,29 @@ smoothed second-derivative field $\partial^2\varepsilon/\partial\omega^2$ produc
 [`smooth_ε`](dielectric_smoothing.md), and is validated in the test suites against
 high-order finite differences of $n_g(\omega)$ through full re-solves.
 
+## Geometry-parameter sensitivities
+
+All of the above are differentiable with respect to waveguide *geometry* parameters
+(core width/height, sidewall angle, layer thicknesses, positions). Because the geometry
+enters only through the smoothed dielectric fields, the gradient factors as a
+forward-mode Jacobian of the geometry→dielectric map (ForwardDiff Duals through the
+parametric shapes and Kottke smoothing) composed with the reverse-mode adjoint of the
+eigensolve/post-processing (`solve_k`, `group_index`):
+
+$$
+\frac{\mathrm{d}\,q}{\mathrm{d}\,p_i}
+= \Big\langle \frac{\partial q}{\partial \varepsilon^{-1}},\ \frac{\partial \varepsilon^{-1}}{\partial p_i}\Big\rangle
++ \Big\langle \frac{\partial q}{\partial(\partial_\omega\varepsilon)},\ \frac{\partial(\partial_\omega\varepsilon)}{\partial p_i}\Big\rangle,
+\qquad q \in \{n_\text{eff},\ n_g,\ \textstyle\int|E|^2,\ \dots\}.
+$$
+
+This is the standard adjoint pattern for waveguide inverse design. GVD's geometry
+gradient is obtained as the frequency derivative of the (exact AD) $n_g$ geometry
+gradient. See [Automatic differentiation § Geometry sensitivities of mode
+quantities](automatic_differentiation.md#geometry-sensitivities-of-mode-quantities-n_eff-n_g-gvd-fields)
+for runnable code; the `geometry-parameter sensitivities` testset in `test/runtests.jl`
+validates $n_\text{eff}$, $n_g$, GVD and a field functional against finite differences.
+
 ## Mode character
 
 - `E_relpower_xyz(ε, E)`: relative E-field power along x/y/z — distinguishes

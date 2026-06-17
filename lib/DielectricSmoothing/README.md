@@ -23,9 +23,16 @@ ForwardDiff, Enzyme, and Mooncake; shape-index bookkeeping (`corner_sinds`,
 Gradients of the full geometry→smoothing pipeline w.r.t. the material tensor data are
 supported in forward mode (ForwardDiff) and reverse mode (Zygote via ChainRules);
 the per-voxel Kottke kernels are additionally covered by Enzyme and Mooncake.
-Geometry-*parameter* sensitivities are currently finite-difference only:
-GeometryPrimitives ≥ 0.5 stores shape fields as hardcoded `Float64`, so AD number
-types cannot flow through shape construction.
+
+Geometry-*parameter* sensitivities (widths, thicknesses, sidewall angles, positions)
+are supported with GeometryPrimitives ≥ 0.6, whose parametric shape element type and
+AD-compatible `surfpt_nearby`/`volfrac` let AD number types flow through shape
+construction and the interface queries: forward mode (ForwardDiff) through the whole
+pipeline, and reverse mode (Mooncake) at the per-interface-pixel kernel. Enzyme
+segfaults on the StaticArrays inverse inside Cuboid `surfpt_nearby` and Zygote receives
+a non-`SVector` normal in `volfrac`, so geometry-parameter reverse mode uses Mooncake.
+The geometry queries remain `@non_differentiable` for ChainRules so that material-data
+Zygote gradients treat them as constants (ForwardDiff and Mooncake bypass ChainRules).
 
 Gradient correctness is verified in `test/runtests.jl` against FiniteDifferences.jl
 (and exact symbolic Jacobians for the kernels). Benchmarks: `benchmark/benchmarks.jl`.

@@ -13,6 +13,7 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [sources]
 DielectricSmoothing = {path = "lib/DielectricSmoothing"}
+GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "claude/geometry-gradient-ad-no6zct"}
 MaterialDispersion = {path = "lib/MaterialDispersion"}
 MaxwellEigenmodes = {path = "lib/MaxwellEigenmodes"}
 ModeAnalysis = {path = "lib/ModeAnalysis"}
@@ -23,7 +24,11 @@ Reexport = "1"
 julia = "1.10"
 
 [extras]
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+GeometryPrimitives = "17051e67-205e-509e-8301-03b320b998e6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["FiniteDifferences", "ForwardDiff", "GeometryPrimitives", "LinearAlgebra", "Test"]
