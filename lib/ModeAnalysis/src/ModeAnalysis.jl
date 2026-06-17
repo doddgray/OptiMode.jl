@@ -35,6 +35,7 @@ using MaxwellEigenmodes: mag_mn, kx_tc, kx_ct, zx_tc, zx_ct, tc, ct, ε⁻¹_dot
 ## Includes ##
 include("group_index.jl")
 include("analyze.jl")
+include("hermite_gaussian.jl")
 include("kerr.jl")
 include("ad_rules.jl")
 
