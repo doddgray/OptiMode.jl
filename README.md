@@ -73,6 +73,11 @@ reproduction of the waveguide-dispersion design problem in
 quasi-TE00 modes of a thin-film lithium niobate waveguide for broadband second-harmonic
 generation — see [`examples/tfln_shg_dispersion.jl`](examples/tfln_shg_dispersion.jl).
 
+For forward- and reverse-mode differentiation of SHG phase matching with respect to
+*material* parameters — the temperature and crystal-orientation tuning of the
+phase-matched ("peak SHG") wavelength of an x-cut thin-film lithium niobate waveguide —
+see [`examples/tfln_shg_temperature_angle_ad.jl`](examples/tfln_shg_temperature_angle_ad.jl).
+
 ## Automatic differentiation
 
 Gradient support is provided at several levels:

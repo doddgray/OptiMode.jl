@@ -176,6 +176,41 @@ finite-differenced. All four are verified against finite differences of the full
 pipeline in `test/runtests.jl` (the `geometry-parameter sensitivities` testset) and
 timed in `lib/ModeAnalysis/benchmark/benchmarks.jl`.
 
+### Material-parameter sensitivities of mode quantities (temperature, crystal orientation)
+
+Temperature `T` and crystal orientation enter only through the dielectric tensor field
+`ε(x,y; ω,T,θ)` — `T` through the Sellmeier thermo-optic dispersion, the propagation angle
+`θ` through a rotation of the crystal frame.  For a *fixed* mode the modal wavenumber
+sensitivity is the exact first-order (Hellmann–Feynman) perturbation built from the
+converged field and the same validated `HMH`/`HMₖH` quadratic forms used by `group_index`,
+
+```text
+∂k/∂p = ⟨E| ∂ε/∂p |E⟩ / (2⟨ev|∂M̂/∂k|ev⟩)      (fixed ω, frozen mode),
+```
+
+so the *only* object that is auto-differentiated is the closed-form material map
+`p ↦ ε(p)`, in **forward mode (ForwardDiff)** *or* **reverse mode (Zygote)**.  Unlike the
+generic eigensolver reverse rule, this is exact for **any** mode (the quasi-TE00 of an
+x-cut LiNbO₃ guide is not the fundamental, since `nₑ < nₒ`) and for the full anisotropic
+`∂ε/∂θ` (the rotation introduces off-diagonal Eₓ–E_z coupling).  Representing the modal
+functional as a frozen-mode weight `Lw` (so `∂k/∂p = dot(Lw, ∂ε/∂p)`) keeps the eigensolve
+out of the differentiated path:
+
+```julia
+# Lw built once from the converged mode (pure Float64); then both AD modes agree with FD
+∂k(Lw, ω, T, θ; backend) =
+    (g(p) = dot(Lw, vec(εfield(ω, p[1], p[2])));
+     backend === :forward ? ForwardDiff.gradient(g, [T, θ]) : Zygote.gradient(g, [T, θ])[1])
+```
+
+[`examples/tfln_shg_temperature_angle_ad.jl`](../examples/tfln_shg_temperature_angle_ad.jl)
+applies this to second-harmonic generation in a 400 nm x-cut TFLN waveguide near
+1560 → 780 nm: forward- and reverse-mode AD give the same gradient of the phase-matched
+("peak SHG") wavelength with respect to temperature (30–80 °C) and propagation angle
+(0–15° from the crystal Y axis) as finite differences of the full quasi-TE00 mode re-solve.
+The `test/runtests.jl` testset *"SHG phase-matching sensitivity to temperature & crystal
+angle"* checks this agreement.
+
 ## Verification and limitations
 
 Every package's test suite checks gradients against `FiniteDifferences.jl` and, where
