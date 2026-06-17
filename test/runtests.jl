@@ -8,6 +8,7 @@ using LinearAlgebra
 using OptiMode
 using OptiMode.DielectricSmoothing.GeometryPrimitives: Cuboid
 using OptiMode.ModeAnalysis: Zygote
+using OptiMode.MaxwellEigenmodes: HMH, HMₖH, mag_mn, _dot
 using ForwardDiff
 using FiniteDifferences
 
@@ -220,4 +221,123 @@ end
     @test ngE ≈ ng
     @test gvdE ≈ gvd
     @test size(E) == (3, size(grid)...)
+end
+
+# Forward- and reverse-mode AD of quasi-TE00 mode properties and of the second-harmonic
+# phase-matched ("peak SHG") wavelength, with respect to *material* parameters —
+# temperature T and the crystal propagation angle θ — for an x-cut thin-film LiNbO₃
+# waveguide near 1560 → 780 nm.  See `examples/tfln_shg_temperature_angle_ad.jl`.
+#
+# T and θ enter only through the dielectric tensor field ε(x,y; ω,T,θ): T via LiNbO₃'s
+# Sellmeier thermo-optic dispersion, θ via a numeric rotation of the crystal frame into
+# the x-cut simulation frame (extraordinary c-axis in-plane; θ tilts propagation away from
+# crystal Y, mixing anisotropic Eₓ–E_z coupling into the mode).  The eigensolve is *not*
+# differentiated through; instead the modal wavenumber sensitivity is the exact first-order
+# (Hellmann–Feynman) perturbation from the converged mode,
+#   ∂k/∂p = ⟨E|∂ε/∂p|E⟩ / (2⟨ev|∂M̂/∂k|ev⟩),
+# built from the validated `HMH`/`HMₖH` quadratic forms (the same used by `group_index`)
+# and exact for any mode — here the quasi-TE00 is *not* the fundamental, because nₑ < nₒ.
+# The only auto-differentiated object is the closed-form material map p ↦ ε(p), which is
+# differentiated in both forward (ForwardDiff) and reverse (Zygote) mode; both reproduce
+# finite differences of the full mode re-solve.
+@testset "SHG phase-matching sensitivity to temperature & crystal angle (forward+reverse AD)" begin
+    matsLN = [LiNbO₃, SiO₂]
+    fε, _ = _f_ε_mats(matsLN, (:ω, :T))
+    air_col = vcat(vec(Matrix(1.0I, 3, 3)), zeros(18))
+    # simulation-frame rotation (x-cut; θ tilts propagation from crystal Y in the film plane)
+    Sframe(θ) = (s = sin(θ); c = cos(θ); [0.0 1.0 0.0; -s 0.0 c; c 0.0 s])
+    rot_col(col, S) = vcat(vec(S' * reshape(col[1:9], 3, 3) * S),
+        vec(S' * reshape(col[10:18], 3, 3) * S), vec(S' * reshape(col[19:27], 3, 3) * S))
+    matvals(ω, T, θ) = (cc = fε([ω, T]); S = Sframe(θ); hcat(rot_col(cc[:, 1], S), cc[:, 2], air_col))
+
+    w, t, etch = 1.2, 0.4, 0.5           # 400 nm-thick x-cut TFLN rib
+    shapes(w, t, etch) = (eg = clamp(etch, 1e-3, 1 - 1e-3); hr = t * eg; hs = t * (1 - eg);
+    (MaterialShape(Cuboid([0.0, hs + hr / 2], [w, hr], [1.0 0.0; 0.0 1.0]), 1),
+        MaterialShape(Cuboid([0.0, hs / 2], [100.0, hs], [1.0 0.0; 0.0 1.0]), 1),
+        MaterialShape(Cuboid([0.0, -50.0], [200.0, 100.0], [1.0 0.0; 0.0 1.0]), 2)))
+    minds = (1, 1, 2, 3)
+    grid = Grid(6.0, 4.0, 40, 28)
+    solver = KrylovKitEigsolve()
+    εfield(ω, T, θ) = copy(selectdim(smooth_ε(shapes(w, t, etch), matvals(ω, T, θ), minds, grid), 3, 1))
+
+    # quasi-TE00 mode: most Eₓ-polarized guided mode (it is *not* the fundamental, nₑ < nₒ)
+    function solve_te00(ω, T, θ; nev=4)
+        sm = smooth_ε(shapes(w, t, etch), matvals(ω, T, θ), minds, grid)
+        ε = copy(selectdim(sm, 3, 1)); ε⁻¹ = sliceinv_3x3(copy(ε)); ∂ωε = copy(selectdim(sm, 3, 2))
+        km, ev = solve_k(ω, copy(ε⁻¹), grid, solver; nev=nev, k_tol=1e-12, eig_tol=1e-12)
+        fr = [E_relpower_xyz(ε⁻¹, E⃗(km[i], copy(ev[i]), ε⁻¹, ∂ωε, grid;
+            canonicalize=true, normalized=true))[1] for i in eachindex(ev)]
+        i = argmax(fr)
+        return (k=km[i], ev=ev[i], ε=ε, ε⁻¹=ε⁻¹, te_frac=fr[i])
+    end
+    te00_k(ω, T, θ) = solve_te00(ω, T, θ).k
+    # add the frozen-mode sensitivity weight Lw (so that ∂k/∂δε = dot(Lw, δε)) — built once
+    # per design mode by reverse-diffing the validated `HMH` quadratic form (pure Float64)
+    function te00(ω, T, θ; nev=4)
+        s = solve_te00(ω, T, θ; nev)
+        mag, mn = mag_mn(s.k, grid); HMkH = HMₖH(vec(s.ev), s.ε⁻¹, mag, mn)
+        Lfun(xv) = HMH(vec(s.ev), _dot(s.ε⁻¹, reshape(xv, size(s.ε)), s.ε⁻¹), mag, mn) / (2 * HMkH)
+        Lw = reshape(Zygote.gradient(Lfun, vec(s.ε))[1], size(s.ε))
+        return (; k=s.k, neff=s.k / ω, te_frac=s.te_frac, Lw)
+    end
+    # ∂k/∂(T,θ) at fixed ω by differentiating only the material map (forward or reverse)
+    function ∂k(Lw, ω, T, θ; backend)
+        g(p) = dot(Lw, vec(εfield(ω, p[1], p[2])))
+        backend === :fwd ? ForwardDiff.gradient(g, [T, θ]) : Zygote.gradient(g, [T, θ])[1]
+    end
+
+    λf = 1.56; ωf = 1 / λf; ωsh = 2ωf; T0 = 50.0; θ0 = deg2rad(7.5)
+    mf = te00(ωf, T0, θ0)
+    msh = te00(ωsh, T0, θ0)
+
+    # the selected mode is genuinely quasi-TE00 (Eₓ-dominant, so it sees nₑ and couples d₃₃)
+    @test mf.te_frac > 0.8
+    @test msh.te_frac > 0.8
+    @test 1.45 < mf.neff < msh.neff < 2.2          # SH index above fundamental (normal dispersion)
+
+    # --- modal sensitivities ∂neff/∂(T,θ): forward AD ≈ reverse AD ≈ finite differences ---
+    gneff_fwd = ∂k(mf.Lw, ωf, T0, θ0; backend=:fwd) ./ ωf
+    gneff_rev = ∂k(mf.Lw, ωf, T0, θ0; backend=:rev) ./ ωf
+    neff_full(p) = te00_k(ωf, p[1], p[2]) / ωf
+    gneff_fd = [central_fdm(3, 1)(t -> neff_full([T0 + t, θ0]), 0.0),
+        central_fdm(3, 1)(t -> neff_full([T0, θ0 + t]), 0.0)]
+    @test gneff_fwd ≈ gneff_rev rtol = 1e-6
+    @test gneff_fwd ≈ gneff_fd rtol = 5e-3
+
+    # --- SHG phase mismatch Δk_tot(λ;T,θ) = k(2ω) − 2k(ω) − K; K fixes phase matching at design ---
+    K = msh.k - 2mf.k
+    Δk_tot(λ, T, θ) = te00_k(2 / λ, T, θ) - 2 * te00_k(1 / λ, T, θ) - K
+    @test isapprox(Δk_tot(λf, T0, θ0), 0.0; atol=1e-9)          # phase matched at the design point
+
+    # ∂Δk_tot/∂(T,θ) at fixed λ: forward AD ≈ reverse AD ≈ FD
+    dΔk_fwd = ∂k(msh.Lw, ωsh, T0, θ0; backend=:fwd) .- 2 .* ∂k(mf.Lw, ωf, T0, θ0; backend=:fwd)
+    dΔk_rev = ∂k(msh.Lw, ωsh, T0, θ0; backend=:rev) .- 2 .* ∂k(mf.Lw, ωf, T0, θ0; backend=:rev)
+    dΔk_fd = [central_fdm(3, 1)(t -> Δk_tot(λf, T0 + t, θ0), 0.0),
+        central_fdm(3, 1)(t -> Δk_tot(λf, T0, θ0 + t), 0.0)]
+    @test dΔk_fwd ≈ dΔk_rev rtol = 1e-6
+    @test dΔk_fwd ≈ dΔk_fd rtol = 5e-3
+
+    # --- gradient of the peak SHG wavelength via the implicit function theorem ---
+    # λ_peak solves Δk_tot = 0; dλ_peak/dp = −(∂Δk_tot/∂p)/(∂Δk_tot/∂λ).
+    dΔk_dλ = central_fdm(3, 1)(λ -> Δk_tot(λ, T0, θ0), λf)
+    dλpeak_fwd = -dΔk_fwd ./ dΔk_dλ
+    dλpeak_rev = -dΔk_rev ./ dΔk_dλ
+    @test dλpeak_fwd ≈ dλpeak_rev rtol = 1e-6
+
+    # finite-difference reference from re-locating the peak (fixed-slope Newton on Δk_tot)
+    function λpeak(T, θ; iters=3)
+        λ = λf
+        for _ in 1:iters
+            λ -= Δk_tot(λ, T, θ) / dΔk_dλ
+        end
+        λ
+    end
+    @test isapprox(λpeak(T0, θ0), λf; atol=1e-4)
+    hT, hθ = 2.0, deg2rad(2.0)
+    dλpeak_fd = [(λpeak(T0 + hT, θ0) - λpeak(T0 - hT, θ0)) / (2hT),
+        (λpeak(T0, θ0 + hθ) - λpeak(T0, θ0 - hθ)) / (2hθ)]
+    @test dλpeak_fwd ≈ dλpeak_fd rtol = 1e-2
+    # physical sanity: peak red-shifts with both temperature and angle here
+    @test dλpeak_fwd[1] > 0
+    @test dλpeak_fwd[2] > 0
 end
