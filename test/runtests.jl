@@ -131,3 +131,93 @@ end
         @test gvd_grad_AD ≈ fd rtol = 5e-2
     end
 end
+
+# Modal group index and group-velocity dispersion from a *single* eigenmode solution, for
+# a thin-film lithium niobate waveguide with realistic anisotropic, dispersive materials —
+# the calculation behind Gray, West & Ram, "Inverse design for waveguide dispersion with a
+# differentiable mode solver," Opt. Express 32, 30541 (2024).
+#
+# `group_index` evaluates the modal group index n_g = ∂|k|/∂ω directly from one mode field
+# (paper Eq. 12, ratio of energy density to Poynting flux), and `ng_gvd`/`ng_gvd_E` add the
+# GVD = ∂n_g/∂ω = ∂²|k|/∂ω² via a single adjoint solve (Supplement 1) using the smoothed
+# second frequency derivative ∂²ε/∂ω² of the dielectric tensor. The paper's central claim
+# for these formulas is that they reproduce the dispersion that finite differences of full
+# re-solves give — without the finite-difference truncation error. This testset verifies
+# exactly that for an x-cut LiNbO₃ rib on SiO₂: the single-solution n_g and GVD match
+# high-order finite differences of the fully re-solved |k|(ω) and n_g(ω).
+@testset "modal GVD from a single mode solution (TFLN, anisotropic dispersive)" begin
+    # x-cut TFLN: rotate the bundled LiNbO₃ (extraordinary/c axis along z) by RotY(π/2) so
+    # the c-axis lies in-plane along x; the quasi-TE mode (dominant Eₓ) then sees nₑ.
+    Ry = [0.0 0.0 1.0; 0.0 1.0 0.0; -1.0 0.0 0.0]
+    LiNbO₃_xcut = rotate(LiNbO₃, Ry; name=:LiNbO₃_xcut)
+    mats = [LiNbO₃_xcut, SiO₂]
+    fε, _ = _f_ε_mats(mats, (:ω,))
+    air_col = vcat(vec(Matrix(1.0I, 3, 3)), zeros(18))     # air cladding: ε = I, no dispersion
+    matvals(om) = hcat(fε([om]), air_col)                  # 27 × 3 columns (LiNbO₃, SiO₂, air)
+
+    grid = Grid(6.0, 4.0, 48, 36)
+    solver = KrylovKitEigsolve()
+    # LiNbO₃ ridge (1.0 × 0.6 μm) on an SiO₂ substrate, air above; shapes foreground-first.
+    w, t = 1.0, 0.6
+    geom = (
+        MaterialShape(Cuboid([0.0, t / 2], [w, t], [1.0 0.0; 0.0 1.0]), 1),         # core
+        MaterialShape(Cuboid([0.0, -50.0], [200.0, 100.0], [1.0 0.0; 0.0 1.0]), 2), # substrate
+    )
+    minds = (1, 2, 3)   # core→LiNbO₃, substrate→SiO₂, background→air
+
+    "smoothed dielectric fields (ε⁻¹, ∂ωε, ∂²ωε) at frequency `om`"
+    function diel(om)
+        sm = smooth_ε(geom, matvals(om), minds, grid)
+        (sliceinv_3x3(copy(selectdim(sm, 3, 1))),
+            copy(selectdim(sm, 3, 2)), copy(selectdim(sm, 3, 3)))
+    end
+
+    "fundamental quasi-TE mode (largest Eₓ power fraction) at frequency `om`"
+    function te_mode(om)
+        ei, de, _ = diel(om)
+        ε = sliceinv_3x3(copy(ei))
+        kmags, evecs = solve_k(om, copy(ei), grid, solver; nev=4, k_tol=1e-12, eig_tol=1e-12)
+        fracs = [E_relpower_xyz(ε,
+            E⃗(kmags[i], copy(evecs[i]), ei, de, grid; canonicalize=true, normalized=true))[1]
+                 for i in eachindex(evecs)]
+        i = argmax(fracs)
+        return kmags[i], evecs[i], fracs[i]
+    end
+
+    ω0 = 1 / 1.55
+    ei0, de0, dde0 = diel(ω0)
+    k0, ev0, tefrac0 = te_mode(ω0)
+
+    @test k0 / ω0 > sqrt(2.09)        # guided above the SiO₂ substrate index (n ≈ 1.45)
+    @test tefrac0 > 0.8               # genuinely quasi-TE (Eₓ-dominant), so it sees nₑ
+
+    # finite-difference references from full re-solves with the real material dispersion
+    k_of_ω(om) = te_mode(om)[1]
+    function ng_of_ω(om)
+        ei, de, _ = diel(om)
+        k, ev, _ = te_mode(om)
+        group_index(k, ev, om, ei, de, grid)
+    end
+
+    ng_direct = group_index(k0, ev0, ω0, ei0, de0, grid)
+    ng, gvd = ng_gvd(ω0, k0, ev0, ei0, de0, dde0, grid)
+
+    # n_g (Eq. 12) reproduces both the FD slope d|k|/dω and the ng_gvd value
+    ng_FD = FiniteDifferences.central_fdm(5, 1; factor=1e6)(k_of_ω, ω0)
+    @test ng_direct ≈ ng_FD rtol = 1e-4
+    @test ng ≈ ng_direct rtol = 1e-6
+    @test ng > k0 / ω0                # group index exceeds phase index in this dispersive WG
+
+    # GVD (single adjoint solve) reproduces the FD frequency-derivative of n_g. Strong
+    # waveguide dispersion makes ∂n_g/∂ω negative (anomalous) for this geometry at 1.55 μm.
+    gvd_FD = FiniteDifferences.central_fdm(5, 1; factor=1e6)(ng_of_ω, ω0)
+    @test isfinite(gvd)
+    @test sign(gvd) == sign(gvd_FD)
+    @test gvd ≈ gvd_FD rtol = 5e-3
+
+    # ng_gvd_E returns the same n_g and GVD plus the real-space E field
+    ngE, gvdE, E = ng_gvd_E(ω0, k0, ev0, ei0, de0, dde0, grid)
+    @test ngE ≈ ng
+    @test gvdE ≈ gvd
+    @test size(E) == (3, size(grid)...)
+end

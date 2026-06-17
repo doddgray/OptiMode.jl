@@ -35,7 +35,17 @@ The GVD, $\partial n_g/\partial\omega = \partial^2 k/\partial\omega^2$, requires
 `eig_adjt`) instead of re-solving at neighboring frequencies. The result uses the
 smoothed second-derivative field $\partial^2\varepsilon/\partial\omega^2$ produced by
 [`smooth_ε`](dielectric_smoothing.md), and is validated in the test suites against
-high-order finite differences of $n_g(\omega)$ through full re-solves.
+high-order finite differences of $n_g(\omega)$ through full re-solves. These are the
+single-mode group-index and GVD formulas of Gray, West & Ram, *Opt. Express* **32**,
+30541 (2024) (Eq. 12 and Supplement 1); for a thin-film lithium niobate waveguide with
+realistic anisotropic, dispersive materials they agree with the finite-difference
+references to ~8–10 digits (the `modal GVD from a single mode solution` testset in
+[`test/runtests.jl`](../test/runtests.jl)).
+[`examples/tfln_shg_dispersion.jl`](../examples/tfln_shg_dispersion.jl) reproduces the
+forward dispersion calculation behind that paper: it solves the quasi-TE00 modes of an
+x-cut TFLN rib at the fundamental and second-harmonic frequencies, computes their group
+indices and GVDs, and reports the SHG group-velocity mismatch $|n_{g,2\omega}-n_{g,\omega}|$
+(the inverse-design objective), poling period, and quasi-phase-matching bandwidth.
 
 ## Geometry-parameter sensitivities
 
