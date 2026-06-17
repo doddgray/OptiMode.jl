@@ -13,5 +13,5 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [sources]
 DielectricSmoothing = {path = ".."}
-GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "claude/geometry-gradient-ad-no6zct"}
+GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "main"}
 MaterialDispersion = {path = "../../MaterialDispersion"}

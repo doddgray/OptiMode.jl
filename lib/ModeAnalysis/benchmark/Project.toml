@@ -14,6 +14,6 @@ MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
 [sources]
 ModeAnalysis = {path = ".."}
 DielectricSmoothing = {path = "../../DielectricSmoothing"}
-GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "claude/geometry-gradient-ad-no6zct"}
+GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "main"}
 MaterialDispersion = {path = "../../MaterialDispersion"}
 MaxwellEigenmodes = {path = "../../MaxwellEigenmodes"}
