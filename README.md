@@ -67,6 +67,12 @@ neff = kmags[1]/ω
 ng   = group_index(kmags[1], evecs[1], ω, ε⁻¹, ∂ε_∂ω, grid)
 ```
 
+For modal group-velocity dispersion from a single mode solution and a worked
+reproduction of the waveguide-dispersion design problem in
+[[2]](#2) — group-index matching of the fundamental and second-harmonic
+quasi-TE00 modes of a thin-film lithium niobate waveguide for broadband second-harmonic
+generation — see [`examples/tfln_shg_dispersion.jl`](examples/tfln_shg_dispersion.jl).
+
 ## Automatic differentiation
 
 Gradient support is provided at several levels:
