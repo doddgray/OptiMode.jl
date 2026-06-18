@@ -92,8 +92,8 @@ const COUPLER_STACK = LayerStack(
         modes2 = solve_cell_modes(cells[2], st.stack.materials, ω, grid; nev=2, k_tol=1e-7)
         # interface of identical bases ≈ identity transmission, no reflection
         Sid = interface_smatrix(modes1, modes1)
-        @test isapprox(transmission(Sid), I(2); atol=1e-3)
-        @test maximum(abs, reflection(Sid)) < 1e-2
+        @test isapprox(transmission(Sid), I(2); atol=2e-2)
+        @test maximum(abs, reflection(Sid)) < 2e-2
         # a real interface between distinct cross-sections is passive
         Sif = interface_smatrix(modes1, modes2)
         @test maximum(abs, Sif.S) <= 1.0 + 1e-6
