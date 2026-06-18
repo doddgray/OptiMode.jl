@@ -247,6 +247,113 @@ end
         @test batch.manifest["n_tasks"] == 6
     end
 
+    @testset "PNG rendering" begin
+        # read (width,height) from a PNG's IHDR (offsets are 1-based here)
+        png_dims(path) = let b = read(path)
+            be(o) = (Int(b[o]) << 24) | (Int(b[o+1]) << 16) | (Int(b[o+2]) << 8) | Int(b[o+3])
+            (be(17), be(21))
+        end
+        SIG = UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+        # low-level encoder: valid signature + correct dimensions
+        canvas = fill(UInt8(128), 11, 23, 3)
+        p0 = write_png(joinpath(TESTDIR, "raw.png"), canvas)
+        @test isfile(p0)
+        @test read(p0)[1:8] == SIG
+        @test png_dims(p0) == (23, 11)        # (width, height)
+
+        # composite mode image: 3 |Eᵢ| panels + annotation header
+        grid = Grid(4.0, 3.0, 20, 14)
+        Nx, Ny = size(grid)
+        E = zeros(ComplexF64, 3, Nx, Ny)
+        for ix in 1:Nx, iy in 1:Ny
+            E[1, ix, iy] = exp(-((ix - Nx / 2)^2 / 9 + (iy - Ny / 2)^2 / 4))
+            E[2, ix, iy] = 0.3 * exp(-((ix - Nx / 3)^2 / 9 + (iy - Ny / 2)^2 / 4))
+        end
+        p = render_mode_png(joinpath(TESTDIR, "mode.png"), E, grid,
+            ["TASK 1 BAND 1 TE00", "NEFF=1.8 NG=2.1"])
+        @test isfile(p)
+        @test read(p)[1:8] == SIG
+        w, h = png_dims(p)
+        @test w > 3Nx && h > Ny               # 3 panels wide, header band on top
+    end
+
+    @testset "blocking deploy + wait_batch" begin
+        dir = joinpath(TESTDIR, "blocking")
+        batch = deploy_batch(SETUP_FILE, param_grid(ω=[0.6, 0.62], wx=[1.0]);
+            name="blk", dir, nev=1, backend=:local, blocking=true)
+        st = batch_status(batch; verbose=false)
+        @test st.done == 2 && st.pending == 0
+        st2 = wait_batch(batch; verbose=false)   # already complete → returns at once
+        @test st2.done == 2 && st2.pending == 0
+    end
+
+    @testset "save_plots, mode labels & metadata columns" begin
+        dir = joinpath(TESTDIR, "plots")
+        batch = deploy_batch(SETUP_FILE, param_grid(ω=[1 / 1.55], wx=[1.0]);
+            name="plotstest", dir, nev=2, save_plots=true, backend=:local,
+            solver_kwargs=(; k_tol=1e-10))
+        st = wait_for_batch(batch)
+        @test st.done == 1 && st.failed == 0
+
+        # one annotated PNG per band, each a valid PNG, transferred back
+        pngs = plot_paths(batch, 1)
+        @test length(pngs) == 2
+        @test all(p -> read(p)[1:8] == UInt8[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], pngs)
+
+        rows = gather_batch(batch; save=false)
+        r = first(rows)
+        for c in (:label, :mode_pol, :mode_m, :mode_n, :hg_rel_error, :te_frac,
+            :host, :runtime_s, :started, :finished, :slurm_job, :slurm_task)
+            @test hasproperty(r, c)
+        end
+        @test r.mode_pol in ("TE", "TM", "")
+        @test isempty(r.label) || startswith(r.label, "TE") || startswith(r.label, "TM")
+        @test r.runtime_s ≥ 0 && !isempty(r.host)
+        @test r.mode_m ≥ 0 && r.mode_n ≥ 0
+    end
+
+    @testset "remote AD: forward/backward as separate tasks" begin
+        p = (; ω=1 / 1.55, wx=1.0)
+        # in-process reference solve & adjoint (same rrule the worker uses)
+        prob = Base.invokelatest(make_problem, p)   # make_problem include'd earlier
+        kk, _ = solve_k(p.ω, copy(prob.ε⁻¹), prob.grid, KrylovKitEigsolve(); nev=1, k_tol=1e-10)
+        ω̄0, ei0 = ModeSweeps._remote_pullback(p.ω, prob.ε⁻¹, prob.grid,
+            KrylovKitEigsolve(), 1, [1.0], nothing)
+
+        # forward pass as its own task; persists primal + adjoint inputs to shared FS
+        fdir = joinpath(TESTDIR, "ad_fwd")
+        fwd = deploy_forward(SETUP_FILE, [p]; nev=1, dir=fdir, name="adf",
+            backend=:local, blocking=true, solver_kwargs=(; k_tol=1e-10))
+        @test batch_status(fwd; verbose=false).done == 1
+        sol = forward_solution(fwd, 1)
+        @test sol.ω ≈ p.ω
+        @test length(sol.kmags) == 1 && sol.kmags[1] ≈ kk[1] rtol = 1e-6
+        @test size(sol.ε⁻¹) == size(prob.ε⁻¹)
+
+        # backward pass as a separate task; loads forward state + cotangents from disk
+        bdir = joinpath(TESTDIR, "ad_bwd")
+        bw = deploy_backward(fwd, [(; k̄=[1.0])]; dir=bdir, name="adb",
+            backend=:local, blocking=true)
+        @test batch_status(bw; verbose=false).done == 1
+        g = gradient_result(bw, 1)
+        @test size(g.ε⁻¹_bar) == size(prob.ε⁻¹)
+        @test isfinite(g.ω_bar)
+        # round-trips through the filesystem to the exact in-process adjoint
+        @test g.ω_bar ≈ ω̄0 rtol = 1e-6
+        @test g.ε⁻¹_bar ≈ ei0 rtol = 1e-6
+
+        # one cotangent per forward task is required
+        @test_throws ArgumentError deploy_backward(fwd, [(; k̄=[1.0]), (; k̄=[1.0])]; backend=:none)
+
+        # one-shot blocking convenience: value + gradient in one call
+        res = remote_value_and_gradient(SETUP_FILE, p, [1.0]; nev=1, name="ad1",
+            dir=joinpath(TESTDIR, "ad_oneshot"), backend=:local, solver_kwargs=(; k_tol=1e-10))
+        @test res.kmags[1] ≈ kk[1] rtol = 1e-6
+        @test res.ω_bar ≈ ω̄0 rtol = 1e-6
+        @test size(res.ε⁻¹_bar) == size(prob.ε⁻¹)
+    end
+
     if get(ENV, "OPTIMODE_TEST_SLURM", "false") == "true"
         @testset "SLURM submission (opt-in)" begin
             @test Sys.which("sbatch") !== nothing

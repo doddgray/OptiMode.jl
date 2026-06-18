@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 DielectricSmoothing = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
@@ -26,6 +27,7 @@ MaxwellEigenmodes = {path = "../MaxwellEigenmodes"}
 ModeAnalysis = {path = "../ModeAnalysis"}
 
 [compat]
+ChainRulesCore = "1"
 julia = "1.10"
 
 [extras]
