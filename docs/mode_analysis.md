@@ -159,6 +159,51 @@ verified to a few percent for a Si₃N₄ waveguide in the test suite and in
 [`examples/kerr_si3n4_waveguide.jl`](../examples/kerr_si3n4_waveguide.jl)
 (γ ≈ 0.95 W⁻¹m⁻¹ for a 1.60 × 0.80 μm core at 1.55 μm, matching literature values).
 
+## Forced grid convergence
+
+A waveguide effective index computed on a *finite* finite-difference cell carries two
+discretization errors:
+
+1. **truncation error** — the periodic computational cell is finite, so the evanescent
+   cladding fields are clipped by the (periodic) boundaries. Controlled by the
+   *boundary distance*: the distance from the waveguide center to the cell boundary
+   (`Δx/2`, `Δy/2` for an origin-centered `Grid`);
+2. **discretization error** — the dielectric and fields are sampled on a finite grid.
+   Controlled by the spatial *point density* (points per μm²).
+
+`solve_k_converged` drives both errors down automatically. Given a *shape-based geometry*
+(`shapes`, `mat_vals`, `minds` — exactly the arguments of
+[`smooth_ε`](dielectric_smoothing.md)), an initial `grid`, and a solver, it re-runs the
+whole geometry → sub-pixel smoothing → eigensolve pipeline on a sequence of progressively
+refined grids. On each iteration it multiplies the point density by `resolution_ramp` and
+the boundary distance by `boundary_ramp` (keeping the per-axis pixel pitch isotropic),
+stopping once every band's effective index changes by less than `atol` (absolute) **or**
+`rtol` (relative) between successive iterations, or after `max_iterations` runs:
+
+```julia
+settings = ForceConvergenceSettings(; rtol=1e-5, atol=1e-6,
+    resolution_ramp=1.5,   # ×1.5 point density (points/μm²) per iteration
+    boundary_ramp=1.25,    # ×1.25 center→boundary distance per iteration
+    max_iterations=8)
+
+res = solve_k_converged(ω, shapes, mat_vals, minds, grid, KrylovKitEigsolve();
+    nev=1, force_convergence=true, force_convergence_settings=settings)
+
+res.converged       # whether neff settled before max_iterations
+res.iterations      # number of mode-simulation runs performed
+res.grid            # final, most-refined grid (its size encodes the iteration count)
+res.neff            # converged effective indices
+res.ε⁻¹, res.∂ε_∂ω, res.∂²ε_∂ω²   # smoothed dielectric on the final grid (for ng/GVD)
+res.neff_history, res.grid_history # per-iteration neff and grid
+```
+
+With `force_convergence=false` the geometry is smoothed once onto the supplied grid and
+the modes are solved once — a convenience wrapper over `smooth_ε`/`solve_k`. The number of
+iterations and convergence status are recoverable from the output grid size alone (a
+converged run stops as soon as the indices settle, so a larger final grid means more
+refinement was required). See
+[`examples/forced_grid_convergence.jl`](../examples/forced_grid_convergence.jl).
+
 ## Usage
 
 ```julia
@@ -177,6 +222,13 @@ Aeff      = 𝓐(k/ω, ng, E)
 res = solve_k_kerr(ω, 1.0, ε⁻¹, ∂ε_∂ω, n2map, grid, KrylovKitEigsolve(); nev=1)
 Δneff = (res.kmags[1] - res.kmags_lin[1]) / ω
 
+# Forced grid convergence: re-run geometry → smoothing → solve on ever-finer grids until
+# neff settles (ramps point density and center→boundary distance each iteration)
+rc = solve_k_converged(ω, shapes, mat_vals, minds, grid, KrylovKitEigsolve(); nev=1,
+    force_convergence=true,
+    force_convergence_settings=ForceConvergenceSettings(; rtol=1e-5, resolution_ramp=1.5))
+rc.converged, rc.iterations, size(rc.grid), rc.neff
+
 # everything is differentiable, e.g. dng/dω via AD (compare to gvd above):
 using ModeAnalysis: Zygote
 dng_dω = Zygote.gradient(om -> group_index(k, ev, om, ε⁻¹, ∂ε_∂ω, grid), ω)[1]
@@ -193,3 +245,4 @@ dng_dω = Zygote.gradient(om -> group_index(k, ev, om, ε⁻¹, ∂ε_∂ω, gri
 | `𝓐` / `effective_area`, `Eperp_max` | effective area |
 | `poynting_z`, `mode_intensity` | power-normalized intensity profiles |
 | `kerr_dielectric_perturbation`, `solve_k_kerr` | first-order Kerr (n₂) corrections |
+| `solve_k_converged`, `ForceConvergenceSettings`, `ForceConvergenceResult` | forced spatial-grid convergence of mode effective indices |

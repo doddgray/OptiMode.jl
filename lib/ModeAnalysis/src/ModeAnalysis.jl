@@ -37,6 +37,7 @@ include("group_index.jl")
 include("analyze.jl")
 include("hermite_gaussian.jl")
 include("kerr.jl")
+include("convergence.jl")
 include("ad_rules.jl")
 
 end # module ModeAnalysis
