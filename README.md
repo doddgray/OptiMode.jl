@@ -196,6 +196,35 @@ returns an `n₂` map, parameter sets containing a power `P` are solved with the
 correction and the gathered rows include `dneff_kerr` and `dn_max` columns
 ([`examples/kerr_power_sweep_setup.jl`](examples/kerr_power_sweep_setup.jl)).
 
+### Forced grid convergence
+
+A mode effective index computed on a finite finite-difference cell carries two
+discretization errors: *truncation* error (the periodic cell is finite, clipping the
+evanescent cladding fields — set by the waveguide-center → boundary distance `Δx/2`,
+`Δy/2`) and *discretization* error (finite sampling — set by the spatial point density in
+points/μm²). `solve_k_converged` drives both down automatically, re-running the full
+geometry → sub-pixel smoothing → eigensolve pipeline on progressively refined grids:
+
+```julia
+settings = ForceConvergenceSettings(; rtol=1e-5, atol=1e-6,
+    resolution_ramp=1.5,   # ×1.5 point density (points/μm²) per iteration
+    boundary_ramp=1.25,    # ×1.25 center→boundary distance per iteration
+    max_iterations=8)
+res = solve_k_converged(ω, shapes, mat_vals, minds, grid, KrylovKitEigsolve(); nev=1,
+    force_convergence=true, force_convergence_settings=settings)
+res.converged, res.iterations, size(res.grid), res.neff   # convergence diagnostics + result
+```
+
+Each iteration multiplies the point density by `resolution_ramp` and the boundary distance
+by `boundary_ramp`, stopping once every band's effective index changes by less than `atol`
+(absolute) or `rtol` (relative) between successive iterations — or after `max_iterations`
+runs. With `force_convergence=false` it performs a single solve on the supplied grid. The
+returned `ForceConvergenceResult` also carries the smoothed dielectric tensors on the
+final grid (ready for `group_index`/`ng_gvd`) and the per-iteration `neff`/`grid`
+histories; the iteration count and convergence status are recoverable from the output grid
+size alone. See
+[`examples/forced_grid_convergence.jl`](examples/forced_grid_convergence.jl).
+
 ### GPU backend
 
 `MaxwellEigenmodes.GPUSolver` is a device- and precision-generic eigensolver backend:

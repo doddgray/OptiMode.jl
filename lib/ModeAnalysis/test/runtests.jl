@@ -2,6 +2,7 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using DielectricSmoothing
+using DielectricSmoothing.GeometryPrimitives: Cuboid
 using MaxwellEigenmodes
 using ModeAnalysis
 using FiniteDifferences
@@ -83,6 +84,19 @@ function guided_mode_labels(eps, grid, ω, nclad; nev=8, max_order=4)
             relerr=nw.rel_error, te_frac=nw.te_frac, label=nw.label))
     end
     return out
+end
+
+"""
+One material-dispersion column for `smooth_ε`/`solve_k_converged`: an isotropic material
+of index `n` with diagonal `∂ε/∂ω = dε` and `∂²ε/∂ω² = ddε`, packed as
+`vcat(vec(ε), vec(∂ωε), vec(∂²ωε))` (27 entries). Avoids pulling MaterialDispersion into
+the ModeAnalysis test environment while still exercising the geometry→smoothing→solve
+pipeline that the forced-convergence loop drives.
+"""
+function diag_mat_col(n; dε=0.0, ddε=0.0)
+    vcat(vec(Matrix(Float64(n)^2 * I, 3, 3)),
+        vec(Matrix(Float64(dε) * I, 3, 3)),
+        vec(Matrix(Float64(ddε) * I, 3, 3)))
 end
 
 const grid = Grid(6.0, 4.0, 16, 16)
@@ -317,5 +331,97 @@ end
         @test (:TM, 0, 0) in labelset_LN
         @test all(l.old == l.new for l in labsLN)
         @test all(l.new[1] == :TE ? l.te_frac > 0.8 : l.te_frac < 0.2 for l in labsLN)
+    end
+
+    # Forced grid-convergence mode solving: re-run the whole geometry → sub-pixel
+    # smoothing → eigensolve pipeline on a sequence of grids, increasing the spatial
+    # point density and the waveguide-center → boundary distance each iteration until the
+    # mode effective indices stop changing to within atol/rtol. A 1.2 × 0.5 μm core of
+    # index 2.0 (∂ε/∂ω diagonal) in an n = 1.444 cladding at λ = 1.55 μm. Grids are kept
+    # deliberately small (≤ ~48×32) so the repeated eigensolves stay fast.
+    @testset "forced grid convergence" begin
+        mat_vals = hcat(diag_mat_col(2.0; dε=0.4), diag_mat_col(1.444; dε=0.1))
+        core = MaterialShape(Cuboid([0.0, 0.0], [1.2, 0.5], [1.0 0.0; 0.0 1.0]), 1)
+        shapes, minds = (core,), (1, 2)
+        grid0 = Grid(3.0, 2.0, 24, 16)
+        ωc = 1 / 1.55
+
+        # settings constructor: validation + stored fields
+        @test_throws ArgumentError ForceConvergenceSettings(resolution_ramp=1.0)   # not > 1
+        @test_throws ArgumentError ForceConvergenceSettings(boundary_ramp=0.9)      # not ≥ 1
+        @test_throws ArgumentError ForceConvergenceSettings(max_iterations=1)       # need ≥ 2
+        @test_throws ArgumentError ForceConvergenceSettings(rtol=-1e-3)
+        s = ForceConvergenceSettings(; rtol=2e-3, atol=1e-5, resolution_ramp=1.4,
+            boundary_ramp=1.2, max_iterations=5)
+        @test (s.rtol, s.atol, s.resolution_ramp, s.boundary_ramp, s.max_iterations) ==
+              (2e-3, 1e-5, 1.4, 1.2, 5)
+
+        # force_convergence=false ⇒ a single solve on the supplied grid
+        r0 = solve_k_converged(ωc, shapes, mat_vals, minds, grid0, solver;
+            nev=1, force_convergence=false)
+        @test r0 isa ForceConvergenceResult
+        @test r0.iterations == 1
+        @test !r0.converged
+        @test r0.grid === r0.grid_history[end]
+        @test size(r0.grid) == (24, 16)
+        @test length(r0.neff_history) == 1
+        @test r0.neff ≈ r0.kmags ./ ωc
+        @test r0.neff[1] > 1.444                                   # genuinely guided
+        @test size(r0.ε⁻¹) == (3, 3, 24, 16)
+        @test size(r0.∂ε_∂ω) == (3, 3, 24, 16)
+        @test size(r0.∂²ε_∂ω²) == (3, 3, 24, 16)
+
+        # force_convergence=true ⇒ ramp until converged
+        r = solve_k_converged(ωc, shapes, mat_vals, minds, grid0, solver;
+            nev=1, force_convergence=true, force_convergence_settings=s)
+        @test r.converged                                          # converges before the cap
+        @test 2 <= r.iterations <= s.max_iterations
+        @test length(r.neff_history) == r.iterations
+        @test length(r.grid_history) == r.iterations
+        @test r.grid === r.grid_history[end]
+        @test r.neff === r.neff_history[end]
+        @test r.neff ≈ r.kmags ./ ωc
+        @test size(r.ε⁻¹) == (3, 3, size(r.grid)...)               # dielectric on final grid
+
+        # every iteration strictly increases BOTH the boundary distance (Δ/2) and the
+        # spatial point density (points/μm²), by ≈ the configured ramp factors (the density
+        # ratio carries some slack from rounding the point counts to even integers)
+        density(g) = length(g) / (g.Δx * g.Δy)
+        for i in 2:r.iterations
+            gp, g = r.grid_history[i-1], r.grid_history[i]
+            @test g.Δx > gp.Δx && g.Δy > gp.Δy
+            @test g.Δx / gp.Δx ≈ s.boundary_ramp rtol = 1e-12      # boundary ramp exact
+            @test g.Δy / gp.Δy ≈ s.boundary_ramp rtol = 1e-12
+            @test density(g) > density(gp)
+            @test density(g) / density(gp) ≈ s.resolution_ramp rtol = 0.15  # ≈ density ramp
+        end
+
+        # the convergence criterion actually holds on the final step (abs OR rel)
+        Δ = abs(r.neff_history[end][1] - r.neff_history[end-1][1])
+        @test Δ < s.atol || Δ < s.rtol * abs(r.neff_history[end-1][1])
+
+        # the more-refined result differs from the initial coarse solve; the iteration
+        # count and convergence status are recoverable from the output grid size alone (it
+        # is strictly larger than the input grid)
+        @test prod(size(r.grid)) > prod(size(grid0))
+        @test r.neff[1] != r0.neff[1]
+
+        # an unsatisfiable tolerance (atol = rtol = 0) runs the full iteration budget and
+        # reports non-convergence rather than stopping early
+        s_strict = ForceConvergenceSettings(; rtol=0.0, atol=0.0, resolution_ramp=1.3,
+            boundary_ramp=1.15, max_iterations=3)
+        r_cap = solve_k_converged(ωc, shapes, mat_vals, minds, grid0, solver;
+            nev=1, force_convergence=true, force_convergence_settings=s_strict)
+        @test !r_cap.converged
+        @test r_cap.iterations == s_strict.max_iterations
+
+        # multiple bands: convergence requires ALL requested bands to settle, and the
+        # per-iteration histories carry one effective index per band
+        r2 = solve_k_converged(ωc, shapes, mat_vals, minds, grid0, solver;
+            nev=2, force_convergence=true,
+            force_convergence_settings=ForceConvergenceSettings(; rtol=3e-3, atol=1e-5,
+                resolution_ramp=1.4, boundary_ramp=1.2, max_iterations=4))
+        @test all(length(nh) == 2 for nh in r2.neff_history)
+        @test issorted(r2.neff; rev=true)                          # bands ordered by |k|
     end
 end
