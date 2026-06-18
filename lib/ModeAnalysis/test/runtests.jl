@@ -40,6 +40,51 @@ function gaussian_wg_eps_dispersive(ω, grid::Grid{2})
     return eps, deps, ddeps
 end
 
+"""
+Rectangular (optionally anisotropic, diagonal) core dielectric built analytically: a
+`w × h` μm core of principal refractive indices `(nx, ny, nz)` in an isotropic cladding
+of index `nclad`, returned as a `(3, 3, Nx, Ny)` ε array. Used to exercise the
+Hermite–Gaussian mode classifier on Si₃N₄- and LiNbO₃-like multimode waveguides without
+pulling in the material-dispersion / geometry-smoothing machinery.
+"""
+function rect_wg_eps(grid::Grid, w, h, nx, ny, nz, nclad)
+    Nx, Ny = size(grid)
+    eps = zeros(3, 3, Nx, Ny)
+    for (iy, yy) in enumerate(y(grid)), (ix, xx) in enumerate(x(grid))
+        inside = (abs(xx) <= w / 2) && (abs(yy) <= h / 2)
+        eps[1, 1, ix, iy] = (inside ? nx : nclad)^2
+        eps[2, 2, ix, iy] = (inside ? ny : nclad)^2
+        eps[3, 3, ix, iy] = (inside ? nz : nclad)^2
+    end
+    return eps
+end
+
+"""
+Solve the lowest `nev` modes of `eps` at `ω` and label every *guided* mode
+(``n_eff > n_clad``) two ways: the node-counting classifier (`count_E_nodes`, whose raw
+count is twice the Hermite–Gaussian order — each zero crossing flips the field sign) and
+the Hermite–Gaussian fit classifier (`hg_mode_label`). Returns a vector of NamedTuples
+`(neff, old=(pol,m,n), new=(pol,m,n), relerr, te_frac, label)`.
+"""
+function guided_mode_labels(eps, grid, ω, nclad; nev=8, max_order=4)
+    epsi = sliceinv_3x3(copy(eps))
+    km, ev = solve_k(ω, copy(epsi), grid, KrylovKitEigsolve(); nev=nev, k_tol=1e-11, eig_tol=1e-11)
+    out = NamedTuple[]
+    for i in eachindex(ev)
+        neff = km[i] / ω
+        neff > nclad + 1e-3 || continue
+        E = E⃗(km[i], copy(ev[i]), epsi, epsi, grid; canonicalize=true, normalized=false)
+        En = E ./ ModeAnalysis.Eperp_max(E)
+        pol = argmax(E_relpower_xyz(eps, En))
+        nodes = count_E_nodes(En, eps, pol; rel_amp_min=0.1)
+        old = (pol == 1 ? :TE : :TM, Int(nodes[1]) ÷ 2, Int(nodes[2]) ÷ 2)
+        nw = hg_mode_label(E, grid; max_order)
+        push!(out, (neff=neff, old=old, new=(nw.pol, nw.m, nw.n),
+            relerr=nw.rel_error, te_frac=nw.te_frac, label=nw.label))
+    end
+    return out
+end
+
 const grid = Grid(6.0, 4.0, 16, 16)
 const ω0 = 1 / 1.55
 const solver = KrylovKitEigsolve()
@@ -209,5 +254,68 @@ end
         ng0 = group_index(k0, ev0, ω0, epsi0, deps0, grid)
         E0n = E0 ./ ModeAnalysis.Eperp_max(E0)
         @test 0 < 𝓐(neff, ng0, E0n)
+    end
+
+    # Alternative mode-classification scheme: instead of node-counting, label a mode by
+    # which elliptical Hermite–Gaussian template (order (m,n), polarization TE/TM) best
+    # fits its transverse field in a least-squares sense (`hg_mode_label`). This is
+    # threshold-free and returns a quantitative goodness-of-fit (`rel_error`). The tests
+    # below verify (i) the Hermite-polynomial primitive, (ii) exact recovery of synthetic
+    # Hermite–Gaussian fields, and (iii) agreement with the node-counting classifier on
+    # the guided modes of Si₃N₄- and LiNbO₃-core multimode waveguides.
+    @testset "Hermite–Gaussian mode labeling" begin
+        # (i) physicist's Hermite polynomials Hₙ(x): H₀=1, H₁=2x, H₂=4x²−2, H₃=8x³−12x
+        @test hermite_H(0, 0.3) == 1.0
+        @test hermite_H(1, 0.3) ≈ 0.6
+        @test hermite_H(2, 0.3) ≈ 4 * 0.09 - 2
+        @test hermite_H(3, 0.3) ≈ 8 * 0.027 - 12 * 0.3
+        @test hermite_H(2, [0.0, 1.0]) ≈ [-2.0, 2.0]   # broadcastable form
+        @test hg_label_string(:TE, 0, 0) == "TE₀₀"
+        @test hg_label_string(:TM, 2, 1) == "TM₂₁"
+
+        # (ii) synthetic recovery: an exact elliptical Hermite–Gaussian placed in one
+        # transverse polarization (plus a small π/2-shifted longitudinal component) must
+        # be labeled with its true polarization and order at near-zero residual.
+        gsyn = Grid(8.0, 6.0, 80, 60)
+        xs, ys = x(gsyn), y(gsyn)
+        for (mt, nt, pol) in [(0, 0, 1), (1, 0, 1), (2, 1, 1), (0, 2, 2), (3, 0, 2)]
+            ψ = hg_template(mt, nt, xs, ys, 0.2, -0.1, 1.3, 1.0)
+            E = zeros(ComplexF64, 3, 80, 60)
+            E[pol, :, :] .= ψ
+            E[3, :, :] .= 0.03im .* ψ
+            lbl = hg_mode_label(E, gsyn; max_order=4)
+            @test lbl.pol == (pol == 1 ? :TE : :TM)
+            @test (lbl.m, lbl.n) == (mt, nt)
+            @test lbl.rel_error < 0.02
+            # the analytic centroid/width seed is recovered by the fit
+            @test isapprox(lbl.fit.x₀, 0.2; atol=0.05)
+            @test isapprox(lbl.fit.y₀, -0.1; atol=0.05)
+        end
+
+        # (iii) Si₃N₄ multimode waveguide: 2.5 × 0.7 μm, n_core = 2.0, n_clad = 1.444.
+        gSi = Grid(7.0, 4.0, 112, 64)
+        epsSi = rect_wg_eps(gSi, 2.5, 0.7, 2.0, 2.0, 2.0, 1.444)
+        labsSi = guided_mode_labels(epsSi, gSi, ω0, 1.444; nev=8)
+        @test length(labsSi) >= 6                                  # genuinely multimode
+        labelset_Si = Set(l.new for l in labsSi)
+        @test (:TE, 0, 0) in labelset_Si                           # quasi-TE₀₀ guided
+        @test (:TM, 0, 0) in labelset_Si                           # quasi-TM₀₀ guided
+        # HG-fit labels match the (factor-of-two-corrected) node-counting labels exactly
+        @test all(l.old == l.new for l in labsSi)
+        # the fundamental is an excellent Hermite–Gaussian; te_frac cleanly splits TE/TM
+        @test labsSi[1].relerr < 0.05
+        @test all(l.new[1] == :TE ? l.te_frac > 0.8 : l.te_frac < 0.2 for l in labsSi)
+
+        # (iii) x-cut LiNbO₃-like ridge: anisotropic core nₑ = 2.14 ∥ x, nₒ = 2.21 ∥ y,z,
+        # 1.4 × 0.6 μm, n_clad = 1.444 — quasi-TE sees nₑ, quasi-TM sees nₒ.
+        gLN = Grid(7.0, 4.0, 112, 64)
+        epsLN = rect_wg_eps(gLN, 1.4, 0.6, 2.14, 2.21, 2.21, 1.444)
+        labsLN = guided_mode_labels(epsLN, gLN, ω0, 1.444; nev=8)
+        @test length(labsLN) >= 4
+        labelset_LN = Set(l.new for l in labsLN)
+        @test (:TE, 0, 0) in labelset_LN
+        @test (:TM, 0, 0) in labelset_LN
+        @test all(l.old == l.new for l in labsLN)
+        @test all(l.new[1] == :TE ? l.te_frac > 0.8 : l.te_frac < 0.2 for l in labsLN)
     end
 end

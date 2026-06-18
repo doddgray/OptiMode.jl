@@ -80,6 +80,43 @@ validates $n_\text{eff}$, $n_g$, GVD and a field functional against finite diffe
   robust mode tracking through crossings in parameter sweeps.
 - `𝓐(n, ng, E)`: effective area from the energy-normalized field.
 
+### Hermite–Gaussian fit classifier (`hg_mode_label`)
+
+`hg_mode_label(E, grid; max_order)` is an alternative, threshold-free labeling scheme.
+Instead of counting nodes it models the dominant transverse field as a single elliptical
+Hermite–Gaussian
+
+$$
+\psi_{mn}(x,y) = H_m\!\Big(\tfrac{\sqrt2\,(x-x_0)}{w_x}\Big)\,
+                 H_n\!\Big(\tfrac{\sqrt2\,(y-y_0)}{w_y}\Big)\,
+                 \exp\!\Big[-\tfrac{(x-x_0)^2}{w_x^2}-\tfrac{(y-y_0)^2}{w_y^2}\Big],
+$$
+
+and, for every order $(m,n)$ up to `max_order` and both transverse polarizations
+($x\!\to$ TE, $y\!\to$ TM), optimizes the four shape parameters $(x_0,y_0,w_x,w_y)$ to
+minimize the squared error against the mode field (the amplitude is eliminated by linear
+projection; the shape is seeded at the field's intensity centroid with matched transverse
+variances). The mode is labeled by the polarization/order of the lowest-residual fit:
+
+```julia
+using ModeAnalysis: hg_mode_label
+E   = E⃗(k, copy(ev), ε⁻¹, ∂ε_∂ω, grid; canonicalize=true, normalized=true)
+lbl = hg_mode_label(E, grid; max_order=4)
+lbl.label      # e.g. "TE₂₀"
+lbl.pol, lbl.m, lbl.n   # (:TE, 2, 0)
+lbl.rel_error  # normalized squared misfit ∈ [0,1] — a quantitative goodness-of-fit
+lbl.te_frac    # fraction of transverse power in Ex (TE-ness)
+```
+
+Unlike node counting it needs no amplitude threshold, returns a continuous fit-quality
+metric, and discriminates polarization by penalizing cross-polarized power. On Si₃N₄- and
+x-cut-LiNbO₃-core multimode waveguides it reproduces the (node-count ÷ 2) labels of the
+original classifier on every guided mode while adding `rel_error`/`te_frac`; see the
+`Hermite–Gaussian mode labeling` testset in `test/runtests.jl` and
+[`examples/hermite_gaussian_mode_labeling.jl`](../examples/hermite_gaussian_mode_labeling.jl).
+(`count_E_nodes` returns Σ|Δ sign|, i.e. *twice* the Hermite–Gaussian order, since each
+zero crossing flips the field sign.)
+
 ## Kerr nonlinearity: power-dependent modes
 
 With per-material Kerr coefficients $n_2$ (μm²/W, from
@@ -151,7 +188,8 @@ dng_dω = Zygote.gradient(om -> group_index(k, ev, om, ε⁻¹, ∂ε_∂ω, gri
 |---|---|
 | `group_index` | $n_g$ from one mode solution (Hellmann–Feynman) |
 | `ng_gvd`, `ng_gvd_E` | $n_g$ + GVD via one adjoint solve (+ E-field) |
-| `E_relpower_xyz`, `count_E_nodes`, `mode_viable`, `mode_idx` | polarization & mode-order classification |
+| `E_relpower_xyz`, `count_E_nodes`, `mode_viable`, `mode_idx` | polarization & mode-order classification (node counting) |
+| `hg_mode_label`, `hg_fit_residuals`, `fit_hg_order`, `hermite_H` | polarization & mode-order classification (Hermite–Gaussian fit) |
 | `𝓐` / `effective_area`, `Eperp_max` | effective area |
 | `poynting_z`, `mode_intensity` | power-normalized intensity profiles |
 | `kerr_dielectric_perturbation`, `solve_k_kerr` | first-order Kerr (n₂) corrections |
