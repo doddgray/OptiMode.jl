@@ -36,6 +36,21 @@ using FiniteDifferences
     deps_dom = copy(selectdim(sm, 3, 2))
     ng = group_index(kmags[1], evecs[1], ω, epsi, deps_dom, grid)
     @test kmags[1] / ω < ng < 3.0
+
+    # EigenmodeExpansion re-export + GDS round-trip (no eigensolve, keep it light)
+    @test OptiMode.eme_smatrix isa Function
+    pts = [0.0 4.0 4.0 0.0; 0.25 0.25 -0.25 -0.25]
+    gpath = tempname() * ".gds"
+    write_gds(gpath, [GDSPolygon(1, 0, pts)])
+    layout = read_gds(gpath)
+    @test length(layout.polygons) == 1
+    @test isapprox(layout.polygons[1].verts, pts; atol=2e-3)
+    stack = LayerStack(layers=[Layer(gds_layer=1, zmin=0.0, zmax=0.3, material=1, patterned=true)],
+        materials=Any[Si₃N₄, SiO₂], background=2, prop_axis=:x)
+    structure = Structure(layout, stack; transverse_pad=1.0, vertical_pad=0.8)
+    cells = build_cells(structure; num_cells=3)
+    @test length(cells) == 3
+    @test cross_section_at(structure, 2.0).minds == [1, 2]   # one core + background
 end
 
 # Sensitivities of the mode quantities (effective index, group index, GVD, mode field)

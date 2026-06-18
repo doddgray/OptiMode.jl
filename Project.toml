@@ -5,6 +5,7 @@ version = "0.2.0"
 
 [deps]
 DielectricSmoothing = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
+EigenmodeExpansion = "33b89796-963f-490a-b351-507591726d28"
 MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
 MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
 ModeAnalysis = "9a3c1c2f-0c6b-44f1-b8a4-8f3e2c7d9b54"
@@ -13,6 +14,7 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [sources]
 DielectricSmoothing = {path = "lib/DielectricSmoothing"}
+EigenmodeExpansion = {path = "lib/EigenmodeExpansion"}
 GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl", rev = "master"}
 MaterialDispersion = {path = "lib/MaterialDispersion"}
 MaxwellEigenmodes = {path = "lib/MaxwellEigenmodes"}
