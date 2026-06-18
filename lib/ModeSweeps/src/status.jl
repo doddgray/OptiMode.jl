@@ -39,13 +39,14 @@ function batch_status(batch::BatchInfo; verbose::Bool=true)
 end
 
 "fetch per-task summaries & markers from the remote cluster (ssh mode only)"
-function _maybe_fetch_markers!(batch::BatchInfo; fields::Bool=false)
+function _maybe_fetch_markers!(batch::BatchInfo; fields::Bool=false, plots::Bool=true)
     ssh = get(batch.manifest, "ssh", "")
     isempty(ssh) && return nothing
     remote = get(batch.manifest, "remote_dir", "")
     isempty(remote) && return nothing
     incl = ["--include=*.json", "--include=*.done", "--include=*.failed"]
-    fields && push!(incl, "--include=*.h5")
+    plots && push!(incl, "--include=*.png")     # annotated mode-field images (small)
+    fields && push!(incl, "--include=*.h5")     # full field data (large; on demand)
     cmd = Cmd(vcat(["rsync", "-a"], incl,
         ["--exclude=*", "$ssh:$remote/tasks/", joinpath(batch.dir, "tasks") * "/"]))
     try
@@ -54,6 +55,33 @@ function _maybe_fetch_markers!(batch::BatchInfo; fields::Bool=false)
         @warn "could not sync task results from $ssh:$remote" exception = err
     end
     return nothing
+end
+
+"""
+    wait_batch(batch; timeout=Inf, poll=10, verbose=true) -> NamedTuple
+
+Block until every task of `batch` has finished (`done` + `failed` == `total`) or
+`timeout` seconds elapse, polling the batch markers every `poll` seconds (in ssh mode
+each poll first rsyncs the markers from the cluster). Returns the final
+[`batch_status`](@ref). This is the synchronous counterpart to the otherwise
+asynchronous [`deploy_batch`](@ref); `deploy_batch(...; blocking=true)` calls it for you.
+
+Works from any Julia session at any time — e.g. reconnect to a long-running batch with
+`wait_batch(load_batch(dir))`.
+"""
+function wait_batch(batch::BatchInfo; timeout::Real=Inf, poll::Real=10, verbose::Bool=true)
+    t0 = time()
+    st = batch_status(batch; verbose=false)
+    while st.pending > 0 && (time() - t0) < timeout
+        sleep(poll)
+        st = batch_status(batch; verbose=false)
+    end
+    if verbose
+        msg = st.pending > 0 ? "timed out" : "complete"
+        @info "wait_batch: batch \"$(get(batch.manifest, "name", "?"))\" $msg — " *
+              "$(st.done)/$(st.total) done, $(st.failed) failed, $(st.pending) pending"
+    end
+    return st
 end
 
 "squeue lines for the batch's array job, or `nothing` when not applicable/available"

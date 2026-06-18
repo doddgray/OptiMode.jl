@@ -132,7 +132,15 @@ Keyword options:
 - `nev=1`: number of bands per task.
 - `save_fields=false`: when `true`, workers additionally store full mode-field data
   (eigenvectors and E-fields) per task in HDF5; when `false` only the lightweight
-  summary (effective & group index, GVD, effective area, polarization) is produced.
+  summary (effective & group index, GVD, effective area, polarization, mode label,
+  timing, host) is produced.
+- `save_plots=false`: when `true`, workers render one annotated PNG per band (false-
+  colour `|Eₓ|,|E_y|,|E_z|` panels topped with the per-band summary) into `tasks/` and
+  (in ssh mode) transfer them back. Works regardless of `save_fields`.
+- `mode_labels=true`: classify every mode by a Hermite–Gaussian fit (TE/TM polarization
+  + transverse order, e.g. `TE₀₀`); adds `label`/`mode_pol`/`mode_m`/`mode_n`/
+  `hg_rel_error`/`te_frac` to the summary. Set `false` to skip the (small) fit cost.
+- `label_max_order=4`: maximum Hermite–Gaussian order tried by the mode classifier.
 - `solver="KrylovKitEigsolve()"`: an expression string constructing the eigensolver on
   the worker (e.g. `"GPUSolver(Float32)"` for the CUDA backend).
 - `solver_kwargs=(;)`: keyword arguments forwarded to `solve_k` (e.g. `k_tol`).
@@ -143,11 +151,20 @@ Keyword options:
 - `slurm=SlurmConfig()`: SLURM/worker configuration (also supplies the worker `julia`
   and project for the `:local` backend).
 - `submit=true`: set `false` for a dry run (alias for `backend=:none`).
+- `blocking=false`: when `true`, the call blocks until every task has finished (or
+  failed), polling the batch markers, before returning — turning the otherwise
+  asynchronous deployment into a synchronous one (see also [`wait_batch`](@ref)).
+- `kind="solve"`: task kind (`"solve"`, `"forward"`, `"backward"`); see the AD helpers
+  [`deploy_forward`](@ref)/[`deploy_backward`](@ref). Most users leave this default.
+- `prepare`: optional `prepare(batch)` callback run after the batch directory is written
+  but before submission (used internally by the AD helpers to stage extra inputs).
 """
 function deploy_batch(setup_file::AbstractString, params; name::AbstractString="",
-    dir::AbstractString="", nev::Int=1, save_fields::Bool=false,
+    dir::AbstractString="", nev::Int=1, save_fields::Bool=false, save_plots::Bool=false,
+    mode_labels::Bool=true, label_max_order::Int=4,
     solver::AbstractString="KrylovKitEigsolve()", solver_kwargs::NamedTuple=(;),
-    backend::Symbol=:slurm, slurm::SlurmConfig=SlurmConfig(), submit::Bool=true)
+    backend::Symbol=:slurm, slurm::SlurmConfig=SlurmConfig(), submit::Bool=true,
+    blocking::Bool=false, kind::AbstractString="solve", prepare=nothing)
 
     params_v = _normalize_params(params)
     isempty(params_v) && throw(ArgumentError("empty parameter list"))
@@ -171,9 +188,13 @@ function deploy_batch(setup_file::AbstractString, params; name::AbstractString="
     manifest = Dict{String,Any}(
         "name" => name,
         "created" => string(now()),
+        "kind" => String(kind),
         "n_tasks" => length(params_v),
         "nev" => nev,
         "save_fields" => save_fields,
+        "save_plots" => save_plots,
+        "mode_labels" => mode_labels,
+        "label_max_order" => label_max_order,
         "solver" => String(solver),
         "solver_kwargs" => Dict(String(k) => v for (k, v) in pairs(solver_kwargs)),
         "backend" => String(backend),
@@ -188,6 +209,7 @@ function deploy_batch(setup_file::AbstractString, params; name::AbstractString="
     _write_manifest(dir, manifest)
 
     batch = BatchInfo(dir, manifest, params_v)
+    prepare === nothing || prepare(batch)   # stage extra inputs before submission
     if backend === :slurm
         _submit_slurm!(batch, slurm)
     elseif backend === :local
@@ -197,6 +219,7 @@ function deploy_batch(setup_file::AbstractString, params; name::AbstractString="
     else
         throw(ArgumentError("unknown backend :$backend (expected :slurm, :local or :none)"))
     end
+    blocking && backend !== :none && wait_batch(batch)
     return batch
 end
 
@@ -289,15 +312,18 @@ scalars are held fixed and passed through to every task.
     frequency_sweep("my_setup.jl"; ω = 0.55:0.005:0.75, w_top = [1.4, 1.7], T = 30.0,
                     nev = 2, backend = :slurm, slurm = SlurmConfig(time="0:30:00"))
 
-Deployment options (`nev`, `save_fields`, `solver`, `solver_kwargs`, `backend`,
-`slurm`, `name`, `dir`, `submit`) are split off automatically; all other keywords
-become sweep parameters.
+Deployment options (`nev`, `save_fields`, `save_plots`, `mode_labels`,
+`label_max_order`, `solver`, `solver_kwargs`, `backend`, `slurm`, `name`, `dir`,
+`submit`, `blocking`) are split off automatically; all other keywords become sweep
+parameters.
 """
 function frequency_sweep(setup_file::AbstractString; ω, name::AbstractString="freq_sweep",
-    dir::AbstractString="", nev::Int=1, save_fields::Bool=false,
+    dir::AbstractString="", nev::Int=1, save_fields::Bool=false, save_plots::Bool=false,
+    mode_labels::Bool=true, label_max_order::Int=4,
     solver::AbstractString="KrylovKitEigsolve()", solver_kwargs::NamedTuple=(;),
-    backend::Symbol=:slurm, slurm::SlurmConfig=SlurmConfig(), submit::Bool=true, params...)
+    backend::Symbol=:slurm, slurm::SlurmConfig=SlurmConfig(), submit::Bool=true,
+    blocking::Bool=false, params...)
     grid_params = param_grid(; ω=ω, params...)
-    return deploy_batch(setup_file, grid_params; name, dir, nev, save_fields, solver,
-        solver_kwargs, backend, slurm, submit)
+    return deploy_batch(setup_file, grid_params; name, dir, nev, save_fields, save_plots,
+        mode_labels, label_max_order, solver, solver_kwargs, backend, slurm, submit, blocking)
 end

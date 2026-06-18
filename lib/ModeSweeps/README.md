@@ -1,9 +1,29 @@
 # ModeSweeps.jl
 
-Batched, asynchronous deployment of OptiMode mode simulations — parameter sweeps run
-as SLURM array jobs on a cluster with the same packages installed (or as local
-background processes), with persistent batch state, live status, partial gathering,
-and tabular result I/O.
+Batched, **blocking or asynchronous** deployment of OptiMode mode simulations on a
+remote SLURM cluster (or local background processes) — parameter sweeps run as SLURM
+array jobs, with persistent batch state, live status, partial gathering across Julia
+sessions and machines, rsync data transfer, and tabular result I/O. It also renders
+**annotated PNG mode-field images** on the worker, and supports **remote automatic
+differentiation** (forward & adjoint passes as separate SLURM tasks).
+
+Highlights:
+
+- **Lightweight summaries or full data.** Every batch produces a tabular summary
+  (effective/group index, GVD, effective area, polarization, mode-character label,
+  run time, host, …) computed on the worker; `save_fields=true` additionally keeps the
+  full eigenvectors + E-fields (HDF5).
+- **Annotated field PNGs** (`save_plots=true`) rendered on the worker — dependency-free,
+  so they work on any headless node — and transferred back in either case.
+- **Blocking or async.** `blocking=true` (or `wait_batch`) waits for completion; the
+  default returns immediately and you monitor/gather later from any session.
+- **Remote AD.** `deploy_forward`/`deploy_backward` run the mode solver and its adjoint
+  as different SLURM tasks, exchanging state on the shared filesystem.
+- **rsync transfer** of summaries, PNGs, and (on demand) field/AD data in ssh mode.
+
+Full walkthroughs: [`docs/mode_sweeps.md`](../../docs/mode_sweeps.md),
+[`examples/remote_mode_solve.jl`](../../examples/remote_mode_solve.jl), and
+[`examples/remote_adjoint_optimization.jl`](../../examples/remote_adjoint_optimization.jl).
 
 ## Quick start
 
@@ -21,29 +41,47 @@ batch = frequency_sweep("ridge_wg_setup.jl";
     T      = 35.0,                     # fixed material parameter
     nev    = 2,
     save_fields = false,               # summary-only transfer (set true for full fields)
+    save_plots  = true,                # annotated PNG per mode field, transferred back
+    blocking    = false,               # async (default); blocking=true waits for completion
     solver = "KrylovKitEigsolve()",    # or e.g. "GPUSolver(Float32)"
-    slurm  = SlurmConfig(time="0:30:00", partition="general", max_concurrent=50))
+    slurm  = SlurmConfig(time="0:30:00", partition="general", max_concurrent=50,
+                         ssh="me@cluster", remote_dir="/scratch/me/sw1"))  # rsync transfer
 
 # … or with explicit parameter sets / Cartesian grids:
 batch = deploy_batch("ridge_wg_setup.jl", param_grid(ω=ωs, w_top=ws); nev=2)
 batch = deploy_batch("ridge_wg_setup.jl", [(; ω=0.64, w_top=1.7), (; ω=0.66, w_top=1.4)])
 
-# 3. anytime, in any Julia session:
-batch = load_batch("modesweeps_freq_sweep")     # state persisted at deployment
+# 3. anytime, in any Julia session / on any machine:
+batch = load_batch("/scratch/me/sw1")           # state persisted at deployment
 batch_status(batch)                             # done/failed/pending + squeue info
+wait_batch(batch)                               # (optional) block until complete
 rows  = gather_batch(batch)                     # partial results OK while running;
-                                                # writes summary.{csv,tsv,json}
-rows  = load_summary("modesweeps_freq_sweep/summary.csv")  # reload for analysis
+                                                # rsyncs summaries+PNGs, writes summary.{csv,tsv,json}
+rows  = load_summary("/scratch/me/sw1/summary.csv")   # reload for analysis
 
-# full mode-field data (batches deployed with save_fields=true)
-fd = load_fields(batch, 7)                      # (; ω, kmags, evecs, Es, …)
+fd  = load_fields(batch, 7)                     # full fields (save_fields=true): (; ω, kmags, evecs, Es, …)
+png = plot_paths(batch, 7)                       # annotated PNGs (save_plots=true), one per band
 ```
 
 Each summary row holds the swept parameters plus, per band: wavenumber `kmag`,
 effective index `neff`, group index `ng`, group velocity dispersion `gvd`, effective
-area `Aeff`, polarization fractions `pol_x`/`pol_y`/`pol_z` with the dominant
-`pol_axis`, and the Kerr columns `dneff_kerr`/`dn_max` (zero for linear solves). Rows
-are Tables.jl-compatible (`DataFrame(rows)` just works).
+area `Aeff`, polarization fractions `pol_x`/`pol_y`/`pol_z` (+ dominant `pol_axis`),
+the mode-character label (`label`/`mode_pol`/`mode_m`/`mode_n`/`hg_rel_error`/`te_frac`),
+the Kerr columns `dneff_kerr`/`dn_max` (zero for linear solves), and execution metadata
+(`host`, `runtime_s`, `started`, `finished`, `slurm_job`, `slurm_task`). Rows are
+Tables.jl-compatible (`DataFrame(rows)` just works).
+
+**Remote automatic differentiation.** Run the mode solver and its adjoint as separate
+SLURM tasks that exchange state on the shared filesystem:
+
+```julia
+fwd = deploy_forward("ridge_wg_setup.jl", [(; ω=1/1.55, w_top=1.7)]; nev=1, blocking=true)
+sol = forward_solution(fwd)                                  # primal: (; ω, kmags, evecs, ε⁻¹, …)
+bwd = deploy_backward(fwd, [(; k̄=[1/sol.ω])]; blocking=true) # objective L = neff = kmag/ω
+g   = gradient_result(bwd)                                   # (; ω_bar, ε⁻¹_bar) = ∂L/∂(ω, ε⁻¹)
+# …or both passes in one blocking call:
+r   = remote_value_and_gradient("ridge_wg_setup.jl", (; ω=1/1.55, w_top=1.7), [1/(1/1.55)]; nev=1)
+```
 
 **Kerr power sweeps**: if `make_problem` returns an `n₂` map (μm²/W, e.g. from
 `DielectricSmoothing.smooth_scalar` + `MaterialDispersion.kerr_n2`), any parameter set

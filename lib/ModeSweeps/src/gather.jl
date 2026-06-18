@@ -4,17 +4,27 @@
 
 const _SUMMARY_COLS = (:kmag, :neff, :ng, :gvd, :Aeff, :pol_x, :pol_y, :pol_z, :pol_axis)
 
+# safe typed accessors for JSON3 objects (older batches may lack the newer keys)
+_gs(o, k, d) = haskey(o, k) && o[k] !== nothing ? String(o[k]) : d
+_gf(o, k, d) = haskey(o, k) && o[k] !== nothing ? Float64(o[k]) : d
+_gi(o, k, d) = haskey(o, k) && o[k] !== nothing ? Int(o[k]) : d
+
 """
-    gather_batch(batch; partial=true, save=true, formats=(:csv,:tsv,:json), fetch_fields=false)
+    gather_batch(batch; partial=true, save=true, formats=(:csv,:tsv,:json),
+                 fetch_fields=false, fetch_plots=true)
 
 Collect the results of a deployed batch into a flat summary table: a
 `Vector{NamedTuple}` (a Tables.jl row table — pass it to `DataFrame`, `CSV.write`, …)
 with one row per task × band, containing the swept parameters, `task`, `band`,
-`status`, and the summary quantities `kmag`, `neff` (effective index), `ng` (group
-index), `gvd`, `Aeff` (effective area) and the polarization fractions
-`pol_x`/`pol_y`/`pol_z` (+ dominant `pol_axis`), plus the Kerr columns `dneff_kerr`
-(power-dependent effective-index shift) and `dn_max` (peak index perturbation) for
-power-corrected solves (zero for linear solves).
+`status`, and the summary quantities:
+
+- `kmag`, `neff` (effective index), `ng` (group index), `gvd`, `Aeff` (effective area),
+  the polarization fractions `pol_x`/`pol_y`/`pol_z` (+ dominant `pol_axis`);
+- the mode-character columns `label` (e.g. `"TE₀₀"`), `mode_pol` (`"TE"`/`"TM"`),
+  `mode_m`/`mode_n` (transverse orders), `hg_rel_error` (fit goodness) and `te_frac`;
+- the Kerr columns `dneff_kerr` and `dn_max` (zero for linear solves);
+- the execution metadata `host`/`runtime_s`/`started`/`finished` and the SLURM
+  `slurm_job`/`slurm_task` ids (all computed on the worker).
 
 - `partial=true`: gather whatever is finished so far (works while the batch is still
   running); rows for unfinished tasks are omitted and failed tasks get a row per band
@@ -24,13 +34,15 @@ power-corrected solves (zero for linear solves).
   `formats` (supported: `:csv`, `:tsv`, `:json`); reload with [`load_summary`](@ref).
 - `fetch_fields=true`: in ssh mode, also transfer the (large) per-task HDF5 field
   files from the cluster, not just the summaries.
+- `fetch_plots=true`: in ssh mode, also transfer the per-band PNG images (small).
 
 Use [`load_fields`](@ref)`(batch, i)` for the full mode-field data of one task
-(batches deployed with `save_fields=true`).
+(batches deployed with `save_fields=true`) and [`plot_paths`](@ref)`(batch, i)` for the
+annotated PNGs (batches deployed with `save_plots=true`).
 """
 function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
-    formats=(:csv, :tsv, :json), fetch_fields::Bool=false)
-    _maybe_fetch_markers!(batch; fields=fetch_fields)
+    formats=(:csv, :tsv, :json), fetch_fields::Bool=false, fetch_plots::Bool=true)
+    _maybe_fetch_markers!(batch; fields=fetch_fields, plots=fetch_plots)
     st = batch_status(batch; verbose=false)
     if !partial && (st.done < st.total)
         error("batch incomplete ($(st.done)/$(st.total) done, $(st.failed) failed); " *
@@ -44,6 +56,10 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
         pvals = NamedTuple{pkeys}(Tuple(batch.params[i][k] for k in pkeys))
         if isfile(base * ".done") && isfile(base * ".json")
             summary = JSON3.read(read(base * ".json", String))
+            meta = (; host=_gs(summary, :node, _gs(summary, :host, "")),
+                runtime_s=_gf(summary, :runtime_s, NaN),
+                started=_gs(summary, :started, ""), finished=_gs(summary, :finished, ""),
+                slurm_job=_gs(summary, :slurm_job, ""), slurm_task=_gs(summary, :slurm_task, ""))
             for bd in summary.bands
                 push!(rows, merge((; task=i), pvals, (;
                     band=Int(bd.band), status="done",
@@ -51,9 +67,11 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
                     gvd=Float64(bd.gvd), Aeff=Float64(bd.Aeff),
                     pol_x=Float64(bd.pol_x), pol_y=Float64(bd.pol_y), pol_z=Float64(bd.pol_z),
                     pol_axis=Int(bd.pol_axis),
-                    dneff_kerr=haskey(bd, :dneff_kerr) ? Float64(bd.dneff_kerr) : 0.0,
-                    dn_max=haskey(bd, :dn_max) ? Float64(bd.dn_max) : 0.0,
-                )))
+                    label=_gs(bd, :label, ""), mode_pol=_gs(bd, :mode_pol, ""),
+                    mode_m=_gi(bd, :mode_m, 0), mode_n=_gi(bd, :mode_n, 0),
+                    hg_rel_error=_gf(bd, :hg_rel_error, NaN), te_frac=_gf(bd, :te_frac, NaN),
+                    dneff_kerr=_gf(bd, :dneff_kerr, 0.0), dn_max=_gf(bd, :dn_max, 0.0)),
+                    meta))
             end
         elseif isfile(base * ".failed")
             for b in 1:nev
@@ -61,8 +79,11 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
                     band=b, status="failed",
                     kmag=NaN, neff=NaN, ng=NaN, gvd=NaN, Aeff=NaN,
                     pol_x=NaN, pol_y=NaN, pol_z=NaN, pol_axis=0,
+                    label="", mode_pol="", mode_m=0, mode_n=0,
+                    hg_rel_error=NaN, te_frac=NaN,
                     dneff_kerr=NaN, dn_max=NaN,
-                )))
+                    host="", runtime_s=NaN, started="", finished="",
+                    slurm_job="", slurm_task="")))
             end
         end
     end
@@ -70,6 +91,23 @@ function gather_batch(batch::BatchInfo; partial::Bool=true, save::Bool=true,
         save_summary(rows, joinpath(batch.dir, "summary"); formats)
     end
     return rows
+end
+
+"""
+    plot_paths(batch, i) -> Vector{String}
+
+Paths of the annotated mode-field PNGs for task `i` (one per band), for batches deployed
+with `save_plots=true`. Returns only files that exist (in ssh mode, fetch them first
+with `gather_batch(batch; fetch_plots=true)`).
+"""
+function plot_paths(batch::BatchInfo, i::Int)
+    base = _task_base(batch, i)
+    paths = String[]
+    for b in 1:batch.manifest["nev"]::Int
+        p = base * "_b" * @sprintf("%02i", b) * ".png"
+        isfile(p) && push!(paths, p)
+    end
+    return paths
 end
 
 """
