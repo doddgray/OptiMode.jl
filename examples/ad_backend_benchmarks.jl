@@ -22,8 +22,11 @@ using DifferentiationInterface
 import DifferentiationInterface as DI
 
 const FD5 = central_fdm(5, 1)
-const REV   = AutoEnzyme(; mode = set_runtime_activity(Enzyme.Reverse))
-const FWD   = AutoEnzyme(; mode = set_runtime_activity(Enzyme.Forward))
+# function_annotation=Const: the benchmarked closures capture read-only arrays (ε⁻¹ fields,
+# eigenvectors) that Enzyme otherwise cannot prove are not mutated; runtime activity covers
+# mixed const/active memory in the composed pipelines.
+const REV   = AutoEnzyme(; mode = set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const)
+const FWD   = AutoEnzyme(; mode = set_runtime_activity(Enzyme.Forward), function_annotation = Enzyme.Const)
 solver = KrylovKitEigsolve()
 
 "Median wall time (s) of `f()` over `n` trials after one warm-up."
