@@ -9,6 +9,7 @@ import DifferentiationInterface as DI
 using Enzyme
 using Mooncake
 using Zygote
+using ForwardDiff
 
 # MPB-backend tests are opt-in: they need PythonCall plus the Python `meep`/`meep.mpb`
 # modules (e.g. conda-forge `pymeep` via CondaPkg). Enable with OPTIMODE_TEST_MPB=true.
@@ -111,13 +112,43 @@ const solver = KrylovKitEigsolve()
 
     @testset "solve_k gradients (Mooncake & Enzyme via bridged rules)" begin
         dk_dω_FD = FiniteDifferences.central_fdm(5, 1)(solve_k_ω, ω0)
+        # Reverse mode through the adjoint rrule (Mooncake, Enzyme) and forward mode through
+        # the frule (Enzyme forward). ForwardDiff cannot trace the FFTW/KrylovKit eigensolve,
+        # so the forward-mode companion is provided exclusively by the frule bridged to Enzyme.
         for (name, backend) in (
             ("Mooncake(reverse)", AutoMooncake(; config=nothing)),
             ("Enzyme(reverse)", AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const)),
+            ("Enzyme(forward)", AutoEnzyme(; mode=Enzyme.Forward)),
         )
             @testset "$name" begin
                 g = DI.derivative(solve_k_ω, backend, ω0)
                 @test g ≈ dk_dω_FD rtol = 1e-4
+            end
+        end
+    end
+
+    @testset "sliceinv_3x3 AD rules (ε ⇄ ε⁻¹)" begin
+        # Pointwise 3×3 tensor-field inverse on the path geometry/material → ε⁻¹ → solve_k.
+        # Closed-form forward/reverse rules (grads/linalg.jl) bypass the `Threads.@threads`
+        # kernel that native Enzyme reverse cannot trace. Validate every backend against FD.
+        A = zeros(3, 3, size(grid)...)
+        for j in axes(A, 4), i in axes(A, 3)
+            A[:, :, i, j] .= [2.0 + 0.1i 0.05 0.0; 0.05 2.3 0.0; 0.0 0.0 2.1]
+        end
+        finv = a -> sum(abs2, sliceinv_3x3(a))
+        # directional derivative reference (the gradient is a full tensor field)
+        dir = randn(size(A)); dir .= (dir .+ permutedims(dir, (2, 1, 3, 4))) ./ 2
+        dFD = FiniteDifferences.central_fdm(5, 1)(t -> finv(A .+ t .* dir), 0.0)
+        for (name, backend) in (
+            ("ForwardDiff", AutoForwardDiff()),
+            ("Zygote", AutoZygote()),
+            ("Mooncake", AutoMooncake(; config=nothing)),
+            ("Enzyme(reverse)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Reverse))),
+            ("Enzyme(forward)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Forward))),
+        )
+            @testset "$name" begin
+                g = DI.gradient(finv, backend, A)
+                @test dot(g, dir) ≈ dFD rtol = 1e-5
             end
         end
     end

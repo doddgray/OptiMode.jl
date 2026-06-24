@@ -167,6 +167,14 @@ end
         @test DI.derivative(f_ω, AutoForwardDiff(), ω0) ≈ dng_dω_FD rtol = 1e-5
         @test DI.derivative(f_k, AutoForwardDiff(), k0) ≈ dng_dk_FD rtol = 1e-5
 
+        # Enzyme forward mode via the bridged frule (Enzyme cannot build FFTW plans itself,
+        # so the frule computes the JVP with ForwardDiff's AbstractFFTs extension)
+        @testset "Enzyme(forward)" begin
+            efwd = AutoEnzyme(; mode=set_runtime_activity(Enzyme.Forward))
+            @test DI.derivative(f_ω, efwd, ω0) ≈ dng_dω_FD rtol = 1e-5
+            @test DI.derivative(f_k, efwd, k0) ≈ dng_dk_FD rtol = 1e-5
+        end
+
         # gradient w.r.t. dielectric inputs: directional derivative check (Zygote-defined rrule)
         g_ei, g_de = Zygote.gradient((ei, de) -> group_index(k0, ev0, ω0, ei, de, grid), epsi0, deps0)
         dir_ei = randn(size(epsi0))

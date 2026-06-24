@@ -21,8 +21,9 @@ using EllipsisNotation
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, NoTangent, ZeroTangent, AbstractZero,
     ignore_derivatives
-import ChainRulesCore: rrule
+import ChainRulesCore: rrule, frule
 using Zygote   # used (only) to assemble reverse rules for FFT/Tullio-based post-processing
+using ForwardDiff   # used (only) to assemble the forward rule for `group_index`
 
 ### Mode solver types and field utilities ###
 using DielectricSmoothing

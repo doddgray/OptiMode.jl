@@ -10,6 +10,9 @@ using DielectricSmoothing
 using MaxwellEigenmodes
 using FiniteDifferences
 using Zygote
+using Enzyme
+using DifferentiationInterface
+import DifferentiationInterface as DI
 
 """
 Inverse-permittivity field (3,3,Nx,Ny,Nz) of a z-periodic waveguide: a transverse
@@ -100,6 +103,30 @@ end
             gω2, gei2 = Zygote.gradient(fplain, ω, epsi)
             @test gω ≈ gω2 rtol = 1e-6
             @test gei ≈ gei2 rtol = 1e-6
+        end
+    end
+end
+
+@testset "3D periodic-waveguide solve_k_periodic — Enzyme forward & reverse" begin
+    # The period-Λ eigensolve has both an adjoint rrule and a forward frule, bridged to
+    # Enzyme; verify forward and reverse Enzyme derivatives w.r.t. the absolute period Λ
+    # and the frequency ω against finite differences on a guided 3D Bragg mode.
+    solver = KrylovKitEigsolve()
+    ω = 1 / 1.55
+    grid = Grid(4.0, 3.0, 0.30, 16, 12, 8)
+    Λ = grid.Δz
+    epsi = periodic_wg_epsi(grid; δ=0.15)
+    kΛ(ΛΛ) = solve_k_periodic(ω, epsi, ΛΛ, grid, solver; nev=1, eig_tol=1e-12, k_tol=1e-12)[1][1]
+    kω(ωω) = solve_k_periodic(ωω, epsi, Λ, grid, solver; nev=1, eig_tol=1e-12, k_tol=1e-12)[1][1]
+    dΛ_FD = central_fdm(5, 1)(kΛ, Λ)
+    dω_FD = central_fdm(5, 1)(kω, ω)
+    # `function_annotation=Enzyme.Const`: the kΛ/kω closures capture the (read-only) ε⁻¹
+    # field, which Enzyme otherwise cannot prove is not mutated (EnzymeMutabilityException).
+    for (name, b) in (("Enzyme(reverse)", AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const)),
+                      ("Enzyme(forward)", AutoEnzyme(; mode=Enzyme.Forward, function_annotation=Enzyme.Const)))
+        @testset "$name" begin
+            @test DI.derivative(kΛ, b, Λ) ≈ dΛ_FD rtol = 1e-3
+            @test DI.derivative(kω, b, ω) ≈ dω_FD rtol = 1e-4
         end
     end
 end
