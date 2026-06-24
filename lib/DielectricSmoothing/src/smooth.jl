@@ -130,6 +130,12 @@ function smooth_ε(shapes,mat_vals,minds,grid::Grid{ND,TG}) where {ND, TG<:Real}
 	return reshape(smoothed_vals,(3,3,3,size(grid)...))
 end
 
+# NB: `smooth_ε` gradients are provided by native AD tracing — ForwardDiff (forward) and
+# Zygote (reverse) — which differentiate the smoothing pipeline directly. Enzyme cannot be
+# used through the Kottke smoothing kernels (a compiler scale limit; see the package's
+# Enzyme extension for details), so no Enzyme bridge is defined here; the eigensolver and
+# mode-analysis stack downstream of smoothing is fully Enzyme-differentiable.
+
 """
 ################################################################################
 #																			   #
