@@ -1,0 +1,39 @@
+name = "MaterialFitting"
+uuid = "b7e4d1a6-2c83-4f5e-9d0a-3e6c1b8f47a2"
+authors = ["Dodd Gray"]
+version = "0.1.0"
+
+[deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
+
+[sources]
+MaterialDispersion = {path = "../MaterialDispersion"}
+
+[weakdeps]
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+
+[extensions]
+MaterialFittingPlotsExt = "Plots"
+
+[compat]
+JLD2 = "0.4, 0.5"
+LsqFit = "0.15"
+Symbolics = "6"
+YAML = "0.4"
+julia = "1.10"
+
+[extras]
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Plots", "Test"]
