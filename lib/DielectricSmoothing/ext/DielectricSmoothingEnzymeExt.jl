@@ -1,34 +1,29 @@
 # Enzyme.jl interface for DielectricSmoothing.
 #
-# The shape-index bookkeeping (`corner_sinds`/`proc_sinds`/`matinds`) is integer-valued
-# and marked inactive, matching the `@non_differentiable` ChainRules declarations used by
-# Zygote.
+# `smooth_ε` now propagates a small 2nd-order Taylor jet (`J2`) through the closed-form
+# Kottke transforms (`kottke.jl`) instead of a giant symbolically-generated kernel, so
+# Enzyme differentiates the smoothing **material-data** gradients natively in both
+# directions — no custom rule needed for the kernel itself.
 #
-# NOTE on smoothing gradients with Enzyme: the Kottke kernels (`fjh_εₑᵣ` and friends) are
-# *enormous* symbolically generated functions (the smoothed tensor together with its first
-# and second frequency derivatives). Enzyme/GPUCompiler cannot compile a call path that
-# contains them — even merely as the *primal* of a custom rule — and overflows the native
-# stack (`StackOverflowError`) before any differentiation happens. This is a compiler
-# scale limit, not a missing rule: bridging the `smooth_ε` `ChainRulesCore.rrule`/`frule`
-# (defined in `src/smooth.jl`) via `@import_rrule`/`@import_frule` does *not* help, because
-# Enzyme still has to compile the rule's primal execution of `smooth_ε`.
-#
-# Material- and geometry-parameter gradients of `smooth_ε` are therefore provided by
-# ForwardDiff (forward mode) and Zygote (reverse mode), which differentiate the smoothing
-# pipeline directly (validated in `test/runtests.jl`), and the per-interface-pixel Kottke
-# kernel is additionally covered by Mooncake. Downstream of smoothing, the eigensolver and
-# mode-analysis stack is fully Enzyme-differentiable (forward & reverse). A whole-pipeline
-# gradient that must include the smoothing step should use ForwardDiff/Zygote; Enzyme is
-# the fast path from the (inverse-)permittivity field onward.
+# The integer pixel bookkeeping (`corner_sinds`/`proc_sinds`/`matinds`) and the geometry
+# queries (`surfpt_nearby`/`volfrac`) are constant with respect to the material data, so
+# they are marked `EnzymeRules.inactive` — matching the `@non_differentiable` ChainRules
+# declarations used by Zygote. (Enzyme does not honour `@non_differentiable`; without these
+# markers it tries to differentiate the StaticArrays matrix inverse inside Cuboid
+# `surfpt_nearby`, which it cannot handle. Geometry-*parameter* gradients of `smooth_ε`
+# therefore still go through ForwardDiff/Mooncake, as before.)
 
 module DielectricSmoothingEnzymeExt
 
 using DielectricSmoothing
+using GeometryPrimitives: surfpt_nearby, volfrac
 using Enzyme
 using Enzyme: EnzymeRules
 
 EnzymeRules.inactive(::typeof(DielectricSmoothing.corner_sinds), args...; kwargs...) = nothing
 EnzymeRules.inactive(::typeof(DielectricSmoothing.proc_sinds), args...; kwargs...) = nothing
 EnzymeRules.inactive(::typeof(DielectricSmoothing.matinds), args...; kwargs...) = nothing
+EnzymeRules.inactive(::typeof(surfpt_nearby), args...; kwargs...) = nothing
+EnzymeRules.inactive(::typeof(volfrac), args...; kwargs...) = nothing
 
 end # module

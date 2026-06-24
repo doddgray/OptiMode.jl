@@ -67,10 +67,10 @@ end
         ε2 = Matrix(Diagonal([5.0, 4.0, 4.5]))
         @test avg_param(ε1, ε2, S, 1.0) ≈ ε1
         @test avg_param(ε1, ε2, S, 0.0) ≈ ε2
-        # generated kernel f_εₑᵣ matches avg_param_rot
+        # the dispersion-propagating kernel's value slice matches the plain Kottke average
         r1 = 0.4
-        x0 = vcat(r1, vec(ε1), vec(ε2))
-        @test reshape(DielectricSmoothing.f_εₑᵣ(x0), (3, 3)) ≈ avg_param_rot(ε1, ε2, r1)
+        sm = εₑᵣ_∂ωεₑᵣ_∂²ωεₑᵣ(r1, vcat(vec(ε1), zeros(18)), vcat(vec(ε2), zeros(18)))
+        @test reshape(sm[1:9], (3, 3)) ≈ avg_param_rot(ε1, ε2, r1)
         # diagonal-anisotropic, axis-aligned interface: perpendicular component is the
         # harmonic mean, parallel components the arithmetic mean (classic Kottke/MEEP limit)
         εsm = avg_param(ε1, ε2, normcart([0.0, 1.0, 0.0]), 0.5)
@@ -81,14 +81,15 @@ end
     end
 
     @testset "Kottke kernel gradients" begin
+        # Material-data gradient of the smoothed tensor through the closed-form Kottke
+        # average. Every backend (forward & reverse) differentiates the small, type-stable
+        # `avg_param_rot` kernel directly — no symbolic Jacobian needed.
         ε1 = Matrix(Diagonal([4.41, 4.41, 4.6]))
         ε2 = Matrix(2.1I, 3, 3)
-        x0 = vcat(0.37, vec(ε1), vec(ε2))
-        loss = x -> sum(abs2, DielectricSmoothing.f_εₑᵣ(x))
+        r1 = 0.37
+        x0 = vcat(vec(ε1), vec(ε2))   # 18 material-tensor entries (r₁ held fixed)
+        loss = x -> sum(abs2, vec(avg_param_rot(reshape(x[1:9], 3, 3), reshape(x[10:18], 3, 3), r1)))
         g_ref = FiniteDifferences.grad(central_fdm(5, 1), loss, x0)[1]
-        # symbolic Jacobian reference
-        fj0 = DielectricSmoothing.fj_εₑᵣ(x0)
-        @test transpose(fj0[:, 2:end]) * (2 .* fj0[:, 1]) ≈ g_ref rtol = 1e-6
         for (name, backend) in merge(backends_reverse, backends_forward)
             @testset "$name" begin
                 g = DI.gradient(loss, backend, x0)
@@ -142,41 +143,50 @@ end
     @testset "Kottke smoothing-with-dispersion kernel gradients" begin
         S = normcart(normalize([0.3, 0.9, 0.1]))
         v1, v2 = mat_vals0[:, 1], mat_vals0[:, 2]
-        # first-derivative propagation kernel (εₑ_∂ωεₑ, Jacobian-bearing generated code):
-        # reverse mode with Enzyme & Mooncake and forward mode, all vs finite differences
+        # The dispersion kernels carry a 2nd-order Taylor jet through the closed-form Kottke
+        # average (no symbolic Jacobian/Hessian), so they are small and type-stable and
+        # every backend — forward and reverse — differentiates them directly.
+        allbackends = merge(backends_reverse, backends_forward)
+        # first-derivative propagation kernel (εₑ_∂ωεₑ): value + ∂ωεₑ
         x0 = vcat(0.37, v1[1:18], v2[1:18])
         loss = x -> sum(abs2, εₑ_∂ωεₑ(x[1], S, x[2:19], x[20:37]))
         g_ref = FiniteDifferences.grad(central_fdm(5, 1), loss, x0)[1]
-        # Mooncake reverse + ForwardDiff on the Jacobian-bearing kernel. (Enzyme passes on
-        # the plain Kottke kernel above; compiling it for this ~9×20-expression generated
-        # kernel takes tens of minutes, so it is excluded from the suite.)
-        for (name, backend) in (("Mooncake(reverse)", AutoMooncake(; config=nothing)),
-                                ("ForwardDiff", AutoForwardDiff()))
-            @testset "$name" begin
-                g = DI.gradient(loss, backend, x0)
-                @test g ≈ g_ref rtol = 1e-5
+        for (name, backend) in allbackends
+            @testset "∂ωεₑ kernel: $name" begin
+                @test DI.gradient(loss, backend, x0) ≈ g_ref rtol = 1e-5
             end
         end
-        # second-derivative propagation kernel (εₑ_∂ωεₑ_∂²ωεₑ, Hessian-bearing generated
-        # code): forward mode vs finite differences. (Its generated kernel is ~9×381
-        # expressions; compiling reverse-mode rules for it with Mooncake/Enzyme takes
-        # impractically long, so reverse coverage stops at the first-derivative kernel.)
+        # second-derivative propagation kernel (εₑ_∂ωεₑ_∂²ωεₑ): value + ∂ωεₑ + ∂²ωεₑ
         x2 = vcat(0.37, v1, v2)
         loss2 = x -> sum(abs2, εₑ_∂ωεₑ_∂²ωεₑ(x[1], S, x[2:28], x[29:55]))
         g2_ref = FiniteDifferences.grad(central_fdm(5, 1), loss2, x2)[1]
-        @test DI.gradient(loss2, AutoForwardDiff(), x2) ≈ g2_ref rtol = 1e-5
+        for (name, backend) in allbackends
+            @testset "∂²ωεₑ kernel: $name" begin
+                @test DI.gradient(loss2, backend, x2) ≈ g2_ref rtol = 1e-5
+            end
+        end
     end
 
-    @testset "smooth_ε full-pipeline gradients (ForwardDiff & Zygote)" begin
-        # Gradients w.r.t. the material tensor data traverse the entire smoothing
-        # pipeline: forward mode (ForwardDiff Duals) and reverse mode (Zygote, consuming
-        # the ChainRules rules in these packages).
-        # Compiling whole-pipeline reverse rules with Mooncake/Enzyme currently takes
-        # impractically long; the smoothing kernels are covered by those backends above.
+    @testset "smooth_ε full-pipeline material gradients (all backends)" begin
+        # Material-data gradients traverse the entire smoothing pipeline. Because the Kottke
+        # kernel now propagates a small, type-stable Taylor jet (no giant symbolic kernel),
+        # *every* backend differentiates the whole `smooth_ε` — forward and reverse:
+        # ForwardDiff & Enzyme-forward (Duals / forward), Zygote (kernel `rrule`), Mooncake
+        # & Enzyme-reverse (native jet; geometry queries marked inactive for Enzyme).
         loss_mv = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
         g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_mv, mat_vals0)[1]
-        @test DI.gradient(loss_mv, AutoForwardDiff(), mat_vals0) ≈ g_ref rtol = 1e-5
-        @test DI.gradient(loss_mv, AutoZygote(), mat_vals0) ≈ g_ref rtol = 1e-5
+        smooth_backends = (
+            ("ForwardDiff", AutoForwardDiff()),
+            ("Zygote", AutoZygote()),
+            ("Mooncake(reverse)", AutoMooncake(; config=nothing)),
+            ("Enzyme(reverse)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Reverse), function_annotation=Enzyme.Const)),
+            ("Enzyme(forward)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Forward), function_annotation=Enzyme.Const)),
+        )
+        for (name, backend) in smooth_backends
+            @testset "$name" begin
+                @test DI.gradient(loss_mv, backend, mat_vals0) ≈ g_ref rtol = 1e-5
+            end
+        end
 
         # Geometry-parameter sensitivities: with GeometryPrimitives ≥ 0.6 the shape
         # element type is parametric and the geometric queries (`surfpt_nearby`,

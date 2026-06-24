@@ -17,19 +17,15 @@ using StaticArrays: SVector, SMatrix, MVector, MMatrix, SHermitianCompact
 ### AD rule infrastructure ###
 using ChainRulesCore
 using ChainRulesCore: @thunk, @non_differentiable, NoTangent, ZeroTangent, AbstractZero
+using ForwardDiff
 
 ### Geometry ###
 using GeometryPrimitives
 using GeometryPrimitives: Shape, surfpt_nearby, volfrac
 
-### Symbolic codegen (used once at load time to build the Kottke-smoothing kernels) ###
-using Symbolics
-using Symbolics: Num, scalarize
-using SymbolicUtils
-
 ### Material dispersion models ###
 using MaterialDispersion
-using MaterialDispersion: oop_fn_expr, ip_fn_expr, _fj_fjh_sym, ε_tensor, εᵥ
+using MaterialDispersion: ε_tensor, εᵥ
 
 ## Includes ##
 include("grid.jl")

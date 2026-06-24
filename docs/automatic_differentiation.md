@@ -39,8 +39,8 @@ flowchart LR
 |---|---|---|
 | **Zygote** | consumes the ChainRules `rrule`s directly | reference reverse path; the only backend that differentiates the **whole** geometry/material → smoothing → eigensolve → analysis pipeline end-to-end |
 | **Mooncake** | per-package `…MooncakeExt` bridges rules with `Mooncake.@from_rrule`; bookkeeping marked `@zero_adjoint` | closed-form stages differentiate natively |
-| **Enzyme** | per-package `…EnzymeExt` imports the reverse `rrule`s with `@import_rrule` **and** the forward `frule`s with `@import_frule`; bookkeeping `EnzymeRules.inactive` | forward **and** reverse through the eigensolve + analysis stack (`solve_k`, `solve_k_periodic`, `group_index`, `sliceinv_3x3`). Imported rules cover *positional* calls only (kwargs lower to `Core.kwcall`) — call `solve_k(ω, ε⁻¹, grid, solver)` positionally. **Cannot** compile the Kottke smoothing kernels (see limitations) |
-| **ForwardDiff** | native Dual propagation through the closed-form stages | covers smoothing, `sliceinv_3x3`, and `group_index`; **cannot** trace the FFTW/KrylovKit eigensolve (no Dual method) — forward mode through `solve_k`/`solve_k_periodic` is provided instead by the `frule` bridged to **Enzyme forward** |
+| **Enzyme** | per-package `…EnzymeExt` imports the reverse `rrule`s with `@import_rrule` **and** the forward `frule`s with `@import_frule`; bookkeeping + geometry queries `EnzymeRules.inactive` | forward **and** reverse through the whole stack: Kottke smoothing (material data), `sliceinv_3x3`, `solve_k`, `solve_k_periodic`, `group_index`. Imported rules cover *positional* calls only (kwargs lower to `Core.kwcall`) — call `solve_k(ω, ε⁻¹, grid, solver)` positionally |
+| **ForwardDiff** | native Dual propagation through the closed-form stages | covers smoothing (material **and** geometry parameters), `sliceinv_3x3`, and `group_index`; **cannot** trace the FFTW/KrylovKit eigensolve (no Dual method) — forward mode through `solve_k`/`solve_k_periodic` is provided instead by the `frule` bridged to **Enzyme forward** |
 | **Reactant/XLA** | `reactant_compile_dispersion` compiles generated dispersion functions | eigensolver pipeline not currently traceable |
 
 ### Backend capability matrix
@@ -54,7 +54,7 @@ points; see `lib/*/test/runtests.jl` and `examples/ad_backend_benchmarks.jl`):
 | `solve_k_periodic(ω, ε⁻¹, Λ)` | ✗ | ✓ | ✓ | ✓ (∂Λ 1e-8, ∂ω 4e-11) | ✓ frule |
 | `group_index` | ✓ | ✓ | ✓ | ✓ (1e-14) | ✓ frule (1e-14) |
 | `sliceinv_3x3` (ε ⇄ ε⁻¹) | ✓ | ✓ | ✓ | ✓ (4e-16) | ✓ (4e-16) |
-| `smooth_ε` (Kottke) | ✓ | ✓ (3e-16) | kernel-pixel only | ✗ (compiler scale limit) | ✗ |
+| `smooth_ε` (Kottke, material data) | ✓ | ✓ (3e-16) | ✓ (3e-16) | ✓ (3e-16) | ✓ (3e-16) |
 | **ε field → `sliceinv` → `solve_k` → `group_index`** | ✗ | ✓ | — | ✓ (3e-8) | ✓ frule |
 | **full pipeline** (material/geometry → smoothing → eigensolve → analysis) | ✗ | ✓ (2e-10) | ✗ | ε-field onward | ε-field onward |
 
@@ -239,15 +239,21 @@ Every package's test suite checks gradients against `FiniteDifferences.jl` and, 
 available, exact symbolic Jacobians; `lib/*/benchmark/benchmarks.jl` records
 gradient/primal cost ratios. Known limitations (also listed in the main README):
 
-- whole-pipeline reverse mode through `smooth_ε`'s per-pixel `mapreduce` is supported
-  via Zygote (material data); Mooncake covers the smoothing kernels at per-pixel
-  granularity. **Enzyme cannot differentiate `smooth_ε` in either direction**: the Kottke
-  kernels (`fjh_εₑᵣ` and friends — the smoothed tensor plus its first and second frequency
-  derivatives) are so large that Enzyme/GPUCompiler overflows the native stack
-  (`StackOverflowError`) while compiling a call path that contains them, even merely as
-  the *primal* of a custom rule. This is a compiler scale limit, not a missing rule, so no
-  `smooth_ε` Enzyme bridge is provided; use ForwardDiff (forward) or Zygote (reverse) for
-  the smoothing step, and Enzyme from the `ε⁻¹` field onward;
+- `smooth_ε` **material-data** gradients work in every backend, forward and reverse
+  (ForwardDiff, Zygote, Mooncake, Enzyme fwd & rev — all to machine precision). The Kottke
+  smoothing carries a second-order Taylor jet `J2 = (value, ∂ω, ∂²ω)` through the
+  closed-form τ-transforms (`kottke.jl`) to propagate the exact dispersion of the smoothed
+  tensor — replacing an earlier symbolically-generated Jacobian/Hessian kernel that was
+  slow to compile and could not be compiled by Enzyme at all. The jet is *explicit* dual
+  arithmetic (not nested AD), so the smoothing primal stays single-level differentiable.
+  Zygote cannot trace the `J2`/`SVector` construction directly, so it consumes a small
+  ChainRules `rrule` on the kernel (a ForwardDiff Jacobian); the other backends differentiate
+  the jet natively. For Enzyme the geometry queries (`surfpt_nearby`/`volfrac`) are marked
+  `EnzymeRules.inactive`, matching the `@non_differentiable` ChainRules markers;
+- geometry-*parameter* gradients of `smooth_ε` go through ForwardDiff (forward, full
+  pipeline) and Mooncake (reverse, per-interface-pixel); Enzyme and Zygote are not used for
+  geometry parameters (Enzyme cannot differentiate the StaticArrays inverse in Cuboid
+  `surfpt_nearby`; Zygote hits a non-`SVector` normal in `volfrac`);
 - **forward mode through the eigensolve** is provided by hand-written `frule`s
   (`solve_k`, `solve_k_periodic`, `group_index`) bridged to **Enzyme forward** with
   `@import_frule`. ForwardDiff cannot be used there (it has no Dual method for the
