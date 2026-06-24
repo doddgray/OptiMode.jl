@@ -30,8 +30,11 @@ function _install_rules()
     _rules_installed[] = true
     # evaluated (and thus macro-expanded) at runtime so hygiene is handled normally
     for (TGrid, TEps) in ((:(Grid{2,Float64}), :(Array{Float64,4})), (:(Grid{3,Float64}), :(Array{Float64,5})))
+        # reverse (adjoint `rrule`) and forward (`frule`) rules for group_index
         Core.eval(@__MODULE__,
             :(Enzyme.@import_rrule(typeof(group_index), Float64, Array{ComplexF64,1}, Float64, $TEps, $TEps, $TGrid)))
+        Core.eval(@__MODULE__,
+            :(Enzyme.@import_frule(typeof(group_index), Float64, Array{ComplexF64,1}, Float64, $TEps, $TEps, $TGrid)))
     end
     return nothing
 end

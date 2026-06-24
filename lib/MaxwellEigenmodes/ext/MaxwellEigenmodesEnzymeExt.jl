@@ -16,7 +16,7 @@
 module MaxwellEigenmodesEnzymeExt
 
 using MaxwellEigenmodes
-using MaxwellEigenmodes: solve_k, KrylovKitEigsolve, IterativeSolversLOBPCG, DFTK_LOBPCG, MPBSolver
+using MaxwellEigenmodes: solve_k, solve_k_periodic, KrylovKitEigsolve, IterativeSolversLOBPCG, DFTK_LOBPCG, MPBSolver
 using DielectricSmoothing: Grid
 using Logging: NullLogger
 using ChainRulesCore
@@ -43,6 +43,11 @@ function _install_rules()
             Core.eval(@__MODULE__,
                 :(Enzyme.@import_frule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)))
         end
+        # period-Λ eigensolve (3D periodic waveguides): reverse + forward rules
+        Core.eval(@__MODULE__,
+            :(Enzyme.@import_rrule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)))
+        Core.eval(@__MODULE__,
+            :(Enzyme.@import_frule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)))
     end
     return nothing
 end
