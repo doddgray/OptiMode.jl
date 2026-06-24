@@ -120,8 +120,10 @@ end
     kω(ωω) = solve_k_periodic(ωω, epsi, Λ, grid, solver; nev=1, eig_tol=1e-12, k_tol=1e-12)[1][1]
     dΛ_FD = central_fdm(5, 1)(kΛ, Λ)
     dω_FD = central_fdm(5, 1)(kω, ω)
-    for (name, b) in (("Enzyme(reverse)", AutoEnzyme(; mode=Enzyme.Reverse)),
-                      ("Enzyme(forward)", AutoEnzyme(; mode=Enzyme.Forward)))
+    # `function_annotation=Enzyme.Const`: the kΛ/kω closures capture the (read-only) ε⁻¹
+    # field, which Enzyme otherwise cannot prove is not mutated (EnzymeMutabilityException).
+    for (name, b) in (("Enzyme(reverse)", AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const)),
+                      ("Enzyme(forward)", AutoEnzyme(; mode=Enzyme.Forward, function_annotation=Enzyme.Const)))
         @testset "$name" begin
             @test DI.derivative(kΛ, b, Λ) ≈ dΛ_FD rtol = 1e-3
             @test DI.derivative(kω, b, ω) ≈ dω_FD rtol = 1e-4
