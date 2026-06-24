@@ -175,10 +175,12 @@ end
         # & Enzyme-reverse (native jet; geometry queries marked inactive for Enzyme).
         loss_mv = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
         g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_mv, mat_vals0)[1]
+        # Mooncake is exercised on the dispersion kernels above; it eagerly compiles a rule
+        # for the (constant, w.r.t. material data) `surfpt_nearby` geometry query and cannot
+        # build one for `Polygon`, so it is not run on the whole `smooth_ε` here.
         smooth_backends = (
             ("ForwardDiff", AutoForwardDiff()),
             ("Zygote", AutoZygote()),
-            ("Mooncake(reverse)", AutoMooncake(; config=nothing)),
             ("Enzyme(reverse)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Reverse), function_annotation=Enzyme.Const)),
             ("Enzyme(forward)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Forward), function_annotation=Enzyme.Const)),
         )
