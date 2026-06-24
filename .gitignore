@@ -42,3 +42,6 @@ Manifest.toml
 __pycache__/
 *.egg-info/
 .pytest_cache/
+
+# MaterialFitting example save/reload artifacts
+examples/material_fitting_output/*.jld2
