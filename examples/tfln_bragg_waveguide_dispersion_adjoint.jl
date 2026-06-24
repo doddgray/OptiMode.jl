@@ -22,13 +22,15 @@
 # composition. Both are exact to the eigensolver tolerance, at a cost independent of the
 # number of parameters.
 #
-# NOTE on band coverage: a high-index-contrast TFLN waveguide is single-mode near 1–2 μm but
-# strongly multimode an octave *above* the Bragg resonance (~0.5 μm), and LiNbO3's two
-# birefringent polarizations both fold into the zone, so there is no clean isolated
-# propagating band there. The quantitative adjoint-vs-FD validation below is therefore done
-# on the fundamental lower Bragg branch (octave *below* the resonance, through the band-edge
-# slow-light region); the full folded band structure — including the upper branches — is
-# plotted separately for context.
+# NOTE on band coverage: because LiNbO3 is only weakly birefringent (n_o ≈ n_e), this
+# high-contrast TFLN waveguide guides BOTH polarizations — a quasi-TM mode (band 1, n_o) and
+# a quasi-TE mode (band 2, n_e) — each of which folds and opens its own first-order Bragg
+# band edge near 1 μm. We validate the adjoint sensitivities on both bands, sweeping from an
+# octave below the resonance in toward each band edge (the slow-light region). A literal
+# isolated *octave-above* branch is not cleanly guided for a realistic high-contrast TFLN
+# waveguide (it is multimode and the polarization bands interleave near the edge), so points
+# inside the stop-band / where the fixed-ω solve does not converge are simply dropped; the
+# folded band structure is plotted separately for context.
 #
 # Run (needs MaxwellEigenmodes + Plots, ForwardDiff, Roots, FiniteDifferences in the env):
 #   julia --project=… examples/tfln_bragg_waveguide_dispersion_adjoint.jl
@@ -138,28 +140,35 @@ function eval_point(ω0, A, Λ, grid, band, guess; h=0.008, δΛ=2e-4, δA=2e-4,
     nA,gA,vA=disp_at(A+δA,Λ); nAm,gAm,vAm=disp_at(A-δA,Λ)
     fd=(neff_Λ=(nL-nLm)/(2δΛ), ng_Λ=(gL-gLm)/(2δΛ), gvd_Λ=(vL-vLm)/(2δΛ),
         neff_A=(nA-nAm)/(2δA), ng_A=(gA-gAm)/(2δA), gvd_A=(vA-vAm)/(2δA))
-    (λ=1/ω0, neff=neff, ng=ng, gvd=gvd, kz=kzs[0], adj=adj, fd=fd)
+    (λ=1/ω0, neff=neff, ng=ng, gvd=gvd, kz=kzs[0], band=band, adj=adj, fd=fd)
 end
 
 # ---------------------------------------------------------------------------------------
-# 4. Sweep wavelengths on the fundamental lower Bragg branch + band structure
+# 4. Sweep wavelengths on both guided Bragg bands + folded band structure
 # ---------------------------------------------------------------------------------------
+# X-cut LiNbO3's two birefringent polarizations are both well guided (n_o > n_e), so this
+# high-contrast TFLN waveguide carries two modes — a quasi-TM (band 1, n_o) and a quasi-TE
+# (band 2, n_e) — each with its own first-order Bragg band edge near 1 μm. We sweep both,
+# from an octave below the resonance in toward their band edges, dropping points where the
+# fixed-ω solve does not cleanly converge (e.g. inside the stop-band region).
 const Λ0 = 0.27                                        # period → 1st-order Bragg ≈ 1 μm
 const A0 = 0.20                                        # width-modulation amplitude (μm)
 const grid = Grid(2.2, 1.6, Λ0, 18, 14, 8)
 
-λs = [2.0,1.85,1.7,1.55,1.42,1.30,1.20,1.13,1.09,1.06,1.05]   # octave below → band edge
-function run_sweep(λs, A, Λ, grid)
-    rows = Any[]; guess = 0.78        # continuation guess (warm-started across wavelengths)
+λ1s = [2.0,1.85,1.7,1.55,1.42,1.30,1.20,1.13,1.09,1.06,1.05]   # band 1 (quasi-TM)
+λ2s = [1.6,1.5,1.4,1.3,1.2,1.13,1.08,1.05,1.03]                # band 2 (quasi-TE)
+function run_band(λs, band, A, Λ, grid, guess0)
+    rows = Any[]; guess = guess0       # warm-started continuation (band 1; band 2 brackets)
     for λ in λs
-        r = try eval_point(1/λ, A, Λ, grid, 1, guess) catch e; @warn "drop" λ e; nothing end
+        r = try eval_point(1/λ, A, Λ, grid, band, guess) catch e; @warn "drop" band λ; nothing end
         r === nothing && continue
         guess = r.kz; push!(rows, r)
-        @printf("λ=%.3f  n_eff=%.4f  n_g=%.3f  GVD=%.3f\n", r.λ, r.neff, r.ng, r.gvd)
+        @printf("band%d  λ=%.3f  n_eff=%.4f  n_g=%.3f  GVD=%.3f\n", band, r.λ, r.neff, r.ng, r.gvd)
     end
     rows
 end
-rows = run_sweep(λs, A0, Λ0, grid)
+rows = vcat(run_band(λ1s, 1, A0, Λ0, grid, 0.78),
+            run_band(λ2s, 2, A0, Λ0, grid, 1.5))
 
 # folded band structure (lowest 4 bands) at a reference material, for context
 kedge = 0.5/Λ0; ks = range(0.02kedge, 0.999kedge, 24); epsi_ref = tfln_epsi(grid, 1.0, A0)
@@ -169,37 +178,48 @@ bands = map(ks) do kz
 end
 
 # ---------------------------------------------------------------------------------------
-# 5. Plots
+# 5. Plots  (band 1 = quasi-TM, blue; band 2 = quasi-TE, red)
 # ---------------------------------------------------------------------------------------
-λv  = [r.λ for r in rows]; perm = sortperm(λv); λv = λv[perm]
-geti(f) = [getfield(r, f) for r in rows][perm]
-getadj(s) = [getfield(r.adj, s) for r in rows][perm]
-getfd(s)  = [getfield(r.fd,  s) for r in rows][perm]
-edge = minimum(λv)
-mark(p) = vline!(p, [edge]; color=:gray, ls=:dash, lw=2, label="→ band edge")
+b1 = [r for r in rows if r.band==1]; b1 = b1[sortperm([r.λ for r in b1])]
+b2 = [r for r in rows if r.band==2]; b2 = b2[sortperm([r.λ for r in b2])]
+λ1=[r.λ for r in b1]; λ2=[r.λ for r in b2]
+edge = min(minimum(λ1), isempty(λ2) ? Inf : minimum(λ2))
+mark(p) = vline!(p,[edge]; color=:gray, ls=:dash, lw=2, label="")
 
-dp(y,yl) = (p=plot(λv,y; m=:circle,ms=4,lw=1.8,color=:dodgerblue,xlabel="λ (μm)",ylabel=yl,
-                   legend=false,framestyle=:box); mark(p); p)
-fig1 = plot(dp(geti(:neff),"n_eff"), dp(geti(:ng),"group index n_g"), dp(geti(:gvd),"GVD ∂²k/∂ω² (μm)");
-            layout=(3,1), size=(820,920),
-            plot_title="X-cut LiNbO₃ Bragg waveguide — fundamental-branch dispersion (Λ=$(Λ0) μm)")
+function dp(field, yl)
+    p=plot(xlabel="λ (μm)", ylabel=yl, framestyle=:box, legend=:best)
+    plot!(p, λ1, [getfield(r,field) for r in b1]; m=:circle, ms=4, lw=1.7, color=:dodgerblue, label="band 1 (q-TM)")
+    isempty(b2) || plot!(p, λ2, [getfield(r,field) for r in b2]; m=:diamond, ms=4, lw=1.7, color=:crimson, label="band 2 (q-TE)")
+    mark(p); p
+end
+fig1 = plot(dp(:neff,"n_eff"), dp(:ng,"group index n_g"), dp(:gvd,"GVD ∂²k/∂ω² (μm)");
+            layout=(3,1), size=(860,950),
+            plot_title="X-cut LiNbO₃ Bragg waveguide dispersion — two polarization bands (Λ=$(Λ0) μm)")
 savefig(fig1, joinpath(@__DIR__, "tfln_bragg_dispersion.png"))
 
-cp(s,ttl) = (p=plot(λv,getadj(s); lw=2,color=:dodgerblue,label="adjoint",xlabel="λ (μm)",
-                    ylabel=ttl,legend=:best,framestyle=:box);
-             scatter!(p,λv,getfd(s); m=:x,ms=6,color=:crimson,label="finite diff"); mark(p); p)
+function cp(s, ttl)
+    p=plot(xlabel="λ (μm)", ylabel=ttl, framestyle=:box, legend=:best)
+    plot!(p, λ1, [getfield(r.adj,s) for r in b1]; lw=2, color=:dodgerblue, label="adjoint b1")
+    scatter!(p, λ1, [getfield(r.fd,s) for r in b1]; m=:x, ms=5, color=:navy, label="FD b1")
+    if !isempty(b2)
+        plot!(p, λ2, [getfield(r.adj,s) for r in b2]; lw=2, color=:crimson, label="adjoint b2")
+        scatter!(p, λ2, [getfield(r.fd,s) for r in b2]; m=:+, ms=5, color=:darkred, label="FD b2")
+    end
+    mark(p); p
+end
 fig2 = plot(cp(:neff_Λ,"∂n_eff/∂Λ"), cp(:ng_Λ,"∂n_g/∂Λ"), cp(:gvd_Λ,"∂GVD/∂Λ"),
             cp(:neff_A,"∂n_eff/∂A"), cp(:ng_A,"∂n_g/∂A"), cp(:gvd_A,"∂GVD/∂A");
-            layout=(2,3), size=(1500,830),
+            layout=(2,3), size=(1550,850),
             plot_title="Adjoint vs finite-difference sensitivities — top: period Λ, bottom: width-mod amplitude A")
 savefig(fig2, joinpath(@__DIR__, "tfln_bragg_derivatives.png"))
 
 pp = plot(xlabel="finite difference", ylabel="adjoint", framestyle=:box, legend=:topleft,
-          title="adjoint vs FD parity (all λ, all 6 sensitivities)")
+          title="adjoint vs FD parity (both bands, all λ, all 6 sensitivities)")
 allv = Float64[]
 for (s,lb) in [(:neff_Λ,"∂nₑ/∂Λ"),(:ng_Λ,"∂n_g/∂Λ"),(:gvd_Λ,"∂GVD/∂Λ"),
                (:neff_A,"∂nₑ/∂A"),(:ng_A,"∂n_g/∂A"),(:gvd_A,"∂GVD/∂A")]
-    a=getadj(s); f=getfd(s); append!(allv,a); append!(allv,f); scatter!(pp,f,a; ms=5,label=lb)
+    a=[getfield(r.adj,s) for r in rows]; f=[getfield(r.fd,s) for r in rows]
+    append!(allv,a); append!(allv,f); scatter!(pp,f,a; ms=5,label=lb)
 end
 m=maximum(abs,allv); plot!(pp,[-m,m],[-m,m]; color=:black,ls=:dash,label="y=x")
 savefig(pp, joinpath(@__DIR__, "tfln_bragg_parity.png"))
@@ -211,11 +231,12 @@ for b in 1:4
 end
 savefig(pb, joinpath(@__DIR__, "tfln_bragg_bandstructure.png"))
 
-# agreement summary
-println("\nadjoint vs finite-difference (median relative discrepancy):")
+# agreement summary (over both bands)
+println("\nbands solved: $(length(b1)) (q-TM) + $(length(b2)) (q-TE) = $(length(rows)) points")
+println("adjoint vs finite-difference (median relative discrepancy):")
 for (s,lb) in [(:neff_Λ,"∂n_eff/∂Λ"),(:ng_Λ,"∂n_g/∂Λ"),(:gvd_Λ,"∂GVD/∂Λ"),
                (:neff_A,"∂n_eff/∂A"),(:ng_A,"∂n_g/∂A"),(:gvd_A,"∂GVD/∂A")]
-    a=getadj(s); f=getfd(s)
+    a=[getfield(r.adj,s) for r in rows]; f=[getfield(r.fd,s) for r in rows]
     @printf("  %-10s  %.2e\n", lb, median(abs.(a.-f)./(abs.(a).+abs.(f).+1e-30)))
 end
 println("\nwrote tfln_bragg_{dispersion,derivatives,parity,bandstructure}.png")

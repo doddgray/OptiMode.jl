@@ -174,11 +174,12 @@ and the [Maxwell eigenmodes docs](docs/maxwell_eigenmodes.md#3d-waveguides-perio
 For a worked dispersion-engineering example,
 [`examples/tfln_bragg_waveguide_dispersion_adjoint.jl`](examples/tfln_bragg_waveguide_dispersion_adjoint.jl)
 computes the effective index, group index and GVD of a thin-film **X-cut LiNbO₃ Bragg
-waveguide** (sinusoidally width-modulated, anisotropic Sellmeier dispersion) across an
-octave below the ≈1 μm first-order Bragg resonance up to the band edge, and validates the
-adjoint partial derivatives of all three quantities with respect to **both** the Bragg
-period Λ and the width-modulation amplitude against finite differences (agreement to
-≈10⁻⁶, including the slow-light region where the period sensitivity diverges).
+waveguide** (sinusoidally width-modulated, anisotropic Sellmeier dispersion) for both
+guided polarization bands (quasi-TM and quasi-TE), from an octave below the ≈1 μm
+first-order Bragg resonance in toward each band edge, and validates the adjoint partial
+derivatives of all three quantities with respect to **both** the Bragg period Λ and the
+width-modulation amplitude against finite differences (agreement to ≈10⁻⁶, including the
+slow-light band-edge region where the period sensitivity diverges).
 
 ### Cluster sweeps (SLURM)
 
