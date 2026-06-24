@@ -253,3 +253,5 @@ const solver = KrylovKitEigsolve()
         @test df_adj ≈ df_FD rtol = 1e-6
     end
 end
+
+include("periodic_adjoint.jl")

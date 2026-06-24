@@ -144,6 +144,43 @@ julia --project=lib/MaterialDispersion/benchmark -e 'using Pkg; Pkg.instantiate(
 julia --project=lib/MaterialDispersion/benchmark lib/MaterialDispersion/benchmark/benchmarks.jl
 ```
 
+### Periodic (Bragg / photonic-crystal) waveguides and the period adjoint
+
+The same solver handles **3D waveguides periodic along the propagation axis** — Bragg
+gratings and photonic-crystal-defect waveguides — by modeling one unit cell on a
+`Grid{3}` whose z-extent is the *absolute spatial period* `Λ`. `solve_k_periodic`
+returns the Bloch propagation constant `kz(ω)` and is differentiable with respect to
+the period `Λ` (as well as `ω` and the dielectric tensor `ε⁻¹`):
+
+```julia
+ω, Λ   = 1/1.55, 0.30                       # frequency (μm⁻¹) and period (μm)
+grid   = Grid(4.0, 3.0, Λ, 16, 12, 8)       # transverse 4×3 μm cell, one period in z
+ε⁻¹    = bragg_epsi(grid)                    # (3,3,Nx,Ny,Nz) inverse permittivity of one period
+
+kmags, evecs = solve_k_periodic(ω, ε⁻¹, Λ, grid, KrylovKitEigsolve(); nev=1)
+
+using Zygote
+dkz_dΛ = Zygote.gradient(L -> solve_k_periodic(ω, ε⁻¹, L, grid, KrylovKitEigsolve())[1][1], Λ)[1]
+```
+
+The period enters the plane-wave Helmholtz operator only through the reciprocal-lattice
+z-components `g_z = m/Λ`, so the period gradient reuses the existing adjoint machinery
+with a per-plane-wave reweighting `g_z/Λ`; it works for anisotropic (including
+off-diagonal) materials and is checked against finite differences in
+`lib/MaxwellEigenmodes/test/periodic_adjoint.jl`. See
+[`examples/bragg_waveguide_period_adjoint.jl`](examples/bragg_waveguide_period_adjoint.jl)
+and the [Maxwell eigenmodes docs](docs/maxwell_eigenmodes.md#3d-waveguides-periodic-along-hat-z-the-period-derivative).
+
+For a worked dispersion-engineering example,
+[`examples/tfln_bragg_waveguide_dispersion_adjoint.jl`](examples/tfln_bragg_waveguide_dispersion_adjoint.jl)
+computes the effective index, group index and GVD of a thin-film **X-cut LiNbO₃ Bragg
+waveguide** (sinusoidally width-modulated, anisotropic Sellmeier dispersion) for both
+guided polarization bands (quasi-TM and quasi-TE), from an octave below the ≈1 μm
+first-order Bragg resonance in toward each band edge, and validates the adjoint partial
+derivatives of all three quantities with respect to **both** the Bragg period Λ and the
+width-modulation amplitude against finite differences (agreement to ≈10⁻⁶, including the
+slow-light band-edge region where the period sensitivity diverges).
+
 ### Cluster sweeps (SLURM)
 
 `ModeSweeps` deploys batched mode simulations asynchronously — e.g. parallelized
