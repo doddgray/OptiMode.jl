@@ -37,8 +37,11 @@ function _install_rules()
     # by the normal macro-expansion machinery.
     for TSolver in (:(KrylovKitEigsolve{NullLogger}), :(IterativeSolversLOBPCG{NullLogger}), :(DFTK_LOBPCG{NullLogger}), :(MPBSolver{NullLogger}))
         for (TGrid, TEps) in ((:(Grid{2,Float64}), :(Array{Float64,4})), (:(Grid{3,Float64}), :(Array{Float64,5})))
+            # reverse (adjoint `rrule`) and forward (`frule`) rules for solve_k
             Core.eval(@__MODULE__,
                 :(Enzyme.@import_rrule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)))
+            Core.eval(@__MODULE__,
+                :(Enzyme.@import_frule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)))
         end
     end
     return nothing
