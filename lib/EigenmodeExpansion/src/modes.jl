@@ -139,6 +139,11 @@ end
 interface S-matrix (used for both self- and cross-overlaps).
 """
 function overlap_matrix(modes1, modes2; conjugate::Bool=false)
-    M = [inner_product(a, b; conjugate) for a in modes1, b in modes2]
-    return M
+    # Index by integer (not `for a in modes1, b in modes2`): iterating the `Mode`
+    # structs through a product comprehension makes Zygote's product_pullback do
+    # `map(zero, …)` over a `Mode` tangent whose `grid` has `Nothing` subfields
+    # (`zero(::Nothing)` errors). Indexing routes the struct cotangents through
+    # `getindex` instead, which accumulates them cleanly.
+    NL, NR = length(modes1), length(modes2)
+    return [inner_product(modes1[i], modes2[j]; conjugate) for i in 1:NL, j in 1:NR]
 end
