@@ -57,26 +57,6 @@ end
 # ── interface S-matrix (MEOW `compute_interface_s_matrix`) ───────────────────
 
 """
-    interface_smatrix(modes_l, modes_r; conjugate=false, reg=1e-9,
-                      reciprocity=true) -> SMat
-
-Mode-matching interface S-matrix between the left and right modal bases of a step
-discontinuity, following MEOW. The transmission blocks come from the
-overlap-matrix solve
-
-    A_LR = O_LR + O_RLᵀ ;  T_LR = pinv(A_LR) (2 I_L)
-    A_RL = O_RL + O_LRᵀ ;  T_RL = pinv(A_RL) (2 I_R)
-
-(`ᵀ`→`ᴴ` when `conjugate=true`), and the reflection blocks are reconstructed from
-both continuity equations and averaged:
-
-    R_LL = ½((O_RLᵀ T_LR − I) + (I − O_LR T_LR))
-    R_RR = ½((O_LRᵀ T_RL − I) + (I − O_RL T_RL)).
-
-The modes must be power-normalized in the same inner product (the `G = I` form);
-`build_mode` does this. `reciprocity` symmetrizes the result as `½(S + Sᵀ)`.
-"""
-"""
     enforce_passivity(σ; method=:invert) -> σ′
 
 Project the singular values of an interface S-matrix onto a passive interval
@@ -93,6 +73,28 @@ function enforce_passivity(σ::AbstractVector; method::Symbol=:invert)
     throw(ArgumentError("unknown passivity method $method"))
 end
 
+"""
+    interface_smatrix(modes_l, modes_r; conjugate=false, reg=1e-9,
+                      reciprocity=true, passivity=:invert) -> SMat
+
+Mode-matching interface S-matrix between the left and right modal bases of a step
+discontinuity, following MEOW. The transmission blocks come from the
+overlap-matrix solve
+
+    A_LR = O_LR + O_RLᵀ ;  T_LR = pinv(A_LR) (2 I_L)
+    A_RL = O_RL + O_LRᵀ ;  T_RL = pinv(A_RL) (2 I_R)
+
+(`ᵀ`→`ᴴ` when `conjugate=true`), and the reflection blocks are reconstructed from
+both continuity equations and averaged:
+
+    R_LL = ½((O_RLᵀ T_LR − I) + (I − O_LR T_LR))
+    R_RR = ½((O_LRᵀ T_RL − I) + (I − O_RL T_RL)).
+
+The modes must be power-normalized in the same inner product (the `G = I` form);
+`build_mode` does this. `passivity` enforces `|S| ≤ 1` via [`enforce_passivity`](@ref)
+(pass `:none` for a clean reverse-mode adjoint); `reciprocity` symmetrizes the
+result as `½(S + Sᵀ)`.
+"""
 function interface_smatrix(modes_l, modes_r; conjugate::Bool=false, reg::Real=1e-9,
                            reciprocity::Bool=true, passivity::Symbol=:invert)
     NL, NR = length(modes_l), length(modes_r)
