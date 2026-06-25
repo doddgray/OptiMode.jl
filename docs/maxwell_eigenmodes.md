@@ -102,6 +102,47 @@ The off-diagonal entries of `ε⁻¹_bar` store the symmetrized $(i,j)+(j,i)$ se
 in both slots, matching backpropagation conventions for Hermitian tensor fields
 (`herm`/`herm_back`).
 
+## 3D waveguides periodic along $\hat z$: the period derivative
+
+The same plane-wave machinery solves **3D Bloch modes of a waveguide periodic along the
+propagation axis** — a Bragg grating or photonic-crystal-defect waveguide — by using a
+`Grid{3}` whose $z$-extent is one *absolute spatial period* $\Lambda \equiv$ `grid.Δz`.
+The dielectric field $\varepsilon^{-1}$ then describes one period and the reciprocal
+lattice acquires $z$-components $g_{j,z} = m_j/\Lambda$ ($m_j\in\mathbb Z$).
+
+`solve_k_periodic(ω, ε⁻¹, Λ, grid, solver)` solves for the Bloch propagation constant
+$k_z(\omega)$ and is differentiable with respect to **the period $\Lambda$** in addition
+to $\omega$ and $\varepsilon^{-1}$. The key observation is that, with $\varepsilon^{-1}$
+held fixed in index space, the Helmholtz operator depends on $\Lambda$ *only* through the
+shifted wavevectors $\vec w_j = \vec k - \vec g_j$, whose $z$-components obey
+
+$$
+\frac{\partial w_{j,z}}{\partial \Lambda}
+= -\frac{\partial g_{j,z}}{\partial \Lambda}
+= \frac{g_{j,z}}{\Lambda}.
+$$
+
+So $\Lambda$ enters exactly like $k_z$ does — a $\hat z$-shift of every plane wave — but
+weighted, plane wave by plane wave, by $g_{j,z}/\Lambda$ instead of uniformly. Every
+$k_z$ sensitivity in the adjoint therefore has a period counterpart obtained by this
+reweighting:
+
+1. **Eigenvalue channel.** $\partial\omega^2/\partial\Lambda = \langle H|\partial\hat
+   M/\partial\Lambda|H\rangle = 2\,\mathtt{HMₖH\_weighted}(H;\,w=g_z/\Lambda)$, the
+   Hellmann–Feynman form `HMₖH` with the constant $\hat z\times$ curl replaced by the
+   weighted $\tfrac{g_z}{\Lambda}\,\hat z\times$ (`∂ω²_∂Λ`).
+2. **Eigenvector channel.** The fixed-$k$ adjoint field $\lambda$ yields a per-plane-wave
+   cotangent $\bar{\vec w}_j$ of $\vec w_j$; summing $\bar w_{j,z}$ reproduces the
+   $\bar k_H$ term, while summing $\bar w_{j,z}\,g_{j,z}/\Lambda$ gives the period
+   contribution $\bar\Lambda_H$ (`_wbar_z`).
+3. **Newton inversion (fixed $\omega$).** Combining the two $k_z$ cotangents,
+   $\bar\Lambda = \bar\Lambda_H + (\bar k + \bar k_H)\,\partial k_z/\partial\Lambda$ with
+   $\partial k_z/\partial\Lambda = -\,(\partial\omega^2/\partial\Lambda)\,/\,(\partial\omega^2/\partial k_z)$.
+
+Both isotropic and anisotropic (including off-diagonal) materials are supported, and the
+gradients are validated against finite differences in
+`test/periodic_adjoint.jl`; see [`examples/bragg_waveguide_period_adjoint.jl`](../examples/bragg_waveguide_period_adjoint.jl).
+
 ## Solver backends
 
 | backend | notes |
@@ -148,6 +189,7 @@ g_ε⁻¹ = Zygote.gradient(ei -> solve_k(1/1.55, ei, grid, solver)[1][1], copy(
 |---|---|
 | `HelmholtzMap`, `HelmholtzPreconditioner`, `ModeSolver` | matrix-free operator & workspace |
 | `solve_ω²`, `solve_k`, `solve_k_single`, `k_guess` | eigensolves & dispersion inversion |
+| `solve_k_periodic`, `∂ω²_∂Λ`, `HMₖH_weighted`, `period_weight` | 3D z-periodic (Bragg/PhC) modes & period-Λ adjoint |
 | `mag_m_n`, `mag_mn`, `tc`, `ct`, `kx_tc`, `kx_ct` | transverse basis & spectral curls |
 | `HMH`, `HMₖH` | operator quadratic forms (ω², ∂ω²/∂k) |
 | `E⃗`, `H⃗`, `S⃗`, `canonicalize_phase` | real-space fields |

@@ -88,7 +88,7 @@ backends_geom_kernel = Dict(
 # Per-voxel Kottke kernel (no dispersion derivatives): all reverse backends apply.
 S0 = collect(normcart(normalize([0.3, 0.9, 0.1])))
 xk0 = vcat(0.37, mat_vals0[1:9, 1], mat_vals0[1:9, 2])
-loss_kernel(x) = sum(abs2, DielectricSmoothing.f_εₑᵣ(x))
+loss_kernel(x) = sum(abs2, vec(avg_param_rot(reshape(x[2:10], 3, 3), reshape(x[11:19], 3, 3), x[1])))
 backends_kernel = Dict(
     "Enzyme(reverse)" => AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const),
     "Mooncake(reverse)" => AutoMooncake(; config=nothing),

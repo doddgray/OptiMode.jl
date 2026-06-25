@@ -14,6 +14,26 @@ _scalar_tangent(::Nothing)::Float64 = 0.0
 _array_tangent(x::AbstractArray) = x
 _array_tangent(::Nothing) = NoTangent()
 
+"""
+Forward-mode rule for `group_index`. Enzyme forward mode cannot differentiate FFTW plan
+creation inside the quadratic forms (`No forward mode derivative found for
+fftw_plan_guru64_dft`); this frule computes the directional derivative with ForwardDiff,
+whose AbstractFFTs extension differentiates FFTs by applying the plan to the dual parts
+(never differentiating the plan itself). Bridged to Enzyme forward via
+`Enzyme.@import_frule` in the package's Enzyme extension.
+"""
+function ChainRulesCore.frule((_, Δk, Δev, Δω, Δei, Δde, _), ::typeof(group_index),
+        k::Real, evec, ω, ε⁻¹, ∂ε_∂ω, grid::Grid)
+    y = _group_index_kernel(k, evec, ω, ε⁻¹, ∂ε_∂ω, grid)
+    _v(Δ, x) = Δ isa AbstractZero ? zero(x) : Δ
+    dk, dω = _v(Δk, k), _v(Δω, ω)
+    dev, dei, dde = _v(Δev, evec), _v(Δei, ε⁻¹), _v(Δde, ∂ε_∂ω)
+    ẏ = ForwardDiff.derivative(
+        t -> _group_index_kernel(k + t*dk, evec .+ t .* dev, ω + t*dω,
+                                 ε⁻¹ .+ t .* dei, ∂ε_∂ω .+ t .* dde, grid), 0.0)
+    return y, ẏ
+end
+
 function ChainRulesCore.rrule(::typeof(group_index), k::Real, evec, ω, ε⁻¹, ∂ε_∂ω, grid::Grid)
     y, zpb = Zygote.pullback(
         (k_, ev_, ω_, ei_, de_) -> _group_index_kernel(k_, ev_, ω_, ei_, de_, grid),

@@ -8,7 +8,7 @@
 module MaxwellEigenmodesMooncakeExt
 
 using MaxwellEigenmodes
-using MaxwellEigenmodes: solve_k, AbstractEigensolver, KrylovKitEigsolve,
+using MaxwellEigenmodes: solve_k, sliceinv_3x3, AbstractEigensolver, KrylovKitEigsolve,
     IterativeSolversLOBPCG, DFTK_LOBPCG, MPBSolver
 using DielectricSmoothing: Grid
 using Logging: NullLogger
@@ -24,6 +24,12 @@ for TSolver in (KrylovKitEigsolve{NullLogger}, IterativeSolversLOBPCG{NullLogger
             true,
         )
     end
+end
+
+# Bridge the closed-form sliceinv_3x3 rule (its `Threads.@threads` kernel is otherwise an
+# undifferentiable `jl_enter_threaded_region` foreigncall for Mooncake).
+for TArr in (Array{Float64,4}, Array{Float64,5})
+    @eval @from_rrule(MinimalCtx, Tuple{typeof(sliceinv_3x3),$TArr}, true)
 end
 
 # Solver bookkeeping that must not be differentiated through.
