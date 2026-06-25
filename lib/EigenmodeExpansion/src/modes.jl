@@ -46,12 +46,25 @@ eigensolver and group-index machinery expect). Differentiable in `ω` and in any
 geometry parameters that flow through the cross-section shapes.
 """
 function cell_dielectric(cs::CrossSection, materials, ω, grid)
-    f_ε, _ = _f_ε_mats(materials, (:ω,))
-    mat_vals = f_ε([ω])
+    mat_vals = _mat_vals(materials, ω)
     sm = smooth_ε(Tuple(cs.shapes), mat_vals, Tuple(cs.minds), grid)
     ε⁻¹ = sliceinv_3x3(copy(selectdim(sm, 3, 1)))
     ∂ε_∂ω = copy(selectdim(sm, 3, 2))
     return ε⁻¹, ∂ε_∂ω
+end
+
+# `_f_ε_mats` builds the ε(ω) dispersion function by `eval`-ing generated code into
+# MaterialDispersion's module. Calling that freshly-`eval`-ed function from within the
+# same call scope hits a world-age error, so we (a) cache the generated function per
+# material list and (b) call it through `Base.invokelatest` — the same accommodation the
+# ModeSweeps worker makes when it invokes a setup script's `make_problem`. `ω`-Duals
+# (ForwardDiff) pass straight through `invokelatest`.
+const _FE_CACHE = IdDict{Any,Any}()
+
+"world-age-safe, cached `mat_vals = f_ε([ω])` for a material list"
+function _mat_vals(materials, ω)
+    f_ε = get!(() -> first(_f_ε_mats(materials, (:ω,))), _FE_CACHE, materials)
+    return Base.invokelatest(f_ε, [ω])
 end
 
 """

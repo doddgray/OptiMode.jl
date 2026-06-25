@@ -42,8 +42,7 @@ so an entire EME stack's mode solves are deployed as one batch (and swept over �
 or geometry alongside the cell index).
 """
 function cell_problem(cell::Cell, materials, ω, grid)
-    f_ε, _ = MaterialDispersion._f_ε_mats(materials, (:ω,))
-    mat_vals = f_ε([ω])
+    mat_vals = _mat_vals(materials, ω)
     sm = smooth_ε(Tuple(cell.cross_section.shapes), mat_vals, Tuple(cell.cross_section.minds), grid)
     return (;
         ε⁻¹=sliceinv_3x3(copy(selectdim(sm, 3, 1))),
