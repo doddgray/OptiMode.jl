@@ -12,6 +12,7 @@ documentation lives in docstrings (`?solve_k` etc. in the REPL).
 | [Maxwell eigenmodes](maxwell_eigenmodes.md) | `MaxwellEigenmodes` | plane-wave Helmholtz operator, `solve_ω²`/`solve_k`, Newton dispersion inversion, adjoint method, GPU & MPB backends |
 | [Mode analysis](mode_analysis.md) | `ModeAnalysis` | group index, group-velocity dispersion, effective area, polarization, Kerr (n₂) power corrections |
 | [Mode sweeps](mode_sweeps.md) | `ModeSweeps` | asynchronous batched parameter sweeps on SLURM clusters, persistence, gathering |
+| [Eigenmode expansion](eigenmode_expansion.md) | `EigenmodeExpansion` | MEOW/SAX-style EME: GDS import + extrusion, cell slicing, interface/propagation S-matrices, cascade; forward/reverse AD; SLURM sweeps |
 | [Automatic differentiation](automatic_differentiation.md) | all | how gradients flow end-to-end; Zygote/Mooncake/Enzyme/ForwardDiff interfaces |
 | [Python interface](python.md) | `optimode` (PyPI-style package in `python/`) | the same pipeline from Python via JuliaCall |
 

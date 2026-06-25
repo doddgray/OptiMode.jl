@@ -17,6 +17,7 @@ Component-level documentation — with the physics and mathematics of each stage
 [Maxwell eigenmodes](docs/maxwell_eigenmodes.md) ·
 [mode analysis](docs/mode_analysis.md) ·
 [mode sweeps](docs/mode_sweeps.md) ·
+[eigenmode expansion](docs/eigenmode_expansion.md) ·
 [automatic differentiation](docs/automatic_differentiation.md).
 Function-level reference documentation is in docstrings (`?solve_k`, `?smooth_ε`, …
 in the REPL). Runnable examples live in [`examples/`](examples).
@@ -28,7 +29,7 @@ A **Python interface** exposing the same pipeline with NumPy-native APIs lives i
 
 ## Package structure
 
-OptiMode is organized as a monorepo of five component packages living in `lib/`, with
+OptiMode is organized as a monorepo of six component packages living in `lib/`, with
 the top-level `OptiMode` module acting as a thin umbrella that re-exports all of them:
 
 | Package | Purpose |
@@ -38,8 +39,9 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 | [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`, Python `meep.mpb` via PythonCall.jl) and a CUDA-GPU-capable, Float32/Float64 backend (`GPUSolver`) with a device-resident adjoint. |
 | [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, mode classification/filtering, and first-order Kerr (intensity-dependent index) mode corrections (`solve_k_kerr`). |
 | [`ModeSweeps`](lib/ModeSweeps) | Batched/asynchronous deployment of mode simulations as SLURM array jobs (or local processes): parameter grids & frequency sweeps, persistent batch state, live status, partial gathering, summary-vs-full-field transfer, and tabular (CSV/TSV/JSON) result I/O. |
+| [`EigenmodeExpansion`](lib/EigenmodeExpansion) | Differentiable [MEOW](https://github.com/flaport/meow)/[SAX](https://github.com/flaport/sax)-style eigenmode expansion (EME): GDS import + layer-stack extrusion into 3D, cell slicing, per-cell mode solving, mode-overlap interface and propagation S-matrices, and Redheffer/SAX cascade to a device S-matrix. Forward/reverse AD and SLURM/parameter-sweep deployment of the per-cell solves. |
 
-The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis` (← `ModeSweeps`).
+The dependency chain is `MaterialDispersion` ← `DielectricSmoothing` ← `MaxwellEigenmodes` ← `ModeAnalysis` (← `ModeSweeps`); `EigenmodeExpansion` builds on the eigensolver, smoothing, dispersion and (optionally) sweeps.
 A typical calculation flows the same way:
 
 ```julia

@@ -14,6 +14,8 @@
 #                          adjoint-based AD rules
 #   - ModeAnalysis:        post-processing of mode solver results
 #   - ModeSweeps:          batched/asynchronous (SLURM) mode-simulation sweeps
+#   - EigenmodeExpansion:  GDS-driven, MEOW/SAX-style eigenmode-expansion (EME)
+#                          built on the differentiable mode solver
 #
 # The component packages live in `lib/` within this repository.
 
@@ -26,5 +28,6 @@ using Reexport
 @reexport using MaxwellEigenmodes
 @reexport using ModeAnalysis
 @reexport using ModeSweeps
+@reexport using EigenmodeExpansion
 
 end # module OptiMode
