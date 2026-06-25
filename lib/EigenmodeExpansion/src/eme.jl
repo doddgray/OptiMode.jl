@@ -36,9 +36,9 @@ S-matrices and joined by diagonal propagation S-matrices, then cascaded.
 function eme(cells::AbstractVector{Cell}, materials, ω, grid,
              solver::AbstractEigensolver=KrylovKitEigsolve();
              nev::Int=2, conjugate::Bool=false, reg::Real=1e-9,
-             reciprocity::Bool=true, kwargs...)
+             reciprocity::Bool=true, passivity::Symbol=:invert, kwargs...)
     modes = [solve_cell_modes(c, materials, ω, grid, solver; nev, conjugate, kwargs...) for c in cells]
-    S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity)
+    S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity, passivity)
     G = typeof(grid)
     T = typeof(float(ω))
     return EMEResult{T,G}(S, modes, [c.length for c in cells], T(ω))
@@ -56,18 +56,18 @@ scalar of the result w.r.t. the `ε⁻¹s` (or `ω`) flows end-to-end through th
 whole device.
 """
 function eme(ε⁻¹s::AbstractVector{<:AbstractArray}, ∂ε_∂ωs::AbstractVector{<:AbstractArray},
-             lengths::AbstractVector, ω, grid,
+             lengths::AbstractVector{Float64}, ω, grid,
              solver::AbstractEigensolver=KrylovKitEigsolve();
              nev::Int=2, conjugate::Bool=false, reg::Real=1e-9,
-             reciprocity::Bool=true, kwargs...)
+             reciprocity::Bool=true, passivity::Symbol=:invert, kwargs...)
     modes = map(eachindex(ε⁻¹s)) do i
         kmags, evecs = solve_k(ω, ε⁻¹s[i], grid, solver; nev, kwargs...)
         [build_mode(ω, kmags[j], evecs[j], ε⁻¹s[i], ∂ε_∂ωs[i], grid; conjugate) for j in 1:nev]
     end
-    S = _assemble(modes, collect(Float64, lengths); conjugate, reg, reciprocity)
+    S = _assemble(modes, lengths; conjugate, reg, reciprocity, passivity)
     G = typeof(grid)
     T = typeof(float(ω))
-    return EMEResult{T,G}(S, modes, collect(Float64, lengths), T(ω))
+    return EMEResult{T,G}(S, modes, lengths, T(ω))
 end
 
 """
@@ -79,10 +79,11 @@ Convenience entry point: build the simulation grid and cells from a
 """
 function eme_smatrix(st::Structure, ω; nev::Int=2, Nx::Int=128, Ny::Int=96,
                      num_cells::Int=20, solver::AbstractEigensolver=KrylovKitEigsolve(),
-                     conjugate::Bool=false, reg::Real=1e-9, reciprocity::Bool=true, kwargs...)
+                     conjugate::Bool=false, reg::Real=1e-9, reciprocity::Bool=true,
+                     passivity::Symbol=:invert, kwargs...)
     grid = simulation_grid(st, Nx, Ny)
     cells = build_cells(st; num_cells)
-    return eme(cells, st.stack.materials, ω, grid, solver; nev, conjugate, reg, reciprocity, kwargs...)
+    return eme(cells, st.stack.materials, ω, grid, solver; nev, conjugate, reg, reciprocity, passivity, kwargs...)
 end
 
 """
@@ -90,12 +91,13 @@ assemble the device S-matrix from per-cell modes and lengths by folding the chai
 `prop₀ ⋆ iface₀₁ ⋆ prop₁ ⋆ …`. Written as a mutation-free fold (no `push!`) so it
 is reverse-mode (Zygote) differentiable.
 """
-function _assemble(modes, lengths; conjugate::Bool=false, reg::Real=1e-9, reciprocity::Bool=true)
+function _assemble(modes, lengths; conjugate::Bool=false, reg::Real=1e-9,
+                   reciprocity::Bool=true, passivity::Symbol=:invert)
     n = length(modes)
     n >= 1 || throw(ArgumentError("need at least one cell"))
     acc = propagation_smatrix(modes[1], lengths[1])
     for i in 1:(n - 1)
-        iface = interface_smatrix(modes[i], modes[i+1]; conjugate, reg, reciprocity)
+        iface = interface_smatrix(modes[i], modes[i+1]; conjugate, reg, reciprocity, passivity)
         prop = propagation_smatrix(modes[i+1], lengths[i+1])
         acc = star(star(acc, iface), prop)
     end

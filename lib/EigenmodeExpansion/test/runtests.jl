@@ -147,8 +147,10 @@ const COUPLER_STACK = LayerStack(
         ε⁻¹s = [d[1] for d in ds]
         ∂ε_∂ωs = [d[2] for d in ds]
         Ls = [c.length for c in cells]
+        # passivity=:none keeps the interface adjoint free of the (non-AD-friendly)
+        # SVD projection — the gradient flows through the raw overlap-matrix solve.
         coupling_cross(eis) = power_coupling(
-            eme(eis, ∂ε_∂ωs, Ls, ω, grid, KrylovKitEigsolve(); nev=2, k_tol=1e-9);
+            eme(eis, ∂ε_∂ωs, Ls, ω, grid, KrylovKitEigsolve(); nev=2, k_tol=1e-9, passivity=:none);
             in_mode=1, out_mode=2)
         g_ad = Zygote.gradient(coupling_cross, ε⁻¹s)[1]
         @test g_ad !== nothing && all(x -> all(isfinite, x), g_ad)

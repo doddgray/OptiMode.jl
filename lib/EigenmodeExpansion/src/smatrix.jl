@@ -76,8 +76,25 @@ both continuity equations and averaged:
 The modes must be power-normalized in the same inner product (the `G = I` form);
 `build_mode` does this. `reciprocity` symmetrizes the result as `½(S + Sᵀ)`.
 """
+"""
+    enforce_passivity(σ; method=:invert) -> σ′
+
+Project the singular values of an interface S-matrix onto a passive interval
+(≤ 1), exactly as MEOW's `enforce_passivity`: `:none` leaves them unchanged,
+`:clip` caps at 1, `:invert` maps `σ > 1` to `1/σ`, `:subtract` maps `σ > 1` to
+`max(0, 2 − σ)`. A truncated modal basis can give a slightly non-passive
+(`σ > 1`) raw interface; this is the standard model correction.
+"""
+function enforce_passivity(σ::AbstractVector; method::Symbol=:invert)
+    method === :none && return σ
+    method === :clip && return min.(σ, one(eltype(σ)))
+    method === :invert && return ifelse.(σ .> 1, inv.(σ), σ)
+    method === :subtract && return max.(ifelse.(σ .> 1, 2 .- σ, σ), zero(eltype(σ)))
+    throw(ArgumentError("unknown passivity method $method"))
+end
+
 function interface_smatrix(modes_l, modes_r; conjugate::Bool=false, reg::Real=1e-9,
-                           reciprocity::Bool=true)
+                           reciprocity::Bool=true, passivity::Symbol=:invert)
     NL, NR = length(modes_l), length(modes_r)
     O_LR = overlap_matrix(modes_l, modes_r; conjugate)   # (NL, NR)
     O_RL = overlap_matrix(modes_r, modes_l; conjugate)   # (NR, NL)
@@ -95,6 +112,12 @@ function interface_smatrix(modes_l, modes_r; conjugate::Bool=false, reg::Real=1e
     R_RR = 0.5 .* ((O_LR_adj * T_RL .- I_R) .+ (I_R .- O_RL * T_RL))
 
     S = [R_LL T_RL; T_LR R_RR]
+    # passivity enforcement via SVD (MEOW). Skipped for `:none` — the SVD is not
+    # reverse-mode-AD friendly, so pass `passivity=:none` when differentiating.
+    if passivity !== :none
+        F = svd(Matrix(S))
+        S = (F.U .* transpose(enforce_passivity(F.S; method=passivity))) * F.Vt
+    end
     if reciprocity
         S = 0.5 .* (S .+ transpose(S))
     end
