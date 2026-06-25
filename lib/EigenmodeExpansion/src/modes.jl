@@ -41,6 +41,25 @@ end
 
 const Modes{T} = Vector{Mode{T}}
 
+# Zygote's automatic constructor adjoint (`Jnew`) cannot reverse this parametric
+# struct's constructor ("Need an adjoint for constructor Mode"); supply an explicit
+# ChainRules rule that just routes each field cotangent back to the corresponding
+# constructor argument.
+function ChainRulesCore.rrule(::Type{Mode}, ω, k, neff, E, H, δA)
+    m = Mode(ω, k, neff, E, H, δA)
+    function Mode_pullback(Δ)
+        Δm = ChainRulesCore.unthunk(Δ)
+        if Δm === nothing || Δm isa ChainRulesCore.AbstractZero
+            z = ChainRulesCore.ZeroTangent()
+            return (ChainRulesCore.NoTangent(), z, z, z, z, z, z)
+        end
+        return (ChainRulesCore.NoTangent(),
+            getproperty(Δm, :ω), getproperty(Δm, :k), getproperty(Δm, :neff),
+            getproperty(Δm, :E), getproperty(Δm, :H), getproperty(Δm, :δA))
+    end
+    return m, Mode_pullback
+end
+
 """
     cell_dielectric(cross_section, materials, ω, grid) -> (ε⁻¹, ∂ε_∂ω)
 
