@@ -71,7 +71,6 @@ function assemble_eme(cells::AbstractVector{Cell}, kmags_per_cell, evecs_per_cel
          for j in eachindex(kmags_per_cell[i])]
     end
     S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity)
-    G = typeof(grid)
     T = typeof(float(ω))
-    return EMEResult{T,G}(S, modes, [c.length for c in cells], T(ω))
+    return EMEResult{T}(S, modes, [c.length for c in cells], T(ω))
 end

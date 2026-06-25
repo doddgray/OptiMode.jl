@@ -23,19 +23,23 @@ using FFTW: fft
 
 A solved cross-section eigenmode. `k` is the propagation constant β (μm⁻¹),
 `neff = k/ω`, and `E`/`H` are the `(3, Nx, Ny)` complex transverse-plus-axial
-field arrays on the cross-section `grid`. Modes are power-normalized so that
-`inner_product(mode, mode) ≈ 1`.
+field arrays. `δA` is the cross-section pixel area (`δV(grid)`) used by the
+overlap integral. Modes are power-normalized so that `inner_product(mode, mode) ≈ 1`.
+
+`Mode` stores `δA` rather than the whole `Grid` so that every field is a Number
+or Array — that keeps the struct's constructor reverse-mode (Zygote) differentiable
+(a nested `Grid` struct field trips Zygote's automatic constructor adjoint).
 """
-struct Mode{T,G}
+struct Mode{T}
     ω::T
     k::T
     neff::Complex{T}
     E::Array{Complex{T},3}
     H::Array{Complex{T},3}
-    grid::G
+    δA::T
 end
 
-const Modes{T,G} = Vector{Mode{T,G}}
+const Modes{T} = Vector{Mode{T}}
 
 """
     cell_dielectric(cross_section, materials, ω, grid) -> (ε⁻¹, ∂ε_∂ω)
@@ -90,9 +94,10 @@ end
 "reconstruct a power-normalized [`Mode`](@ref) from an eigensolver solution"
 function build_mode(ω, k, evec, ε⁻¹, ∂ε_∂ω, grid; conjugate::Bool=false)
     E, H = mode_fields(k, evec, ε⁻¹, grid)
-    m = Mode(ω, k, complex(k / ω), E, H, grid)
+    δA = ChainRulesCore.ignore_derivatives(δV(grid))   # constant pixel area
+    m = Mode(ω, k, complex(k / ω), E, H, δA)
     nrm = sqrt(inner_product(m, m; conjugate))
-    return Mode(ω, k, complex(k / ω), E ./ nrm, H ./ nrm, grid)
+    return Mode(ω, k, complex(k / ω), E ./ nrm, H ./ nrm, δA)
 end
 
 """
@@ -129,7 +134,7 @@ function inner_product(m1::Mode, m2::Mode; conjugate::Bool=false)
     else
         integrand = e1x .* h2y .- e1y .* h2x
     end
-    return 0.5 * sum(integrand) * δV(m1.grid)
+    return 0.5 * sum(integrand) * m1.δA
 end
 
 """

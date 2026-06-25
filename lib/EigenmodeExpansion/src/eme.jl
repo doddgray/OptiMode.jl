@@ -17,9 +17,9 @@ using MaxwellEigenmodes: AbstractEigensolver, KrylovKitEigsolve, solve_k
 Result of an EME run: the device scattering matrix `S` (left-facet modes →
 right-facet modes), the per-cell modal bases `modes`, the cell lengths, and `ω`.
 """
-struct EMEResult{T,G}
+struct EMEResult{T}
     S::SMat
-    modes::Vector{Modes{T,G}}
+    modes::Vector{Modes{T}}
     lengths::Vector{Float64}
     ω::T
 end
@@ -39,9 +39,8 @@ function eme(cells::AbstractVector{Cell}, materials, ω, grid,
              reciprocity::Bool=true, passivity::Symbol=:invert, kwargs...)
     modes = [solve_cell_modes(c, materials, ω, grid, solver; nev, conjugate, kwargs...) for c in cells]
     S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity, passivity)
-    G = typeof(grid)
     T = typeof(float(ω))
-    return EMEResult{T,G}(S, modes, [c.length for c in cells], T(ω))
+    return EMEResult{T}(S, modes, [c.length for c in cells], T(ω))
 end
 
 """
@@ -65,9 +64,8 @@ function eme(ε⁻¹s::AbstractVector{<:AbstractArray}, ∂ε_∂ωs::AbstractVe
         [build_mode(ω, kmags[j], evecs[j], ε⁻¹s[i], ∂ε_∂ωs[i], grid; conjugate) for j in 1:nev]
     end
     S = _assemble(modes, lengths; conjugate, reg, reciprocity, passivity)
-    G = typeof(grid)
     T = typeof(float(ω))
-    return EMEResult{T,G}(S, modes, lengths, T(ω))
+    return EMEResult{T}(S, modes, lengths, T(ω))
 end
 
 """
