@@ -32,6 +32,7 @@ include("grid.jl")
 include("shapes.jl")
 include("kottke.jl")
 include("smooth.jl")
+include("smoothing_plan.jl")
 include("geometry.jl")
 
 end # module DielectricSmoothing

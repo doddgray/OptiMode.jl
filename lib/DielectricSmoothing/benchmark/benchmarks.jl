@@ -96,6 +96,10 @@ backends_kernel = Dict(
 )
 
 SUITE["primal"]["smooth_ε_128x128"] = @benchmarkable smooth_ε($shapes0, $mat_vals0, $minds0, $grid)
+# Geometry cache: build the frequency-independent scaffold once, then apply per-ω.
+plan0 = smoothing_plan(shapes0, minds0, grid)
+SUITE["primal"]["smoothing_plan_build_128x128"] = @benchmarkable smoothing_plan($shapes0, $minds0, $grid)
+SUITE["primal"]["smooth_ε_cached_128x128"] = @benchmarkable smooth_ε($plan0, $mat_vals0)
 SUITE["primal"]["loss"] = @benchmarkable $loss($mat_vals0)
 SUITE["primal"]["loss_geom"] = @benchmarkable $loss_geom($p_geom0)
 SUITE["primal"]["kottke_kernel"] = @benchmarkable $loss_kernel($xk0)
@@ -124,6 +128,19 @@ function run_and_report(suite)
     t_kernel = minimum(results["primal"]["kottke_kernel"]).time
     println("\n=== DielectricSmoothing benchmark summary (128×128 grid) ===")
     println("primal smoothing loss:  $(t_primal/1e6) ms")
+    # geometry cache: full smooth_ε (geometry + material) vs build-once + per-ω apply
+    t_full = minimum(results["primal"]["smooth_ε_128x128"]).time
+    t_build = minimum(results["primal"]["smoothing_plan_build_128x128"]).time
+    t_cached = minimum(results["primal"]["smooth_ε_cached_128x128"]).time
+    println("\n-- geometry cache (frequency sweep) --")
+    println(rpad("full smooth_ε (per ω):", 30), "$(round(t_full/1e6; digits=3)) ms")
+    println(rpad("plan build (once):", 30), "$(round(t_build/1e6; digits=3)) ms")
+    println(rpad("cached apply (per ω):", 30), "$(round(t_cached/1e6; digits=3)) ms   ($(round(t_full/t_cached; digits=1))× faster per ω)")
+    # N-frequency sweep: full = N·t_full ; cached = t_build + N·t_cached
+    for N in (10, 50)
+        spd = (N * t_full) / (t_build + N * t_cached)
+        println(rpad("  $(N)-ω sweep speedup:", 30), "$(round(spd; digits=1))×")
+    end
     for (name, _) in backends_pipeline
         t = minimum(results["gradient(pipeline)"][name]).time
         println(rpad("pipeline gradient $name:", 36), "$(t/1e6) ms   ($(round(t/t_primal; digits=1))× primal)")
