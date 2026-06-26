@@ -31,9 +31,11 @@ import GeometryPrimitives
 
 include("gds.jl")
 include("structure.jl")
+include("cache.jl")
 include("modes.jl")
 include("smatrix.jl")
 include("eme.jl")
+include("diagnostics.jl")
 include("sweeps.jl")
 
 # Discrete / IO operations are constants for AD: the EME differentiable variables

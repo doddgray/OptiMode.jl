@@ -119,17 +119,29 @@ function build_mode(ω, k, evec, ε⁻¹, ∂ε_∂ω, grid; conjugate::Bool=fal
     return Mode(ω, k, complex(k / ω), E ./ nrm, H ./ nrm, δA)
 end
 
+# Lower-level cell solve returning the raw eigensolution alongside the dielectric, so the
+# `(kmags, evecs)` of one cell can warm-start the next (`kguess`/`Hguess`). The warm-start
+# seeds are forwarded as `solve_k` keyword arguments and so do not participate in AD.
+function _cell_raw_solve(cell::Cell, materials, ω, grid, solver::AbstractEigensolver;
+                         nev::Int=2, kguess=nothing, Hguess=nothing, kwargs...)
+    ε⁻¹, ∂ε_∂ω = cell_dielectric(cell.cross_section, materials, ω, grid)
+    kmags, evecs = solve_k(ω, ε⁻¹, grid, solver; nev, kguess, Hguess, kwargs...)
+    return kmags, evecs, ε⁻¹, ∂ε_∂ω
+end
+
 """
-    solve_cell_modes(cell, materials, ω, grid, solver; nev=2, conjugate=false, kwargs...) -> Modes
+    solve_cell_modes(cell, materials, ω, grid, solver; nev=2, conjugate=false,
+                     kguess=nothing, Hguess=nothing, kwargs...) -> Modes
 
 Solve the `nev` lowest modes of `cell`'s cross-section. `kwargs` are forwarded to
-`MaxwellEigenmodes.solve_k` (e.g. `k_tol`, `maxiter`). The returned modes are the
-modal basis for that cell in the EME expansion.
+`MaxwellEigenmodes.solve_k` (e.g. `k_tol`, `maxiter`). Optional `kguess` (an initial `|k|`)
+and `Hguess` (an initial transverse-`H` eigenvector basis, e.g. the previous cell's
+`evecs`) warm-start the Newton/eigensolver iterations without changing the converged
+result. The returned modes are the modal basis for that cell in the EME expansion.
 """
 function solve_cell_modes(cell::Cell, materials, ω, grid, solver::AbstractEigensolver=KrylovKitEigsolve();
-                          nev::Int=2, conjugate::Bool=false, kwargs...)
-    ε⁻¹, ∂ε_∂ω = cell_dielectric(cell.cross_section, materials, ω, grid)
-    kmags, evecs = solve_k(ω, ε⁻¹, grid, solver; nev, kwargs...)
+                          nev::Int=2, conjugate::Bool=false, kguess=nothing, Hguess=nothing, kwargs...)
+    kmags, evecs, ε⁻¹, ∂ε_∂ω = _cell_raw_solve(cell, materials, ω, grid, solver; nev, kguess, Hguess, kwargs...)
     return [build_mode(ω, kmags[i], evecs[i], ε⁻¹, ∂ε_∂ω, grid; conjugate) for i in 1:nev]
 end
 

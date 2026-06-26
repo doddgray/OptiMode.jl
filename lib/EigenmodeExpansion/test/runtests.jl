@@ -161,4 +161,81 @@ const COUPLER_STACK = LayerStack(
         gdir_ad = sum(g_ad[1] .* dir)
         @test isapprox(gdir_ad, gdir_fd; rtol=5e-2, atol=1e-6)
     end
+
+    @testset "cross-section dedup" begin
+        # uniform (straight) waveguide → every cell's cross-section is identical
+        path = tempname() * ".gds"
+        write_gds(path, coupler_polygons(; gap0=0.6, gap1=0.6))
+        st = Structure(read_gds(path), COUPLER_STACK; transverse_pad=1.5, vertical_pad=1.0)
+        ω = 1 / 1.55
+        grid = simulation_grid(st, 64, 32)
+        cells = build_cells(st; num_cells=4)
+        # all four cells collapse to a single representative
+        reps, gid = dedup_groups(cells)
+        @test length(reps) == 1
+        @test gid == fill(1, 4)
+        @test cross_section_key(cells[1].cross_section) == cross_section_key(cells[3].cross_section)
+        # dedup must not change the device S-matrix (shared vs independent identical solves)
+        r_dd = eme(cells, st.stack.materials, ω, grid; nev=2, dedup=true, k_tol=1e-8)
+        r_nd = eme(cells, st.stack.materials, ω, grid; nev=2, dedup=false, k_tol=1e-8)
+        @test isapprox(power_coupling(r_dd), power_coupling(r_nd); rtol=1e-4)
+        # a tapered device has all-distinct cross-sections → dedup is a no-op
+        path2 = tempname() * ".gds"
+        write_gds(path2, coupler_polygons())                  # gap narrows along x
+        st2 = Structure(read_gds(path2), COUPLER_STACK; transverse_pad=1.5, vertical_pad=1.0)
+        reps2, _ = dedup_groups(build_cells(st2; num_cells=4))
+        @test length(reps2) == 4
+    end
+
+    @testset "cell-to-cell warm start" begin
+        path = tempname() * ".gds"
+        write_gds(path, coupler_polygons())
+        st = Structure(read_gds(path), COUPLER_STACK; transverse_pad=1.5, vertical_pad=1.0)
+        ω = 1 / 1.55
+        grid = simulation_grid(st, 64, 32)
+        cells = build_cells(st; num_cells=3)
+        # warm-starting only seeds the iterations → converged device S-matrix is unchanged
+        r_cold = eme(cells, st.stack.materials, ω, grid; nev=2, warmstart=false, dedup=false, k_tol=1e-9)
+        r_warm = eme(cells, st.stack.materials, ω, grid; nev=2, warmstart=true, dedup=false, k_tol=1e-9)
+        @test isapprox(power_coupling(r_cold), power_coupling(r_warm); rtol=1e-5)
+        @test isapprox(transmission(r_cold.S), transmission(r_warm.S); atol=1e-5)
+    end
+
+    @testset "passivity & nev-convergence diagnostics" begin
+        path = tempname() * ".gds"
+        write_gds(path, coupler_polygons())
+        st = Structure(read_gds(path), COUPLER_STACK; transverse_pad=1.5, vertical_pad=1.0)
+        ω = 1 / 1.55
+        grid = simulation_grid(st, 64, 32)
+        cells = build_cells(st; num_cells=3)
+        r = eme(cells, st.stack.materials, ω, grid; nev=2, k_tol=1e-8)
+        rep = passivity_report(r)
+        @test length(rep.per_interface) == 2
+        @test rep.max_excess ≥ -1e-12
+        @test rep.passive isa Bool
+        # nev sweep: report shapes line up and the first delta is NaN
+        conv = nev_convergence(cells, st.stack.materials, ω, grid; nevs=1:2, k_tol=1e-8)
+        @test conv.nevs == [1, 2]
+        @test length(conv.values) == 2 && all(isfinite, conv.values)
+        @test isnan(conv.deltas[1]) && isfinite(conv.deltas[2])
+        @test length(conv.max_excess) == 2 && all(x -> x ≥ -1e-12, conv.max_excess)
+    end
+
+    @testset "(cell × ω) batch task mapping" begin
+        # Pure mapping logic of the batched deploy/gather (no SLURM needed): a batch
+        # enqueues (representative cell × ω); gather must find the task for each (cell, ω).
+        reps = [1, 3, 5]                    # representative cell indices after dedup
+        ωs = [0.62, 0.64, 0.66]
+        params = [(; cell=c, ω=w) for w in ωs for c in reps]   # cell varies fastest
+        tmap = EigenmodeExpansion._eme_task_map(params)
+        @test length(tmap) == length(params)
+        # task index resolves to the right (cell, ω) entry
+        for (t, p) in enumerate(params)
+            @test EigenmodeExpansion._eme_task_index(tmap, p.cell, p.ω) == t
+        end
+        # ordering: cell fastest within each ω block
+        @test EigenmodeExpansion._eme_task_index(tmap, 1, 0.62) == 1
+        @test EigenmodeExpansion._eme_task_index(tmap, 3, 0.62) == 2
+        @test EigenmodeExpansion._eme_task_index(tmap, 1, 0.64) == 4
+    end
 end

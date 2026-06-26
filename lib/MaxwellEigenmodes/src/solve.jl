@@ -182,8 +182,31 @@ cost; see `eig_adjt`. Solver backends: `KrylovKitEigsolve` (native CPU), `DFTK_L
 function solve_k(ω::T,ε⁻¹::AbstractArray{T},grid::Grid{ND,T},solver::AbstractEigensolver;nev=1,
 	max_eigsolves=60,maxiter=100,k_tol=1e-8,eig_tol=1e-8,log=false,kguess=nothing,Hguess=nothing,
 	f_filter=nothing,overwrite=false) where {ND,T<:Real}
-	ms = ModeSolver(k_guess(ω,ε⁻¹), ε⁻¹, grid; nev, maxiter, tol=eig_tol)
+	# `kguess`/`Hguess` are warm starts: an initial |k| for the Newton inversion and an
+	# initial eigenvector basis for the eigensolver. They only seed the iterations — both
+	# converge to the same eigenpair to tolerance — so the returned value (and its adjoint)
+	# is independent of them. Supplying the neighbouring cell/frequency solution cuts the
+	# Newton- and Lanczos-iteration counts (see `solve_cell_modes`' warm-start path).
+	k0 = kguess === nothing ? k_guess(ω,ε⁻¹) : T(first(kguess))
+	ms = ModeSolver(k0, ε⁻¹, grid; nev, maxiter, tol=eig_tol)
+	if Hguess !== nothing
+		_apply_Hguess!(ms.H⃗, Hguess)
+	end
 	solve_k(ms, ω, solver; nev, maxiter, max_eigsolves, k_tol, eig_tol, log, f_filter,)
+end
+
+# Write a warm-start eigenvector basis into `H⃗` (columns = bands), tolerating a single
+# vector, a vector-of-vectors, or a matrix, and a mismatched band count (extra columns
+# keep their random initialisation; missing bands are ignored).
+function _apply_Hguess!(H⃗::AbstractMatrix, Hguess)
+	cols = Hguess isa AbstractMatrix ? eachcol(Hguess) :
+	       (eltype(Hguess) <: Number ? (Hguess,) : Hguess)
+	for (j, h) in enumerate(cols)
+		j ≤ size(H⃗, 2) || break
+		length(h) == size(H⃗, 1) || continue
+		@views H⃗[:, j] .= h
+	end
+	return H⃗
 end
 
 
