@@ -9,6 +9,7 @@ EigenmodeExpansion = "33b89796-963f-490a-b351-507591726d28"
 MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
 MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
 ModeAnalysis = "9a3c1c2f-0c6b-44f1-b8a4-8f3e2c7d9b54"
+ModePerturbations = "7e3d1a90-6c2b-4f51-9a8e-2b1c5d4e7f63"
 ModeSweeps = "b3a6f8c2-94d1-4e7a-bb0e-6f1d2a83c905"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
@@ -19,6 +20,7 @@ GeometryPrimitives = {url = "https://github.com/doddgray/GeometryPrimitives.jl",
 MaterialDispersion = {path = "lib/MaterialDispersion"}
 MaxwellEigenmodes = {path = "lib/MaxwellEigenmodes"}
 ModeAnalysis = {path = "lib/ModeAnalysis"}
+ModePerturbations = {path = "lib/ModePerturbations"}
 ModeSweeps = {path = "lib/ModeSweeps"}
 
 [compat]

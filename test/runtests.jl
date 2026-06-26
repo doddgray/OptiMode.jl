@@ -37,6 +37,19 @@ using FiniteDifferences
     ng = group_index(kmags[1], evecs[1], ω, epsi, deps_dom, grid)
     @test kmags[1] / ω < ng < 3.0
 
+    # ModePerturbations: first-order Δneff vs. a full perturbed re-solve (same engine the
+    # component test-suite validates), end to end through the umbrella re-exports
+    @test OptiMode.perturbation_Δk isa Function
+    ε0 = copy(selectdim(sm, 3, 1))                       # smoothed dielectric ε
+    εi0 = sliceinv_3x3(copy(ε0))                         # its inverse ε⁻¹
+    core_frac = smooth_scalar(shapes, [1.0, 0.0], minds, grid)
+    Δε = Δε_from_Δn(2e-3 .* core_frac, ε0)
+    Δneff_pert = Δneff_perturbation(kmags[1], evecs[1], ω, εi0, Δε, grid)
+    neff_full(s) = solve_k(ω, sliceinv_3x3(ε0 .+ Δε_from_Δn(s .* core_frac, ε0)),
+        grid, KrylovKitEigsolve(); nev=1, kguess=kmags[1])[1][1] / ω
+    @test Δneff_pert ≈ (neff_full(2e-3) - neff_full(0.0)) rtol = 5e-3
+    @test Δneff_pert > 0
+
     # EigenmodeExpansion re-export + GDS round-trip (no eigensolve, keep it light)
     @test OptiMode.eme_smatrix isa Function
     pts = [0.0 4.0 4.0 0.0; 0.25 0.25 -0.25 -0.25]
