@@ -36,7 +36,7 @@ end
 
 function EigenmodeExpansion.gather_eme(batch::BatchInfo, cells::AbstractVector{Cell},
         materials, ω, grid; dedup::Bool=true, conjugate::Bool=false, reg::Real=1e-9,
-        reciprocity::Bool=true, passivity::Symbol=:invert, wait::Bool=true)
+        reciprocity::Bool=true, passivity::Symbol=:invert, threaded::Bool=false, wait::Bool=true)
     wait && wait_batch(batch)
     n = length(cells)
     reps, _ = dedup ? dedup_groups(cells) : (collect(1:n), nothing)
@@ -53,7 +53,7 @@ function EigenmodeExpansion.gather_eme(batch::BatchInfo, cells::AbstractVector{C
             evecs_per_rep[k] = [collect(ComplexF64.(ev)) for ev in lf.evecs]
         end
         assemble_eme(cells, kmags_per_rep, evecs_per_rep, materials, ωj, grid;
-            conjugate, reg, reciprocity, passivity, dedup)
+            conjugate, reg, reciprocity, passivity, dedup, threaded)
     end
     return ω isa Number ? only(results) : results
 end

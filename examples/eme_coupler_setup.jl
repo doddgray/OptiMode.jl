@@ -24,4 +24,6 @@ const NUM_CELLS = parse(Int, get(ENV, "EME_NUM_CELLS", "30"))
 const CELLS = build_cells(STRUCTURE; num_cells=NUM_CELLS)
 const MATS = STACK.materials
 
-make_problem(p) = cell_problem(CELLS[p.cell], MATS, p.ω, GRID)
+# `threaded=true` parallelises the cross-section smoothing across the worker's threads
+# (launch workers with `julia -t N`, e.g. SlurmConfig(cpus_per_task=N, julia_flags=["-t","N"])).
+make_problem(p) = cell_problem(CELLS[p.cell], MATS, p.ω, GRID; threaded=true)

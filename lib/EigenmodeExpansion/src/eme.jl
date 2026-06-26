@@ -38,14 +38,15 @@ the modal basis across all cells with identical geometry (see [`dedup_groups`](@
 a large saving for stacks with uniform/repeated sections, with no effect on the result.
 `warmstart=true` seeds each successive cell's eigensolve from the previous one's solution
 (`kguess`/`Hguess`), cutting Newton/Lanczos iterations on slowly-varying (adiabatic)
-stacks. `kwargs` are forwarded to `solve_k`.
+stacks. `threaded=true` runs each cell's cross-section smoothing across all Julia threads
+(useful for large grids; pair with `julia -t`). `kwargs` are forwarded to `solve_k`.
 """
 function eme(cells::AbstractVector{Cell}, materials, ω, grid,
              solver::AbstractEigensolver=KrylovKitEigsolve();
              nev::Int=2, conjugate::Bool=false, reg::Real=1e-9,
              reciprocity::Bool=true, passivity::Symbol=:invert,
-             dedup::Bool=true, warmstart::Bool=false, kwargs...)
-    modes = _solve_cells(cells, materials, ω, grid, solver; nev, conjugate, dedup, warmstart, kwargs...)
+             dedup::Bool=true, warmstart::Bool=false, threaded::Bool=false, kwargs...)
+    modes = _solve_cells(cells, materials, ω, grid, solver; nev, conjugate, dedup, warmstart, threaded, kwargs...)
     S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity, passivity)
     T = typeof(float(ω))
     return EMEResult{T}(S, modes, [c.length for c in cells], T(ω))
@@ -55,14 +56,15 @@ end
 # (optionally) warm-starting each unique solve from the previous one. Returns one
 # `Modes` per cell; cells in the same dedup group share the *same* `Modes` object.
 function _solve_cells(cells::AbstractVector{Cell}, materials, ω, grid, solver;
-                      nev::Int, conjugate::Bool, dedup::Bool, warmstart::Bool, kwargs...)
+                      nev::Int, conjugate::Bool, dedup::Bool, warmstart::Bool,
+                      threaded::Bool=false, kwargs...)
     reps, gid = dedup ? dedup_groups(cells) : (collect(eachindex(cells)), collect(eachindex(cells)))
     prev_k = Ref{Any}(nothing)
     prev_H = Ref{Any}(nothing)
     rep_modes = map(reps) do ci
         kg, hg = warmstart ? (prev_k[], prev_H[]) : (nothing, nothing)
         kmags, evecs, ε⁻¹, ∂ε_∂ω = _cell_raw_solve(cells[ci], materials, ω, grid, solver;
-                                                    nev, kguess=kg, Hguess=hg, kwargs...)
+                                                    nev, kguess=kg, Hguess=hg, threaded, kwargs...)
         if warmstart
             ChainRulesCore.ignore_derivatives() do
                 prev_k[] = copy(kmags); prev_H[] = [copy(ev) for ev in evecs]
@@ -100,10 +102,11 @@ end
 
 """
     eme_smatrix(structure, ω; nev=2, Nx=128, Ny=96, num_cells=20,
-                solver=KrylovKitEigsolve(), kwargs...) -> EMEResult
+                solver=KrylovKitEigsolve(), threaded=false, kwargs...) -> EMEResult
 
 Convenience entry point: build the simulation grid and cells from a
-[`Structure`](@ref), then run [`eme`](@ref).
+[`Structure`](@ref), then run [`eme`](@ref). Extra keywords (including `threaded` to
+parallelise the per-cell smoothing, `dedup`, `warmstart`) are forwarded to [`eme`](@ref).
 """
 function eme_smatrix(st::Structure, ω; nev::Int=2, Nx::Int=128, Ny::Int=96,
                      num_cells::Int=20, solver::AbstractEigensolver=KrylovKitEigsolve(),
