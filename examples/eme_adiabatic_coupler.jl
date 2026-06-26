@@ -77,18 +77,19 @@ end
 
 # ── 5. remote deployment (SLURM) & parameter sweeps ──────────────────────────
 # The per-cell mode solves are the expensive part and map onto ModeSweeps tasks.
-# With ModeSweeps loaded, deploy them as a SLURM array job (one task per cell),
-# then re-assemble the device S-matrix locally:
+# With ModeSweeps loaded, deploy the n_cells × n_ω cross-section solves as one SLURM
+# array job (identical cross-sections deduplicated), then re-assemble per frequency:
 #
 #     using ModeSweeps
 #     grid  = simulation_grid(structure, 128, 64)
 #     cells = build_cells(structure; num_cells=30)
+#     ωs    = 1 ./ (1.50:0.01:1.60)
 #     # eme_coupler_setup.jl defines  make_problem(p) = cell_problem(CELLS[p.cell], MATS, p.ω, GRID)
-#     batch = deploy_eme("examples/eme_coupler_setup.jl", length(cells);
-#                        ω = 1/1.55, nev = 2,
+#     batch = deploy_eme("examples/eme_coupler_setup.jl", cells;     # dedup'd (cell × ω)
+#                        ω = ωs, nev = 2,
 #                        slurm = SlurmConfig(ssh="me@cluster", remote_dir="/scratch/me/eme"))
-#     res   = gather_eme(batch, cells, structure.stack.materials, 1/1.55, grid; nev=2)
-#     power_coupling(res; in_mode=1, out_mode=2)
+#     results = gather_eme(batch, cells, structure.stack.materials, ωs, grid)  # one per ω
+#     power_coupling(results[1]; in_mode=1, out_mode=2)
 #
 # AD: `power_coupling`/`transmission` are differentiable, so a frequency- or
 # geometry-gradient of the coupling follows from Zygote (reverse) over `eme`:

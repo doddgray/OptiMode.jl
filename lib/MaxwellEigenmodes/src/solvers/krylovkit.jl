@@ -36,7 +36,12 @@ end
 KrylovKitEigsolve() = KrylovKitEigsolve(NullLogger())
 
 function solve_ω²(ms::ModeSolver{ND,T},solver::KrylovKitEigsolve;nev=1,eigind=1,maxiter=200,tol=1e-8,log=false,f_filter=nothing) where {ND,T<:Real}
-	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,rand(Complex{T},size(ms.H⃗[:,1])),nev,:SR; maxiter, tol, krylovdim=50) # , verbosity=2)
+	# Start the Krylov expansion from `ms.H⃗[:,1]` (randomly initialised by the ModeSolver
+	# constructor, or overwritten with a warm-start basis by `solve_k`). This makes the
+	# eigensolve reuse a neighbouring solution when warm-started and keeps cold starts
+	# random; the converged eigenpair is unchanged either way.
+	x₀ = iszero(@view ms.H⃗[:,1]) ? rand(Complex{T},size(ms.H⃗[:,1])) : copy(ms.H⃗[:,1])
+	evals,evecs,convinfo = eigsolve(x->ms.M̂*x,x₀,nev,:SR; maxiter, tol, krylovdim=50) # , verbosity=2)
 
 	evals_res = copy(evals[1:nev])
 	evecs_res = [copy(evecs[i]) for i in 1:nev]

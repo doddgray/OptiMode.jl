@@ -1,10 +1,11 @@
 # ModeSweeps setup script for deploying an EME stack's per-cell mode solves as a
-# SLURM batch (one task per cell). It is copied into the batch directory and
+# SLURM batch (one task per (cell, ω)). It is copied into the batch directory and
 # `include`d by every worker, so it `using`s what it needs and defines
 # `make_problem(p)`; here `p.cell` selects the EME cell and `p.ω` the frequency.
 #
-# Pair with `deploy_eme(@__FILE__, length(CELLS); ω, nev=2, ...)` and re-assemble
-# the device S-matrix with `gather_eme(batch, CELLS, MATS, ω, GRID; nev=2)`.
+# Pair with `deploy_eme(@__FILE__, CELLS; ω, nev=2, ...)` (dedup'd cell × ω tasks;
+# `ω` may be a vector) and re-assemble per frequency with
+# `gather_eme(batch, CELLS, MATS, ω, GRID)`.
 
 using EigenmodeExpansion
 using MaterialDispersion: Si₃N₄, SiO₂

@@ -64,18 +64,48 @@ are marked non-differentiable. `test/runtests.jl` checks forward-mode dielectric
 sensitivities and reverse-mode end-to-end `ε⁻¹` sensitivities against
 `FiniteDifferences.jl`.
 
+## Performance: dedup, warm starts, convergence
+
+The expensive work is the per-cell eigensolves. Three knobs reduce and certify it:
+
+- **`dedup=true`** (default of `eme`) solves each *unique* cross-section once and shares
+  the modal basis across every cell with identical geometry — uniform/repeated stacks
+  (straight sections, grating periods) collapse to one solve per distinct geometry, with
+  no change to the result. `dedup_groups(cells)` exposes the grouping; `cross_section_key`
+  the per-cell key.
+- **`warmstart=true`** seeds each successive cell's Newton/eigensolver iterations from the
+  previous cell's solution (`solve_k`'s `kguess`/`Hguess`), cutting iteration counts on
+  slowly-varying (adiabatic) devices. It only seeds the solver, so the converged S-matrix
+  is unchanged.
+- **`nev_convergence` / `passivity_report`** certify the modal-basis truncation. A
+  truncated basis shows up as a non-passive raw interface (`σ > 1`); raise `nev` until
+  `passivity_report(res).max_excess → 0`, at which point the (AD-friendly) `passivity=:none`
+  adjoint matches the enforced primal:
+
+  ```julia
+  conv = nev_convergence(structure, 1/1.55; nevs=1:6, num_cells=30)   # values, deltas, max_excess
+  rep  = passivity_report(res)                                        # per-interface σ-excess
+  ```
+
 ## SLURM / parameter sweeps
 
-The per-cell mode solves map one-to-one onto ModeSweeps tasks. With `ModeSweeps`
-loaded, deploy them as a SLURM array job and re-assemble locally:
+The whole `n_cells × n_ω` set of cross-section solves is independent and farms as one
+SLURM array job. Pass the `cells` (so identical cross-sections are deduplicated) and a
+**vector `ω`** to sweep frequency and cells together; `gather_eme` reduces per frequency,
+returning one `EMEResult` per `ω`:
 
 ```julia
 using ModeSweeps
 grid  = simulation_grid(structure, 128, 64)
 cells = build_cells(structure; num_cells=30)
-batch = deploy_eme("examples/eme_coupler_setup.jl", length(cells);
-                   ω=1/1.55, nev=2, slurm=SlurmConfig(ssh="me@cluster", remote_dir="/scratch/me/eme"))
-res   = gather_eme(batch, cells, structure.stack.materials, 1/1.55, grid; nev=2)
+ωs    = 1 ./ (1.50:0.01:1.60)
+batch = deploy_eme("examples/eme_coupler_setup.jl", cells;          # dedup'd (cell × ω) tasks
+                   ω=ωs, nev=2, slurm=SlurmConfig(ssh="me@cluster", remote_dir="/scratch/me/eme"))
+results = gather_eme(batch, cells, structure.stack.materials, ωs, grid; nev=2)   # Vector{EMEResult}
 ```
+
+The setup script's `make_problem(p)` returns the cell-`p.cell` cross-section at `p.ω` (see
+`cell_problem`). The legacy `deploy_eme(setup_file, num_cells::Int; ω, …)` form (one task
+per cell, no dedup) is still available.
 
 Full documentation: [`docs/eigenmode_expansion.md`](../../docs/eigenmode_expansion.md).

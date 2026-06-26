@@ -26,21 +26,51 @@ end
 
 """
     eme(cells, materials, ω, grid, solver=KrylovKitEigsolve();
-        nev=2, conjugate=false, reg=1e-9, reciprocity=true, kwargs...) -> EMEResult
+        nev=2, conjugate=false, reg=1e-9, reciprocity=true, passivity=:invert,
+        dedup=true, warmstart=false, kwargs...) -> EMEResult
 
 Run eigenmode expansion over a vector of [`Cell`](@ref)s. Each cell's cross-section
 is solved for `nev` modes; adjacent cells are coupled through MEOW interface
 S-matrices and joined by diagonal propagation S-matrices, then cascaded.
-`kwargs` are forwarded to `solve_k`.
+
+`dedup=true` (default) solves each *unique* cross-section's modes only once and shares
+the modal basis across all cells with identical geometry (see [`dedup_groups`](@ref)) —
+a large saving for stacks with uniform/repeated sections, with no effect on the result.
+`warmstart=true` seeds each successive cell's eigensolve from the previous one's solution
+(`kguess`/`Hguess`), cutting Newton/Lanczos iterations on slowly-varying (adiabatic)
+stacks. `kwargs` are forwarded to `solve_k`.
 """
 function eme(cells::AbstractVector{Cell}, materials, ω, grid,
              solver::AbstractEigensolver=KrylovKitEigsolve();
              nev::Int=2, conjugate::Bool=false, reg::Real=1e-9,
-             reciprocity::Bool=true, passivity::Symbol=:invert, kwargs...)
-    modes = [solve_cell_modes(c, materials, ω, grid, solver; nev, conjugate, kwargs...) for c in cells]
+             reciprocity::Bool=true, passivity::Symbol=:invert,
+             dedup::Bool=true, warmstart::Bool=false, kwargs...)
+    modes = _solve_cells(cells, materials, ω, grid, solver; nev, conjugate, dedup, warmstart, kwargs...)
     S = _assemble(modes, [c.length for c in cells]; conjugate, reg, reciprocity, passivity)
     T = typeof(float(ω))
     return EMEResult{T}(S, modes, [c.length for c in cells], T(ω))
+end
+
+# Solve the modal basis of every cell, de-duplicating identical cross-sections and
+# (optionally) warm-starting each unique solve from the previous one. Returns one
+# `Modes` per cell; cells in the same dedup group share the *same* `Modes` object.
+function _solve_cells(cells::AbstractVector{Cell}, materials, ω, grid, solver;
+                      nev::Int, conjugate::Bool, dedup::Bool, warmstart::Bool, kwargs...)
+    reps, gid = dedup ? dedup_groups(cells) : (collect(eachindex(cells)), collect(eachindex(cells)))
+    prev_k = Ref{Any}(nothing)
+    prev_H = Ref{Any}(nothing)
+    rep_modes = map(reps) do ci
+        kg, hg = warmstart ? (prev_k[], prev_H[]) : (nothing, nothing)
+        kmags, evecs, ε⁻¹, ∂ε_∂ω = _cell_raw_solve(cells[ci], materials, ω, grid, solver;
+                                                    nev, kguess=kg, Hguess=hg, kwargs...)
+        if warmstart
+            ChainRulesCore.ignore_derivatives() do
+                prev_k[] = copy(kmags); prev_H[] = [copy(ev) for ev in evecs]
+            end
+        end
+        [build_mode(ω, kmags[i], evecs[i], ε⁻¹, ∂ε_∂ω, grid; conjugate) for i in 1:nev]
+    end
+    return [rep_modes[g] for g in gid]
 end
 
 """
