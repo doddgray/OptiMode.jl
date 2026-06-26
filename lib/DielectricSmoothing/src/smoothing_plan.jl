@@ -15,11 +15,12 @@
 #  differentiable in `mat_vals` (the per-ω material data) in every backend; geometry is
 #  frozen in the plan, so geometry-*parameter* gradients still use the original `smooth_ε`.
 #
-#  Note on the size of the win: benchmarking shows the geometry scaffold is only a modest
-#  fraction (~10%) of `smooth_ε` — the per-pixel Kottke kernel and the output assembly,
-#  which both paths share, dominate. So caching mainly removes redundant geometry work
-#  across a sweep (and lets the EME (cell × ω) batch reuse one scaffold per cross-section);
-#  the larger smoothing-cost lever is the per-pixel assembly, a separate optimisation.
+#  Note on the size of the win: once the output assembly was made allocation-free (a
+#  preallocated (27, N) fill replacing the old `mapreduce(vcat)` — ~20× faster), the
+#  geometry pass became the *dominant* remaining cost of `smooth_ε`. So caching it removes
+#  the now-largest term across a frequency sweep (and lets the EME (cell × ω) batch reuse
+#  one scaffold per cross-section). Both the plan apply and the direct `smooth_ε` use the
+#  same fast assembly and accept `threaded=true`.
 # ──────────────────────────────────────────────────────────────────────────────
 
 export SmoothingPlan, smoothing_plan
@@ -105,32 +106,113 @@ end
 
 @non_differentiable smoothing_plan(shapes::Any, minds::Any, grid::Any)
 
-# Per-pixel application of the plan, returning the 27-vector (ε, ∂ωε, ∂²ωε). Mirrors the
-# three branches of `smooth_ε_single`, but with all geometry already resolved in the plan.
-@inline function _apply_plan_single(p::SmoothingPlan, mat_vals, k::Int)
-    kd = p.kind[k]
+# In-place per-pixel application of the plan: write the 27 smoothed values (ε, ∂ωε, ∂²ωε)
+# into `dest`. Mirrors the three branches of `smooth_ε_single`, geometry already resolved.
+@inline function _apply_plan_into!(dest, p::SmoothingPlan, mat_vals, v::Int)
+    kd = p.kind[v]
     if kd == _PLAN_UNIFORM
-        return mat_vals[:, p.a[k]]
+        @inbounds @views dest .= mat_vals[:, p.a[v]]
     elseif kd == _PLAN_INTERFACE
-        return εₑ_∂ωεₑ_∂²ωεₑ(p.rvol[k], p.S[k], mat_vals[:, p.a[k]], mat_vals[:, p.b[k]])
+        @inbounds @views dest .= εₑ_∂ωεₑ_∂²ωεₑ(p.rvol[v], p.S[v], mat_vals[:, p.a[v]], mat_vals[:, p.b[v]])
     else
-        cols = p.multi[p.a[k]]
-        return sum(c -> mat_vals[:, c], cols) / p.NC
+        @inbounds cols = p.multi[p.a[v]]
+        fill!(dest, zero(eltype(dest)))
+        @inbounds for c in cols
+            @views dest .+= mat_vals[:, c]
+        end
+        dest ./= p.NC
     end
+    return dest
+end
+
+function _fill_plan!(flat, plan::SmoothingPlan, mat_vals, threaded::Bool)
+    N = npixels(plan)
+    if threaded && Threads.nthreads() > 1 && N > 1
+        nt = min(Threads.nthreads(), N)
+        @sync for ch in Iterators.partition(1:N, cld(N, nt))
+            Threads.@spawn for v in ch
+                @views _apply_plan_into!(flat[:, v], plan, mat_vals, v)
+            end
+        end
+    else
+        for v in 1:N
+            @views _apply_plan_into!(flat[:, v], plan, mat_vals, v)
+        end
+    end
+    return flat
 end
 
 """
-    smooth_ε(plan::SmoothingPlan, mat_vals) -> Array
+    smooth_ε(plan::SmoothingPlan, mat_vals; threaded=false) -> Array
 
 Apply a precomputed [`SmoothingPlan`](@ref) to per-frequency material data `mat_vals`
 (the same `(27, n_materials)` column matrix [`smooth_ε`](@ref) takes), returning the
 identical `(3, 3, 3, size(grid)...)` smoothed-dielectric array — but running only the
-Kottke kernel, with no geometry queries. Differentiable in `mat_vals` (forward and reverse)
-just like the direct method, so material/ω gradients flow through unchanged.
+Kottke kernel, with no geometry queries. Pixels are written into a preallocated `(27, N)`
+buffer (no per-pixel allocation), optionally across threads (`threaded=true`).
+Differentiable in `mat_vals` (forward via the primal, reverse via the `rrule` below), so
+material/ω gradients flow through unchanged.
 """
-function smooth_ε(plan::SmoothingPlan, mat_vals)
-    smoothed_vals = mapreduce(vcat, 1:npixels(plan)) do k
-        _apply_plan_single(plan, mat_vals, k)
+function smooth_ε(plan::SmoothingPlan{ND}, mat_vals::AbstractMatrix; threaded::Bool=false) where {ND}
+    flat = Matrix{promote_type(eltype(mat_vals), Float64)}(undef, 27, npixels(plan))
+    _fill_plan!(flat, plan, mat_vals, threaded)
+    return reshape(flat, (3, 3, 3, plan.gridsize...))
+end
+
+# Pixel-by-pixel material-data VJP. Uniform/multi pixels select/average columns (trivial);
+# interface pixels apply the Kottke kernel's VJP through a small ForwardDiff Jacobian (as the
+# kernel's own `rrule` does). Threaded with per-chunk accumulators — each task owns a buffer
+# over a disjoint pixel range, summed at the end (race-free, no atomics).
+function _plan_vjp(plan::SmoothingPlan, M::AbstractMatrix{T}, Ȳf, threaded::Bool) where {T}
+    N = npixels(plan)
+    accum! = (into, v) -> begin
+        ȳ = collect(@view Ȳf[:, v])
+        kd = plan.kind[v]
+        if kd == _PLAN_UNIFORM
+            @inbounds @views into[:, plan.a[v]] .+= ȳ
+        elseif kd == _PLAN_INTERFACE
+            a = plan.a[v]; b = plan.b[v]
+            c1 = collect(@view M[:, a]); c2 = collect(@view M[:, b])
+            r = plan.rvol[v]; S = plan.S[v]
+            J1 = ForwardDiff.jacobian(c -> εₑ_∂ωεₑ_∂²ωεₑ(r, S, c, c2), c1)
+            J2 = ForwardDiff.jacobian(c -> εₑ_∂ωεₑ_∂²ωεₑ(r, S, c1, c), c2)
+            @inbounds @views into[:, a] .+= transpose(J1) * ȳ
+            @inbounds @views into[:, b] .+= transpose(J2) * ȳ
+        else
+            @inbounds for c in plan.multi[plan.a[v]]
+                @views into[:, c] .+= ȳ ./ plan.NC
+            end
+        end
     end
-    return reshape(smoothed_vals, (3, 3, 3, plan.gridsize...))
+    if threaded && Threads.nthreads() > 1 && N > 1
+        nt = min(Threads.nthreads(), N)
+        chunks = collect(Iterators.partition(1:N, cld(N, nt)))
+        bufs = Vector{Matrix{T}}(undef, length(chunks))
+        @sync for (ci, ch) in enumerate(chunks)
+            Threads.@spawn begin
+                b = zeros(T, size(M))
+                for v in ch; accum!(b, v); end
+                bufs[ci] = b
+            end
+        end
+        return reduce(+, bufs)
+    else
+        Δ = zeros(T, size(M))
+        for v in 1:N; accum!(Δ, v); end
+        return Δ
+    end
+end
+
+# Reverse rule for the cached apply (Zygote, and Enzyme/Mooncake via the extension bridge).
+# The plan (geometry) is constant ⇒ NoTangent; material-data cotangents come from `_plan_vjp`.
+function ChainRulesCore.rrule(::typeof(smooth_ε), plan::SmoothingPlan, mat_vals::AbstractMatrix;
+        threaded::Bool=false)
+    y = smooth_ε(plan, mat_vals; threaded)
+    M = collect(mat_vals)
+    function smooth_ε_plan_pullback(Ȳ)
+        Ȳf = reshape(collect(ChainRulesCore.unthunk(Ȳ)), 27, npixels(plan))
+        Δ = _plan_vjp(plan, M, Ȳf, threaded)
+        return (NoTangent(), NoTangent(), Δ)
+    end
+    return y, smooth_ε_plan_pullback
 end
