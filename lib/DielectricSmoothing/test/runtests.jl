@@ -230,4 +230,38 @@ end
         @test DI.gradient(kernel_geom, AutoForwardDiff(), pk0) ≈ gk_ref rtol = 1e-4
         @test DI.gradient(kernel_geom, AutoMooncake(; config=nothing), pk0) ≈ gk_ref rtol = 1e-4
     end
+
+    @testset "smoothing geometry cache (SmoothingPlan)" begin
+        # The plan precomputes the frequency-independent geometry scaffold once; applying it
+        # to per-ω material data must reproduce the direct `smooth_ε` exactly.
+        plan = smoothing_plan(shapes0, minds0, grid)
+        @test plan isa SmoothingPlan{2}
+        @test size(plan) == size(grid)
+        # every pixel is classified into exactly one kind
+        nu = count(==(0x01), plan.kind); ni = count(==(0x02), plan.kind); nm = count(==(0x03), plan.kind)
+        @test nu + ni + nm == prod(size(grid))
+        @test ni > 0                                          # the ridge has interfaces
+
+        sm_direct = smooth_ε(shapes0, mat_vals0, minds0, grid)
+        sm_cached = smooth_ε(plan, mat_vals0)
+        @test sm_cached == sm_direct                          # identical operations → bit-exact
+
+        # Reuse one plan across frequencies: apply at a second ω and match the direct path.
+        ω1 = 1 / 1.31
+        mat_vals1 = hcat(f_ε([ω1]), vcat(vec(Matrix(1.0I, 3, 3)), zeros(18)))
+        @test smooth_ε(plan, mat_vals1) == smooth_ε(shapes0, mat_vals1, minds0, grid)
+
+        # Material-data gradients still flow through the cached apply, and match the direct
+        # path (the cache freezes geometry but preserves AD in the material data).
+        loss_cached = mv -> sum(abs2, smooth_ε(plan, mv))
+        loss_direct = mv -> sum(abs2, smooth_ε(shapes0, mv, minds0, grid))
+        g_ref = FiniteDifferences.grad(central_fdm(3, 1), loss_cached, mat_vals0)[1]
+        for (name, backend) in (("ForwardDiff", AutoForwardDiff()), ("Zygote", AutoZygote()))
+            @testset "$name" begin
+                @test DI.gradient(loss_cached, backend, mat_vals0) ≈ g_ref rtol = 1e-5
+            end
+        end
+        @test DI.gradient(loss_cached, AutoZygote(), mat_vals0) ≈
+              DI.gradient(loss_direct, AutoZygote(), mat_vals0) rtol = 1e-9
+    end
 end
