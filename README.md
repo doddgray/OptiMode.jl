@@ -16,6 +16,7 @@ Component-level documentation — with the physics and mathematics of each stage
 [dielectric smoothing](docs/dielectric_smoothing.md) ·
 [Maxwell eigenmodes](docs/maxwell_eigenmodes.md) ·
 [mode analysis](docs/mode_analysis.md) ·
+[mode perturbations](docs/mode_perturbations.md) ·
 [mode sweeps](docs/mode_sweeps.md) ·
 [eigenmode expansion](docs/eigenmode_expansion.md) ·
 [automatic differentiation](docs/automatic_differentiation.md).
@@ -38,6 +39,7 @@ the top-level `OptiMode` module acting as a thin umbrella that re-exports all of
 | [`DielectricSmoothing`](lib/DielectricSmoothing) | Finite-difference spatial `Grid` types and sub-pixel ("Kottke") smoothing of dielectric tensors across material interfaces, mapping geometry + material data to smoothed ε/∂ωε/∂²ωε arrays. |
 | [`MaxwellEigenmodes`](lib/MaxwellEigenmodes) | The plane-wave Helmholtz operator and iterative eigensolvers (`solve_ω²`, `solve_k`) operating on smoothed dielectric tensor data, with adjoint-method gradient rules. Includes an optional [MPB](https://mpb.readthedocs.io) backend (`MPBSolver`, Python `meep.mpb` via PythonCall.jl) and a CUDA-GPU-capable, Float32/Float64 backend (`GPUSolver`) with a device-resident adjoint. |
 | [`ModeAnalysis`](lib/ModeAnalysis) | Post-processing of mode-solver results: group index, group velocity dispersion (`group_index`, `ng_gvd`), field reconstruction helpers, mode classification/filtering, and first-order Kerr (intensity-dependent index) mode corrections (`solve_k_kerr`). |
+| [`ModePerturbations`](lib/ModePerturbations) | First-order perturbation theory for guided-mode properties: weak shifts of effective index, group index, GVD and linear/nonlinear loss from thermo-optic and user-specified Δn(x,y) perturbations, surface-roughness (Payne–Lacey) and substrate-leakage scattering loss, and χ⁽²⁾/χ⁽³⁾ nonlinearities (Kerr SPM/XPM, two-photon absorption, cascaded-χ² effective index, SHG normalized-efficiency overlap). All end-to-end AD compatible and FD-validated; reproduces literature magnitudes/wavelength-dependence. |
 | [`ModeSweeps`](lib/ModeSweeps) | Batched/asynchronous deployment of mode simulations as SLURM array jobs (or local processes): parameter grids & frequency sweeps, persistent batch state, live status, partial gathering, summary-vs-full-field transfer, and tabular (CSV/TSV/JSON) result I/O. |
 | [`EigenmodeExpansion`](lib/EigenmodeExpansion) | Differentiable [MEOW](https://github.com/flaport/meow)/[SAX](https://github.com/flaport/sax)-style eigenmode expansion (EME): GDS import + layer-stack extrusion into 3D, cell slicing, per-cell mode solving, mode-overlap interface and propagation S-matrices, and Redheffer/SAX cascade to a device S-matrix. Forward/reverse AD and SLURM/parameter-sweep deployment of the per-cell solves. |
 
@@ -234,6 +236,44 @@ sweeps deploy as `ModeSweeps` batches like any other parameter: if `make_problem
 returns an `n₂` map, parameter sets containing a power `P` are solved with the Kerr
 correction and the gathered rows include `dneff_kerr` and `dn_max` columns
 ([`examples/kerr_power_sweep_setup.jl`](examples/kerr_power_sweep_setup.jl)).
+
+### Perturbative calculations (thermo-optic, scattering loss, χ⁽²⁾/χ⁽³⁾)
+
+`ModePerturbations` computes *weak* shifts of a mode's effective index, group index, GVD
+and linear/nonlinear loss from one converged mode solution — **without re-solving** — using
+the frozen-mode (Hellmann–Feynman) sensitivity `Δk = ⟨E|Δε|E⟩ / (2⟨ev|∂M̂/∂k|ev⟩)` built
+from the validated `HMH`/`HMₖH` quadratic forms, generalized to complex `Δε` so absorptive
+perturbations give a modal loss `α = 2 Im(Δk)`. Everything is end-to-end AD compatible
+(forward & reverse; ForwardDiff / Zygote / Enzyme / Mooncake) and validated against finite
+differences:
+
+```julia
+using OptiMode, OptiMode.ModePerturbations
+# from a normal solve: (k0, ev0, ε⁻¹, ∂ωε, grid); per-material maps via smooth_scalar
+dndT_map = smooth_scalar(shapes, [2.45e-5, 0.95e-5], minds, grid)        # Si₃N₄ / SiO₂
+dλ_dT = resonance_shift_dλ_dT(
+    thermo_optic_dneff_dT(k0, ev0, ω, ε⁻¹, dndT_map, grid),
+    group_index(k0, ev0, ω, ε⁻¹, ∂ωε, grid), λ) * 1e6                    # ≈ 18 pm/K
+```
+
+Reproduced experimentally-verified results (see [`docs/mode_perturbations.md`](docs/mode_perturbations.md)
+and the `examples/perturbation_*.jl` scripts, each of which saves a matching plot):
+
+| effect | function(s) | literature reproduced |
+|---|---|---|
+| thermo-optic tuning | `thermo_optic_Δneff`, `resonance_shift_dλ_dT` | Si₃N₄ ring **dλ/dT ≈ 18 pm/K** (Arbabi & Goddard 2013; Ilie 2022) |
+| user-specified Δn(x,y) | `index_perturbation_Δneff` | (general; traces modal energy density) |
+| surface-roughness loss | `payne_lacey_slab_loss`, `roughness_scattering_loss` | Payne–Lacey `α ∝ σ²·(Δε)²·λ⁻³`, SOI dB/cm (Lee 2001) |
+| substrate leakage | `substrate_leakage_loss` | `α ∝ exp(−2γ_c t)` BOX rule (Sridaran 2010; Bauters 2011) |
+| Kerr SPM/XPM | `kerr_spm_Δneff`, `kerr_xpm_Δneff`, `kerr_gamma` | Si₃N₄ **γ ≈ 0.95 W⁻¹m⁻¹** (Ikeda 2008); matches `solve_k_kerr` |
+| two-photon absorption | `tpa_modal_loss` | Si β_TPA loss (Lin/Painter/Agrawal 2007) |
+| cascaded χ⁽²⁾ | `cascaded_chi2_n2_eff` | KTP `n₂,eff` sign-flip, ±2×10⁻¹⁴ cm²/W (DeSalvo 1992) |
+| SHG normalized efficiency | `shg_normalized_efficiency`, `shg_overlap_factor` | TFLN PPLN few-1000 %/W/cm² (Wang 2018; Luo 2018) |
+
+Group-index and GVD shifts come from `perturbation_ng_gvd` (frequency derivatives of `Δk`
+across a small unperturbed-mode stencil). For full-resolution, literature-precision runs the
+examples deploy as `ModeSweeps`/SLURM batches; reduced-grid smoke versions live in
+`lib/ModePerturbations/test/runtests.jl`.
 
 ### Forced grid convergence
 

@@ -1,0 +1,46 @@
+name = "ModePerturbations"
+uuid = "7e3d1a90-6c2b-4f51-9a8e-2b1c5d4e7f63"
+authors = ["Dodd Gray"]
+version = "0.1.0"
+
+[deps]
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+DielectricSmoothing = "2d86eedb-d1a5-44a2-91eb-7a4f4d6f578c"
+EllipsisNotation = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MaterialDispersion = "8c41634d-6e2b-4cbd-a9c5-2851b4a02b1f"
+MaxwellEigenmodes = "5f9b71ec-cbcf-4a05-9a39-9d0a3f2e3d61"
+ModeAnalysis = "9a3c1c2f-0c6b-44f1-b8a4-8f3e2c7d9b54"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Tullio = "bc48ee85-29a4-5162-ae0b-a64e1601d4bc"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+
+[sources]
+DielectricSmoothing = {path = "../DielectricSmoothing"}
+MaterialDispersion = {path = "../MaterialDispersion"}
+MaxwellEigenmodes = {path = "../MaxwellEigenmodes"}
+ModeAnalysis = {path = "../ModeAnalysis"}
+
+[weakdeps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+
+[extensions]
+ModePerturbationsEnzymeExt = "Enzyme"
+ModePerturbationsMooncakeExt = "Mooncake"
+
+[compat]
+julia = "1.10"
+
+[extras]
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["DifferentiationInterface", "Enzyme", "FiniteDifferences", "ForwardDiff", "Mooncake", "Test"]

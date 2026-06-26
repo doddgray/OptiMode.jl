@@ -13,6 +13,8 @@
 #   - MaxwellEigenmodes:   plane-wave electromagnetic eigenmode solver with
 #                          adjoint-based AD rules
 #   - ModeAnalysis:        post-processing of mode solver results
+#   - ModePerturbations:   first-order perturbation theory for mode properties
+#                          (thermo-optic, roughness/substrate loss, χ⁽²⁾/χ⁽³⁾)
 #   - ModeSweeps:          batched/asynchronous (SLURM) mode-simulation sweeps
 #   - EigenmodeExpansion:  GDS-driven, MEOW/SAX-style eigenmode-expansion (EME)
 #                          built on the differentiable mode solver
@@ -27,6 +29,7 @@ using Reexport
 @reexport using DielectricSmoothing
 @reexport using MaxwellEigenmodes
 @reexport using ModeAnalysis
+@reexport using ModePerturbations
 @reexport using ModeSweeps
 @reexport using EigenmodeExpansion
 
