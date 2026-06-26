@@ -59,20 +59,22 @@ _eme_task_index(d::AbstractDict, cell::Int, ω::Real; atol::Float64=1e-12) =
     d[(cell, _ωkey(ω; atol))]
 
 """
-    cell_problem(cell, materials, ω, grid) -> NamedTuple
+    cell_problem(cell, materials, ω, grid; threaded=false) -> NamedTuple
 
 Build the ModeSweeps `make_problem`-style payload `(; ε⁻¹, ∂ε_∂ω, ∂²ε_∂ω², grid)`
 for a single EME [`Cell`](@ref). A ModeSweeps setup script can solve one cell per
 SLURM array task with
 
-    make_problem(p) = cell_problem(CELLS[p.cell], MATERIALS, p.ω, GRID)
+    make_problem(p) = cell_problem(CELLS[p.cell], MATERIALS, p.ω, GRID; threaded=true)
 
 so an entire EME stack's mode solves are deployed as one batch (and swept over ω
-or geometry alongside the cell index).
+or geometry alongside the cell index). Set `threaded=true` (with the worker launched
+under `julia -t N`, e.g. `SlurmConfig(cpus_per_task=N, julia_flags=["-t","N"])`) to
+thread the cross-section smoothing within each task.
 """
-function cell_problem(cell::Cell, materials, ω, grid)
+function cell_problem(cell::Cell, materials, ω, grid; threaded::Bool=false)
     mat_vals = _mat_vals(materials, ω)
-    sm = smooth_ε(Tuple(cell.cross_section.shapes), mat_vals, Tuple(cell.cross_section.minds), grid)
+    sm = smooth_ε(Tuple(cell.cross_section.shapes), mat_vals, Tuple(cell.cross_section.minds), grid; threaded)
     return (;
         ε⁻¹=sliceinv_3x3(copy(selectdim(sm, 3, 1))),
         ∂ε_∂ω=copy(selectdim(sm, 3, 2)),
@@ -83,22 +85,24 @@ end
 
 """
     assemble_eme(cells, kmags_per_cell, evecs_per_cell, materials, ω, grid;
-                 conjugate=false, reg=1e-9, reciprocity=true) -> EMEResult
+                 conjugate=false, reg=1e-9, reciprocity=true, threaded=false) -> EMEResult
 
 Re-assemble a device S-matrix from per-cell eigensolutions (`kmags`/`evecs`,
 e.g. gathered from a ModeSweeps batch). Mode fields are reconstructed locally
 (cheap; no eigensolve) and the interface/propagation S-matrices are cascaded as
-in [`eme`](@ref).
+in [`eme`](@ref). `threaded=true` threads the cross-section smoothing used to
+rebuild each representative cell's dielectric.
 """
 function assemble_eme(cells::AbstractVector{Cell}, kmags_per_cell, evecs_per_cell,
                       materials, ω, grid; conjugate::Bool=false, reg::Real=1e-9,
-                      reciprocity::Bool=true, passivity::Symbol=:invert, dedup::Bool=true)
+                      reciprocity::Bool=true, passivity::Symbol=:invert, dedup::Bool=true,
+                      threaded::Bool=false)
     n = length(cells)
     reps, gid = dedup ? dedup_groups(cells) : (collect(1:n), collect(1:n))
     # reconstruct each unique cross-section's modes once, then share across its group
     rep_modes = map(eachindex(reps)) do k
         ci = reps[k]
-        ε⁻¹, ∂ε_∂ω = cell_dielectric(cells[ci].cross_section, materials, ω, grid)
+        ε⁻¹, ∂ε_∂ω = cell_dielectric(cells[ci].cross_section, materials, ω, grid; threaded)
         [build_mode(ω, kmags_per_cell[k][j], evecs_per_cell[k][j], ε⁻¹, ∂ε_∂ω, grid; conjugate)
          for j in eachindex(kmags_per_cell[k])]
     end

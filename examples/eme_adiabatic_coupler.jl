@@ -51,6 +51,8 @@ stack = LayerStack(
 structure = Structure(layout, stack; transverse_pad=2.0, vertical_pad=1.0)
 
 # ── 3. run EME at 1550 nm ────────────────────────────────────────────────────
+# (for large cross-section grids add `threaded=true` to parallelise the per-cell
+#  sub-pixel smoothing across Julia threads — launch with `julia -t N`.)
 λ = 1.55
 ω = 1 / λ
 res = eme_smatrix(structure, ω; nev=2, Nx=128, Ny=64, num_cells=30, k_tol=1e-8)

@@ -61,16 +61,18 @@ function ChainRulesCore.rrule(::Type{Mode}, ω, k, neff, E, H, δA)
 end
 
 """
-    cell_dielectric(cross_section, materials, ω, grid) -> (ε⁻¹, ∂ε_∂ω)
+    cell_dielectric(cross_section, materials, ω, grid; threaded=false) -> (ε⁻¹, ∂ε_∂ω)
 
 Smooth a [`CrossSection`](@ref) onto `grid` at frequency `ω`, returning the
 inverse dielectric tensor field and its frequency derivative (the inputs the
 eigensolver and group-index machinery expect). Differentiable in `ω` and in any
-geometry parameters that flow through the cross-section shapes.
+geometry parameters that flow through the cross-section shapes. `threaded=true`
+runs the sub-pixel smoothing across all Julia threads (worthwhile for large grids;
+pair with `julia -t`).
 """
-function cell_dielectric(cs::CrossSection, materials, ω, grid)
+function cell_dielectric(cs::CrossSection, materials, ω, grid; threaded::Bool=false)
     mat_vals = _mat_vals(materials, ω)
-    sm = smooth_ε(Tuple(cs.shapes), mat_vals, Tuple(cs.minds), grid)
+    sm = smooth_ε(Tuple(cs.shapes), mat_vals, Tuple(cs.minds), grid; threaded)
     ε⁻¹ = sliceinv_3x3(copy(selectdim(sm, 3, 1)))
     ∂ε_∂ω = copy(selectdim(sm, 3, 2))
     return ε⁻¹, ∂ε_∂ω
@@ -123,25 +125,27 @@ end
 # `(kmags, evecs)` of one cell can warm-start the next (`kguess`/`Hguess`). The warm-start
 # seeds are forwarded as `solve_k` keyword arguments and so do not participate in AD.
 function _cell_raw_solve(cell::Cell, materials, ω, grid, solver::AbstractEigensolver;
-                         nev::Int=2, kguess=nothing, Hguess=nothing, kwargs...)
-    ε⁻¹, ∂ε_∂ω = cell_dielectric(cell.cross_section, materials, ω, grid)
+                         nev::Int=2, kguess=nothing, Hguess=nothing, threaded::Bool=false, kwargs...)
+    ε⁻¹, ∂ε_∂ω = cell_dielectric(cell.cross_section, materials, ω, grid; threaded)
     kmags, evecs = solve_k(ω, ε⁻¹, grid, solver; nev, kguess, Hguess, kwargs...)
     return kmags, evecs, ε⁻¹, ∂ε_∂ω
 end
 
 """
     solve_cell_modes(cell, materials, ω, grid, solver; nev=2, conjugate=false,
-                     kguess=nothing, Hguess=nothing, kwargs...) -> Modes
+                     kguess=nothing, Hguess=nothing, threaded=false, kwargs...) -> Modes
 
 Solve the `nev` lowest modes of `cell`'s cross-section. `kwargs` are forwarded to
 `MaxwellEigenmodes.solve_k` (e.g. `k_tol`, `maxiter`). Optional `kguess` (an initial `|k|`)
 and `Hguess` (an initial transverse-`H` eigenvector basis, e.g. the previous cell's
 `evecs`) warm-start the Newton/eigensolver iterations without changing the converged
-result. The returned modes are the modal basis for that cell in the EME expansion.
+result. `threaded=true` runs the cross-section smoothing across all Julia threads. The
+returned modes are the modal basis for that cell in the EME expansion.
 """
 function solve_cell_modes(cell::Cell, materials, ω, grid, solver::AbstractEigensolver=KrylovKitEigsolve();
-                          nev::Int=2, conjugate::Bool=false, kguess=nothing, Hguess=nothing, kwargs...)
-    kmags, evecs, ε⁻¹, ∂ε_∂ω = _cell_raw_solve(cell, materials, ω, grid, solver; nev, kguess, Hguess, kwargs...)
+                          nev::Int=2, conjugate::Bool=false, kguess=nothing, Hguess=nothing,
+                          threaded::Bool=false, kwargs...)
+    kmags, evecs, ε⁻¹, ∂ε_∂ω = _cell_raw_solve(cell, materials, ω, grid, solver; nev, kguess, Hguess, threaded, kwargs...)
     return [build_mode(ω, kmags[i], evecs[i], ε⁻¹, ∂ε_∂ω, grid; conjugate) for i in 1:nev]
 end
 

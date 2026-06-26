@@ -64,9 +64,9 @@ are marked non-differentiable. `test/runtests.jl` checks forward-mode dielectric
 sensitivities and reverse-mode end-to-end `ε⁻¹` sensitivities against
 `FiniteDifferences.jl`.
 
-## Performance: dedup, warm starts, convergence
+## Performance: dedup, warm starts, threading, convergence
 
-The expensive work is the per-cell eigensolves. Three knobs reduce and certify it:
+The expensive work is the per-cell eigensolves. These knobs reduce and certify it:
 
 - **`dedup=true`** (default of `eme`) solves each *unique* cross-section once and shares
   the modal basis across every cell with identical geometry — uniform/repeated stacks
@@ -77,6 +77,12 @@ The expensive work is the per-cell eigensolves. Three knobs reduce and certify i
   previous cell's solution (`solve_k`'s `kguess`/`Hguess`), cutting iteration counts on
   slowly-varying (adiabatic) devices. It only seeds the solver, so the converged S-matrix
   is unchanged.
+- **`threaded=true`** runs each cell's sub-pixel smoothing across all Julia threads (the
+  `DielectricSmoothing` assembly fills disjoint pixel columns). It threads from every entry
+  point — `eme`, `eme_smatrix`, `solve_cell_modes`, `cell_dielectric`, and the
+  `cell_problem`/`assemble_eme` SLURM payload — and is bit-identical to the serial result.
+  Launch the worker with threads (`julia -t N`; on SLURM, `SlurmConfig(cpus_per_task=N,
+  julia_flags=["-t","N"])`). Worthwhile for large cross-section grids.
 - **`nev_convergence` / `passivity_report`** certify the modal-basis truncation. A
   truncated basis shows up as a non-passive raw interface (`σ > 1`); raise `nev` until
   `passivity_report(res).max_excess → 0`, at which point the (AD-friendly) `passivity=:none`
@@ -100,12 +106,15 @@ grid  = simulation_grid(structure, 128, 64)
 cells = build_cells(structure; num_cells=30)
 ωs    = 1 ./ (1.50:0.01:1.60)
 batch = deploy_eme("examples/eme_coupler_setup.jl", cells;          # dedup'd (cell × ω) tasks
-                   ω=ωs, nev=2, slurm=SlurmConfig(ssh="me@cluster", remote_dir="/scratch/me/eme"))
+                   ω=ωs, nev=2,
+                   slurm=SlurmConfig(ssh="me@cluster", remote_dir="/scratch/me/eme",
+                                     cpus_per_task=4, julia_flags=["-t","4"]))  # 4 threads/task
 results = gather_eme(batch, cells, structure.stack.materials, ωs, grid; nev=2)   # Vector{EMEResult}
 ```
 
 The setup script's `make_problem(p)` returns the cell-`p.cell` cross-section at `p.ω` (see
-`cell_problem`). The legacy `deploy_eme(setup_file, num_cells::Int; ω, …)` form (one task
-per cell, no dedup) is still available.
+`cell_problem`); call `cell_problem(...; threaded=true)` there to use the worker's threads
+for smoothing. The legacy `deploy_eme(setup_file, num_cells::Int; ω, …)` form (one task per
+cell, no dedup) is still available.
 
 Full documentation: [`docs/eigenmode_expansion.md`](../../docs/eigenmode_expansion.md).

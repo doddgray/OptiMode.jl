@@ -238,4 +238,29 @@ const COUPLER_STACK = LayerStack(
         @test EigenmodeExpansion._eme_task_index(tmap, 3, 0.62) == 2
         @test EigenmodeExpansion._eme_task_index(tmap, 1, 0.64) == 4
     end
+
+    @testset "threaded smoothing passthrough" begin
+        # `threaded=true` reaches smooth_ε from the EME entry points and is bit-identical
+        # to the serial smoothing (the threaded fill writes disjoint pixel columns).
+        path = tempname() * ".gds"
+        write_gds(path, coupler_polygons())
+        st = Structure(read_gds(path), COUPLER_STACK; transverse_pad=1.5, vertical_pad=1.0)
+        ω = 1 / 1.55
+        grid = simulation_grid(st, 64, 32)
+        cells = build_cells(st; num_cells=3)
+        mats = st.stack.materials
+        # cell_dielectric: threaded == serial
+        e1, d1 = cell_dielectric(cells[1].cross_section, mats, ω, grid; threaded=false)
+        e2, d2 = cell_dielectric(cells[1].cross_section, mats, ω, grid; threaded=true)
+        @test e1 == e2 && d1 == d2
+        # cell_problem (ModeSweeps worker payload): threaded == serial
+        p1 = cell_problem(cells[1], mats, ω, grid; threaded=false)
+        p2 = cell_problem(cells[1], mats, ω, grid; threaded=true)
+        @test p1.ε⁻¹ == p2.ε⁻¹ && p1.∂ε_∂ω == p2.∂ε_∂ω && p1.∂²ε_∂ω² == p2.∂²ε_∂ω²
+        # full eme: threaded passes through and leaves the device S-matrix unchanged
+        rS = eme(cells, mats, ω, grid; nev=2, threaded=false, k_tol=1e-8)
+        rT = eme(cells, mats, ω, grid; nev=2, threaded=true, k_tol=1e-8)
+        @test power_coupling(rT) ≈ power_coupling(rS) rtol = 1e-6
+        @test transmission(rT.S) ≈ transmission(rS.S) atol = 1e-6
+    end
 end
