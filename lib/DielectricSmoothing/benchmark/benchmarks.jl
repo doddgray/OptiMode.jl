@@ -96,6 +96,13 @@ backends_kernel = Dict(
 )
 
 SUITE["primal"]["smooth_ε_128x128"] = @benchmarkable smooth_ε($shapes0, $mat_vals0, $minds0, $grid)
+SUITE["primal"]["smooth_ε_128x128_threaded"] = @benchmarkable smooth_ε($shapes0, $mat_vals0, $minds0, $grid; threaded=true)
+# Reference: the old per-pixel `mapreduce(vcat)` assembly (one vector allocated per pixel,
+# then concatenated) — what the preallocated (27,N) fill replaced.
+_old_assembly(sh, mv, mi, g) = reshape(mapreduce(vcat, DielectricSmoothing.corners(g)) do c
+    DielectricSmoothing.smooth_ε_single(sh, mv, mi, c)
+end, (3, 3, 3, size(g)...))
+SUITE["primal"]["smooth_ε_128x128_old_mapreduce"] = @benchmarkable _old_assembly($shapes0, $mat_vals0, $minds0, $grid)
 # Geometry cache: build the frequency-independent scaffold once, then apply per-ω.
 plan0 = smoothing_plan(shapes0, minds0, grid)
 SUITE["primal"]["smoothing_plan_build_128x128"] = @benchmarkable smoothing_plan($shapes0, $minds0, $grid)
@@ -128,6 +135,14 @@ function run_and_report(suite)
     t_kernel = minimum(results["primal"]["kottke_kernel"]).time
     println("\n=== DielectricSmoothing benchmark summary (128×128 grid) ===")
     println("primal smoothing loss:  $(t_primal/1e6) ms")
+    # assembly: old mapreduce(vcat) vs preallocated (27,N) fill, serial and threaded
+    t_old = minimum(results["primal"]["smooth_ε_128x128_old_mapreduce"]).time
+    t_new = minimum(results["primal"]["smooth_ε_128x128"]).time
+    t_thr = minimum(results["primal"]["smooth_ε_128x128_threaded"]).time
+    println("\n-- per-pixel assembly --")
+    println(rpad("old mapreduce(vcat):", 28), "$(round(t_old/1e6; digits=2)) ms")
+    println(rpad("preallocated (serial):", 28), "$(round(t_new/1e6; digits=2)) ms   ($(round(t_old/t_new; digits=1))× faster)")
+    println(rpad("preallocated (threaded):", 28), "$(round(t_thr/1e6; digits=2)) ms   ($(round(t_old/t_thr; digits=1))× vs old, $(round(t_new/t_thr; digits=1))× vs serial, $(Threads.nthreads()) threads)")
     # geometry cache: full smooth_ε (geometry + material) vs build-once + per-ω apply
     t_full = minimum(results["primal"]["smooth_ε_128x128"]).time
     t_build = minimum(results["primal"]["smoothing_plan_build_128x128"]).time

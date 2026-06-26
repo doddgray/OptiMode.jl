@@ -4,6 +4,7 @@ using StaticArrays
 using GeometryPrimitives
 using MaterialDispersion
 using DielectricSmoothing
+using ChainRulesCore: rrule
 using FiniteDifferences
 using ForwardDiff
 using DifferentiationInterface
@@ -263,5 +264,30 @@ end
         end
         @test DI.gradient(loss_cached, AutoZygote(), mat_vals0) ≈
               DI.gradient(loss_direct, AutoZygote(), mat_vals0) rtol = 1e-9
+    end
+
+    @testset "preallocated / threaded assembly" begin
+        # The assembly fills a preallocated (27,N) buffer instead of mapreduce(vcat). The
+        # threaded fill must be bit-identical to the serial fill (disjoint columns), for both
+        # the geometry (shapes) and cached (plan) entry points.
+        plan = smoothing_plan(shapes0, minds0, grid)
+        @test smooth_ε(shapes0, mat_vals0, minds0, grid; threaded=true) ==
+              smooth_ε(shapes0, mat_vals0, minds0, grid; threaded=false)
+        @test smooth_ε(plan, mat_vals0; threaded=true) == smooth_ε(plan, mat_vals0; threaded=false)
+        @info "assembly threads" nthreads = Threads.nthreads()
+
+        # The reverse rule's threaded pixel-VJP accumulation must match the serial one.
+        Ȳ = randn(size(smooth_ε(plan, mat_vals0)))
+        _, pb_s = rrule(smooth_ε, plan, mat_vals0; threaded=false)
+        _, pb_t = rrule(smooth_ε, plan, mat_vals0; threaded=true)
+        @test pb_s(Ȳ)[3] ≈ pb_t(Ȳ)[3] rtol = 1e-12
+
+        # Scale sanity: a larger grid assembles, stays finite, and matches plan vs direct.
+        big = Grid(6.0, 4.0, 192, 160)            # ~31k pixels
+        planbig = smoothing_plan(shapes0, minds0, big)
+        smbig = smooth_ε(shapes0, mat_vals0, minds0, big; threaded=true)
+        @test size(smbig) == (3, 3, 3, 192, 160)
+        @test all(isfinite, smbig)
+        @test smbig == smooth_ε(planbig, mat_vals0; threaded=true)
     end
 end
