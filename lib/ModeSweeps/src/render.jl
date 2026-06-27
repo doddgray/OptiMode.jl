@@ -199,8 +199,9 @@ const _GLYPH_H = 7
 
 "draw upper-cased ASCII `str` into `canvas` with top-left at (row,col); `scale` enlarges pixels"
 function draw_text!(canvas::AbstractArray{UInt8,3}, row::Int, col::Int, str::AbstractString,
-    color::NTuple{3,UInt8}=(20, 20, 20); scale::Int=1, spacing::Int=1)
+    color::NTuple{3,Integer}=(20, 20, 20); scale::Int=1, spacing::Int=1)
     H, W, _ = size(canvas)
+    rgb = (color[1] % UInt8, color[2] % UInt8, color[3] % UInt8)
     cx = col
     for ch in uppercase(str)
         glyph = get(_FONT, ch, _FONT[' '])
@@ -210,9 +211,9 @@ function draw_text!(canvas::AbstractArray{UInt8,3}, row::Int, col::Int, str::Abs
                     pr = row + (gr - 1) * scale + sr
                     pc = cx + (gc - 1) * scale + sc
                     if 1 <= pr <= H && 1 <= pc <= W
-                        canvas[pr, pc, 1] = color[1]
-                        canvas[pr, pc, 2] = color[2]
-                        canvas[pr, pc, 3] = color[3]
+                        canvas[pr, pc, 1] = rgb[1]
+                        canvas[pr, pc, 2] = rgb[2]
+                        canvas[pr, pc, 3] = rgb[3]
                     end
                 end
             end
