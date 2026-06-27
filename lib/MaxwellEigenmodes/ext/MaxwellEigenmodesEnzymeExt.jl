@@ -36,37 +36,29 @@ EnzymeRules.inactive(::typeof(MaxwellEigenmodes.k_guess), args...; kwargs...) = 
 
 # Bridge the adjoint-method rrule + forward frule for solve_k (2D & 3D grids, all bundled
 # eigensolvers) and the period-Λ eigensolve, plus the closed-form sliceinv_3x3 rules.
-# `@import_rrule`/`@import_frule` are macros, so the concrete types must be spliced into
-# each macrocall with `@eval` (the loop variables are not visible to a once-expanded
-# macro). This runs at top level during precompilation, so the generated EnzymeRules
-# methods are cached — unlike evaluating from `__init__`, which is rerun on every cached
-# load and would error with "Evaluation into the closed module … breaks incremental
-# compilation".
-# `Enzyme.@import_rrule`/`@import_frule` are provided by Enzyme's ChainRulesCore extension,
-# which is not guaranteed to be loaded while *this* extension precompiles (newer Enzyme
-# versions moved `_import_rrule` there). Ensure it is, and guard the imports so a
-# missing-extension corner case degrades gracefully (ForwardDiff/Zygote still differentiate
-# these functions) instead of failing the whole extension's precompilation.
-Base.retry_load_extensions()
-try
-    for TSolver in (:(KrylovKitEigsolve{NullLogger}), :(IterativeSolversLOBPCG{NullLogger}), :(DFTK_LOBPCG{NullLogger}), :(MPBSolver{NullLogger}))
-        for (TGrid, TEps) in ((:(Grid{2,Float64}), :(Array{Float64,4})), (:(Grid{3,Float64}), :(Array{Float64,5})))
-            @eval Enzyme.@import_rrule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)
-            @eval Enzyme.@import_frule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)
-        end
-        # period-Λ eigensolve (3D periodic waveguides): reverse + forward rules
-        @eval Enzyme.@import_rrule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)
-        @eval Enzyme.@import_frule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)
+# `Enzyme.@import_rrule`/`@import_frule` need Enzyme's ChainRulesCore extension loaded,
+# which is not guaranteed while this package extension precompiles or runs `__init__`
+# (extension load-ordering; see `_enzyme_chainrules_import.jl`). We instead use vendored
+# `@vendored_import_rrule`/`@vendored_import_frule` generators (Enzyme's own code, but
+# defined locally so they are always available). The concrete types are spliced into each
+# macrocall with `@eval` (loop variables are not visible to a once-expanded macro); this
+# runs at top level so the generated EnzymeRules methods are precompiled/cached.
+include("_enzyme_chainrules_import.jl")
+
+for TSolver in (:(KrylovKitEigsolve{NullLogger}), :(IterativeSolversLOBPCG{NullLogger}), :(DFTK_LOBPCG{NullLogger}), :(MPBSolver{NullLogger}))
+    for (TGrid, TEps) in ((:(Grid{2,Float64}), :(Array{Float64,4})), (:(Grid{3,Float64}), :(Array{Float64,5})))
+        @eval @vendored_import_rrule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)
+        @eval @vendored_import_frule(typeof(solve_k), Float64, $TEps, $TGrid, $TSolver)
     end
-    # pointwise ε ⇄ ε⁻¹ tensor-field inverse (closed-form per-pixel rules; bypasses the
-    # `Threads.@threads` kernel that native Enzyme reverse mode cannot trace).
-    for TArr in (:(Array{Float64,4}), :(Array{Float64,5}))
-        @eval Enzyme.@import_rrule(typeof(sliceinv_3x3), $TArr)
-        @eval Enzyme.@import_frule(typeof(sliceinv_3x3), $TArr)
-    end
-catch err
-    @warn "MaxwellEigenmodes: Enzyme rule import skipped (Enzyme/ChainRulesCore compat); \
-           ForwardDiff/Zygote still provide forward/reverse AD" exception = err
+    # period-Λ eigensolve (3D periodic waveguides): reverse + forward rules
+    @eval @vendored_import_rrule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)
+    @eval @vendored_import_frule(typeof(solve_k_periodic), Float64, Array{Float64,5}, Float64, Grid{3,Float64}, $TSolver)
+end
+# pointwise ε ⇄ ε⁻¹ tensor-field inverse (closed-form per-pixel rules; bypasses the
+# `Threads.@threads` kernel that native Enzyme reverse mode cannot trace).
+for TArr in (:(Array{Float64,4}), :(Array{Float64,5}))
+    @eval @vendored_import_rrule(typeof(sliceinv_3x3), $TArr)
+    @eval @vendored_import_frule(typeof(sliceinv_3x3), $TArr)
 end
 
 end # module

@@ -77,17 +77,31 @@ See [`smooth_ε`](@ref) for the argument conventions.
 # inline so geometry-*parameter* AD (Dual-valued shapes) still flows through. This is the
 # allocation-free core of the assembly rewrite — every pixel writes into a column of a
 # preallocated output instead of allocating its own vector for a `mapreduce(vcat)`.
+# Interface-pixel geometry: locate the surface (`surfpt_nearby`), the fill fraction
+# (`volfrac`) and the interface frame (`normcart`) for the `sidx1↔sidx2` interface. The
+# `shapes[sidx1]` index into the *heterogeneous* shapes tuple produces a small `Union`
+# (`Polygon`/`Cuboid`/…) that Enzyme's strict type analysis rejects. This quantity is
+# constant w.r.t. the material data, so the function is marked `EnzymeRules.inactive`
+# (extension) — keeping the Union out of Enzyme's differentiated path — while ForwardDiff
+# still propagates Dual *shape* coordinates through it (it ignores the marker), so
+# geometry-parameter AD is unaffected.
+# `@noinline` so the call survives for `EnzymeRules.inactive` to act on (inlining would
+# expose the `Union` to Enzyme's type analysis again).
+@noinline function _interface_geometry(shapes, sidx1::Int, crnrs::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
+    xyz = sum(crnrs) / NC
+    r₀_n⃗ = surfpt_nearby(xyz, shapes[sidx1])
+    rvol = volfrac((vxlmin(crnrs), vxlmax(crnrs)), last(r₀_n⃗), first(r₀_n⃗))
+    return rvol, normcart(vec3D(last(r₀_n⃗)))
+end
+
 @inline function smooth_ε_single!(dest, shapes, mat_vals, minds, crnrs::NTuple{NC,SVector{ND,T}}) where {NC,ND,T<:Real}
     ps = proc_sinds(corner_sinds(shapes, crnrs))
     if iszero(ps[2])
         @inbounds @views dest .= mat_vals[:, minds[first(ps)]]
     elseif iszero(ps[3])
         sidx1 = ps[1]; sidx2 = ps[2]
-        xyz = sum(crnrs) / NC
-        r₀_n⃗ = surfpt_nearby(xyz, shapes[sidx1])
-        rvol = volfrac((vxlmin(crnrs), vxlmax(crnrs)), last(r₀_n⃗), first(r₀_n⃗))
-        @inbounds @views dest .= εₑ_∂ωεₑ_∂²ωεₑ(rvol, normcart(vec3D(last(r₀_n⃗))),
-                                               mat_vals[:, minds[sidx1]], mat_vals[:, minds[sidx2]])
+        rvol, S = _interface_geometry(shapes, sidx1, crnrs)
+        @inbounds @views dest .= εₑ_∂ωεₑ_∂²ωεₑ(rvol, S, mat_vals[:, minds[sidx1]], mat_vals[:, minds[sidx2]])
     else
         fill!(dest, zero(eltype(dest)))
         @inbounds for i in ps

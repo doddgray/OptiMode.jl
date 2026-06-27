@@ -40,7 +40,7 @@ StaticArrays = "1"
 SymbolicUtils = "3"
 Symbolics = "6"
 Tullio = "0.3"
-julia = "1.10"
+julia = "1.11"
 
 [extras]
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"

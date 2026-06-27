@@ -25,5 +25,11 @@ EnzymeRules.inactive(::typeof(DielectricSmoothing.proc_sinds), args...; kwargs..
 EnzymeRules.inactive(::typeof(DielectricSmoothing.matinds), args...; kwargs...) = nothing
 EnzymeRules.inactive(::typeof(surfpt_nearby), args...; kwargs...) = nothing
 EnzymeRules.inactive(::typeof(volfrac), args...; kwargs...) = nothing
+# `_interface_geometry` indexes the heterogeneous shapes tuple (`shapes[sidx1]`), producing a
+# `Union` that Enzyme's strict type analysis cannot handle. It is constant w.r.t. the material
+# data (the differentiated input of `smooth_ε`), so marking it inactive keeps the Union out of
+# Enzyme's type analysis — fixing the `IllegalTypeAnalysisException` on the preallocated
+# `smooth_ε` assembly with Enzyme ≥ 0.13.168 on Julia 1.11.
+EnzymeRules.inactive(::typeof(DielectricSmoothing._interface_geometry), args...; kwargs...) = nothing
 
 end # module
