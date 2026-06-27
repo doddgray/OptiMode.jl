@@ -328,7 +328,8 @@ end
         @test batch_status(fwd; verbose=false).done == 1
         sol = forward_solution(fwd, 1)
         @test sol.ω ≈ p.ω
-        @test length(sol.kmags) == 1 && sol.kmags[1] ≈ kk[1] rtol = 1e-6
+        @test length(sol.kmags) == 1
+        @test sol.kmags[1] ≈ kk[1] rtol = 1e-6
         @test size(sol.ε⁻¹) == size(prob.ε⁻¹)
 
         # backward pass as a separate task; loads forward state + cotangents from disk

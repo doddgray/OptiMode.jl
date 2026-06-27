@@ -276,12 +276,11 @@ gradient/primal cost ratios. Known limitations (also listed in the main README):
 - the `ε ⇄ ε⁻¹` conversion `sliceinv_3x3` carries closed-form forward/reverse rules
   (`grads/linalg.jl`, exact per-pixel `d(A⁻¹) = −A⁻¹ dA A⁻¹`) bridged to Enzyme, so the
   threaded inversion loop does not block reverse mode;
-- geometry-*parameter* gradients (the `claude/geometry-gradient-ad-no6zct` branch of
-  `doddgray/GeometryPrimitives.jl`) work in forward mode (ForwardDiff) through the full
-  geometry→smoothing pipeline and in reverse mode (Mooncake) at the per-interface-pixel
-  kernel granularity; Enzyme segfaults on the StaticArrays inverse in Cuboid
-  `surfpt_nearby` and Zygote hits a non-`SVector` normal in `volfrac`, so those two
-  backends are not used for geometry parameters;
+- geometry-*parameter* gradients (`doddgray/GeometryPrimitives.jl` **v0.6**, `master`) work
+  in forward mode (ForwardDiff) through the full geometry→smoothing pipeline and in reverse
+  mode (Mooncake) at the per-interface-pixel kernel granularity — both validated on Julia
+  1.11; Enzyme and Zygote are not used for geometry parameters (Enzyme on the StaticArrays
+  inverse in Cuboid `surfpt_nearby`, Zygote on a non-`SVector` normal in `volfrac`);
 - mode-quantity geometry sensitivities (n_eff, n_g, GVD, fields) use the hybrid
   forward-geometry/reverse-adjoint pattern above; GVD additionally needs a scalar
   frequency finite difference because `ng_gvd`'s adjoint is not reverse-differentiable;
@@ -306,3 +305,36 @@ re-validated on Julia 1.11.9 with GeometryPrimitives 0.6.0, Enzyme 0.13.168, Moo
   compiles and is exact for every real material (see footnote ¹ for the residual
   vacuum-dispersion entry).
 - **Mooncake 0.4.203** and **ForwardDiff/Zygote** are unaffected and exact across the suite.
+
+#### Full multi-package re-run on Julia 1.11
+
+Each package's test suite was run on Julia 1.11.9 with the pinned stack:
+
+| package | result | notes |
+|---|---|---|
+| MaterialDispersion | ✅ 39/39 | native Enzyme (fwd+rev) + Mooncake/ForwardDiff exact |
+| DielectricSmoothing | ✅ 66 / 2 broken | the broken pair is the Enzyme vacuum-dispersion entry (footnote ¹) |
+| MaxwellEigenmodes | ⚠️ 34 / 2 | the 2 are Enzyme fwd+rev on `solve_k` (bridge skipped, below) |
+| ModeAnalysis | ⚠️ 124 / 5 | Enzyme fwd+rev on `group_index` + the partial-derivative gradient (bridge skipped) |
+| ModePerturbations | ✅ 28/28 | — |
+| EigenmodeExpansion | ✅ 55/55 | — |
+| ModeSweeps | ✅ AD / ⚠️ plots | a `@test a && b rtol=…` macro form (invalid on Julia 1.11) was split into two `@test`s; AD (remote forward/backward) passes 14/14. Two residual failures are in PNG rendering only — an upgraded image/text dependency changed the `draw_text!` signature — unrelated to AD |
+
+**ForwardDiff, Zygote, and Mooncake pass on every package.** The only AD regression is Enzyme:
+
+- **Enzyme `@import_rrule`/`@import_frule` bridges do not register on Enzyme 0.13.168.** The
+  `solve_k`, `solve_k_periodic`, `group_index`, `sliceinv_3x3` and perturbation-kernel rules
+  are imported from Enzyme's `EnzymeChainRulesCoreExt` (where newer Enzyme moved
+  `_import_rrule`). That extension is not loaded when the package's own Enzyme extension is
+  compiled **or** when its `__init__` runs (Julia loads the two extensions in an
+  unspecified order once both become loadable, and `Base.retry_load_extensions()` is a
+  no-op mid-load), so the macro hits the empty `_import_rrule` generic
+  (`MethodError: no method matching _import_rrule(...)`) and the import is skipped. Enzyme
+  then falls back to natively differentiating the FFTW/KrylovKit eigensolve and throws
+  `EnzymeRuntimeException: jl_call calling convention not implemented`. This is a Julia +
+  Enzyme extension-load-ordering limitation, **not** a problem with the rules themselves
+  (the same ChainRules `rrule`s/`frule`s drive Zygote, which passes). Use **Zygote**
+  (reverse) and **ForwardDiff/Mooncake** for these stages on Enzyme 0.13.168; the robust
+  Enzyme fix is to replace the `@import_rrule` bridges with hand-written
+  `EnzymeRules.augmented_primal`/`reverse`/`forward` methods (which do not depend on
+  `EnzymeChainRulesCoreExt` being loaded) — a focused follow-up.
