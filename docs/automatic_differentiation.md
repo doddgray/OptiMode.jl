@@ -39,8 +39,8 @@ flowchart LR
 |---|---|---|
 | **Zygote** | consumes the ChainRules `rrule`s directly | reference reverse path; the only backend that differentiates the **whole** geometry/material → smoothing → eigensolve → analysis pipeline end-to-end |
 | **Mooncake** | per-package `…MooncakeExt` bridges rules with `Mooncake.@from_rrule`; bookkeeping marked `@zero_adjoint` | closed-form stages differentiate natively |
-| **Enzyme** | per-package `…EnzymeExt` imports the reverse `rrule`s with `@import_rrule` **and** the forward `frule`s with `@import_frule`; bookkeeping + geometry queries `EnzymeRules.inactive` | forward **and** reverse through the whole stack: Kottke smoothing (material data), `sliceinv_3x3`, `solve_k`, `solve_k_periodic`, `group_index`. Imported rules cover *positional* calls only (kwargs lower to `Core.kwcall`) — call `solve_k(ω, ε⁻¹, grid, solver)` positionally |
-| **ForwardDiff** | native Dual propagation through the closed-form stages | covers smoothing (material **and** geometry parameters), `sliceinv_3x3`, and `group_index`; **cannot** trace the FFTW/KrylovKit eigensolve (no Dual method) — forward mode through `solve_k`/`solve_k_periodic` is provided instead by the `frule` bridged to **Enzyme forward** |
+| **Enzyme** | per-package `…EnzymeExt` bridges the reverse `rrule`s **and** forward `frule`s into `EnzymeRules` with vendored importers (`@vendored_import_rrule`/`@vendored_import_frule`, robust to extension load order); bookkeeping + geometry queries `EnzymeRules.inactive` | forward **and** reverse through the whole stack: Kottke smoothing (material data), `sliceinv_3x3`, `solve_k`, `solve_k_periodic`, `group_index`, perturbation kernels. Imported rules cover *positional* calls only (kwargs lower to `Core.kwcall`) — call `solve_k(ω, ε⁻¹, grid, solver)` positionally |
+| **ForwardDiff** | native Dual propagation through the closed-form stages; FFT-of-`Dual` provided by `MaxwellEigenmodesForwardDiffExt` | covers smoothing (material **and** geometry parameters), `sliceinv_3x3`, and `group_index` (incl. ∂/∂k through the FFTs); **cannot** trace the FFTW/KrylovKit eigensolve (no Dual method) — forward mode through `solve_k`/`solve_k_periodic` is provided instead by the `frule` bridged to **Enzyme forward** |
 | **Reactant/XLA** | `reactant_compile_dispersion` compiles generated dispersion functions | eigensolver pipeline not currently traceable |
 
 ### Backend capability matrix
@@ -268,11 +268,15 @@ gradient/primal cost ratios. Known limitations (also listed in the main README):
   geometry parameters (Enzyme cannot differentiate the StaticArrays inverse in Cuboid
   `surfpt_nearby`; Zygote hits a non-`SVector` normal in `volfrac`);
 - **forward mode through the eigensolve** is provided by hand-written `frule`s
-  (`solve_k`, `solve_k_periodic`, `group_index`) bridged to **Enzyme forward** with
-  `@import_frule`. ForwardDiff cannot be used there (it has no Dual method for the
-  FFTW-planned KrylovKit eigensolve); the `frule` computes the forward tangent from the
-  Hellmann–Feynman wavenumber sensitivity plus one deflated linear solve for the
-  eigenvector tangent — the forward-mode companion of the adjoint `rrule`;
+  (`solve_k`, `solve_k_periodic`, `group_index`) bridged to **Enzyme forward** with the
+  vendored `@vendored_import_frule`. ForwardDiff cannot be used there (it has no Dual method
+  for the FFTW-planned KrylovKit eigensolve); the `frule` computes the forward tangent from
+  the Hellmann–Feynman wavenumber sensitivity plus one deflated linear solve for the
+  eigenvector tangent — the forward-mode companion of the adjoint `rrule`. The
+  `group_index`/perturbation `frule`s instead compute their JVP with `ForwardDiff` over the
+  FFT-based quadratic forms; `MaxwellEigenmodesForwardDiffExt` supplies the FFT-of-`Dual`
+  methods that path needs (the DFT is C-linear, so it acts independently on value and
+  partials);
 - the `ε ⇄ ε⁻¹` conversion `sliceinv_3x3` carries closed-form forward/reverse rules
   (`grads/linalg.jl`, exact per-pixel `d(A⁻¹) = −A⁻¹ dA A⁻¹`) bridged to Enzyme, so the
   threaded inversion loop does not block reverse mode;
@@ -314,27 +318,56 @@ Each package's test suite was run on Julia 1.11.9 with the pinned stack:
 |---|---|---|
 | MaterialDispersion | ✅ 39/39 | native Enzyme (fwd+rev) + Mooncake/ForwardDiff exact |
 | DielectricSmoothing | ✅ 66 / 2 broken | the broken pair is the Enzyme vacuum-dispersion entry (footnote ¹) |
-| MaxwellEigenmodes | ⚠️ 34 / 2 | the 2 are Enzyme fwd+rev on `solve_k` (bridge skipped, below) |
-| ModeAnalysis | ⚠️ 124 / 5 | Enzyme fwd+rev on `group_index` + the partial-derivative gradient (bridge skipped) |
-| ModePerturbations | ✅ 28/28 | — |
+| MaxwellEigenmodes | ✅ 36/36 | Enzyme fwd+rev on `solve_k`/`solve_k_periodic`/`sliceinv_3x3` pass (vendored bridge, below) |
+| ModeAnalysis | ✅ 129/129 | Enzyme fwd+rev on `group_index` + the ForwardDiff partial-derivative gradients pass (vendored bridge + FFT-of-`Dual` shim, below) |
+| ModePerturbations | ✅ 28/28 | Enzyme fwd+rev on the perturbation kernels pass (vendored bridge) |
 | EigenmodeExpansion | ✅ 55/55 | — |
 | ModeSweeps | ✅ AD / ⚠️ plots | a `@test a && b rtol=…` macro form (invalid on Julia 1.11) was split into two `@test`s; AD (remote forward/backward) passes 14/14. Two residual failures are in PNG rendering only — an upgraded image/text dependency changed the `draw_text!` signature — unrelated to AD |
 
-**ForwardDiff, Zygote, and Mooncake pass on every package.** The only AD regression is Enzyme:
+**ForwardDiff, Zygote, Mooncake, and Enzyme all pass on every package** with the pinned
+stack. Getting Enzyme there required two fixes:
 
-- **Enzyme `@import_rrule`/`@import_frule` bridges do not register on Enzyme 0.13.168.** The
-  `solve_k`, `solve_k_periodic`, `group_index`, `sliceinv_3x3` and perturbation-kernel rules
-  are imported from Enzyme's `EnzymeChainRulesCoreExt` (where newer Enzyme moved
-  `_import_rrule`). That extension is not loaded when the package's own Enzyme extension is
-  compiled **or** when its `__init__` runs (Julia loads the two extensions in an
-  unspecified order once both become loadable, and `Base.retry_load_extensions()` is a
-  no-op mid-load), so the macro hits the empty `_import_rrule` generic
-  (`MethodError: no method matching _import_rrule(...)`) and the import is skipped. Enzyme
-  then falls back to natively differentiating the FFTW/KrylovKit eigensolve and throws
-  `EnzymeRuntimeException: jl_call calling convention not implemented`. This is a Julia +
+- **Vendored ChainRules→Enzyme rule importers (fixes the extension-load-ordering bridge
+  failure).** The `solve_k`, `solve_k_periodic`, `group_index`, `sliceinv_3x3` and
+  perturbation-kernel rules are bridged into Enzyme from each package's
+  `…EnzymeExt`. Enzyme's own `@import_rrule`/`@import_frule` macros call
+  `Enzyme._import_rrule`/`_import_frule`, whose **methods live in Enzyme's
+  `EnzymeChainRulesCoreExt`** (Enzyme's ChainRulesCore extension). On Enzyme 0.13.168 +
+  Julia 1.11 that extension is *not* reliably loaded while a package's own Enzyme extension
+  precompiles or runs `__init__` (Julia loads the two extensions in an unspecified order
+  once both become loadable, and `Base.retry_load_extensions()` is a no-op mid-load), so
+  the macro hit the empty `_import_rrule` generic
+  (`MethodError: no method matching _import_rrule(...)`), the import silently skipped, and
+  Enzyme fell back to natively differentiating the FFTW/KrylovKit eigensolve — throwing
+  `EnzymeRuntimeException: jl_call calling convention not implemented`. This was a Julia +
   Enzyme extension-load-ordering limitation, **not** a problem with the rules themselves
-  (the same ChainRules `rrule`s/`frule`s drive Zygote, which passes). Use **Zygote**
-  (reverse) and **ForwardDiff/Mooncake** for these stages on Enzyme 0.13.168; the robust
-  Enzyme fix is to replace the `@import_rrule` bridges with hand-written
-  `EnzymeRules.augmented_primal`/`reverse`/`forward` methods (which do not depend on
-  `EnzymeChainRulesCoreExt` being loaded) — a focused follow-up.
+  (the same ChainRules `rrule`s/`frule`s drive Zygote, which passed throughout).
+
+  The fix vendors Enzyme's `_import_rrule`/`_import_frule` generator functions verbatim
+  (Enzyme 0.13.x) into a local `ext/_enzyme_chainrules_import.jl` in each affected package
+  (`MaxwellEigenmodes`, `ModeAnalysis`, `ModePerturbations`), exposed as
+  `@vendored_import_rrule`/`@vendored_import_frule`. These generators use only
+  Enzyme-core / `EnzymeRules` / `ChainRulesCore` APIs — all available whenever Enzyme is
+  loaded — so the rules register at precompile time **regardless of extension load order**.
+  (Only the unexported internal `same_or_one` is interpolated as `$(Enzyme.same_or_one)`.)
+  The generated `EnzymeRules.augmented_primal`/`reverse`/`forward` methods are identical to
+  what the upstream macros would have produced, so Enzyme forward **and** reverse now drive
+  the adjoint `rrule`s/`frule`s directly. No `__init__`, no `retry_load_extensions`, no
+  silent fallback. The imported rules cover *positional* calls only (kwargs lower to
+  `Core.kwcall`).
+
+- **FFT-of-`Dual` shim for forward mode (`MaxwellEigenmodesForwardDiffExt`).** Enzyme
+  *forward* mode cannot build FFTW plans, so the `group_index`/perturbation `frule`s compute
+  their JVP with `ForwardDiff.derivative`. That carries a `Dual` seed `t` which promotes the
+  complex field to `Complex{Dual}` — and so does plain `ForwardDiff` of any quantity that
+  perturbs the field (e.g. ∂/∂k of `group_index`). The Maxwell quadratic forms (`HMH`,
+  `HMₖH`, `ε⁻¹_dot`) then call `fft`/`ifft` on a `Complex{Dual}` array, for which
+  `AbstractFFTs.plan_fft` has **no method** (AbstractFFTs ships no ForwardDiff extension):
+  `MethodError: no method matching plan_fft(::Array{Complex{ForwardDiff.Dual{…}}}, ::UnitRange)`.
+  Because the DFT is C-linear, a new weak-dependency extension
+  `lib/MaxwellEigenmodes/ext/MaxwellEigenmodesForwardDiffExt.jl` defines `fft`/`ifft`/`bfft`
+  on `Complex{Dual}` arrays by transforming the primal value and each partial with the
+  ordinary FFTW plan and recombining — never differentiating the plan itself. This makes the
+  `frule`-driven Enzyme forward path **and** plain ForwardDiff (the ∂/∂k group-index check)
+  both work through the eigensolve post-processing; validated against finite differences to
+  ~1e-10.
