@@ -126,6 +126,61 @@ this reaches the few-thousand-%/W/cm² scale of nanophotonic PPLN waveguides (Wa
 
 ![shg](../examples/perturbation_output/shg_efficiency_TFLN.png)
 
+## χ⁽³⁾ XPM and two-photon absorption (standalone examples)
+
+[`examples/perturbation_xpm.jl`](../examples/perturbation_xpm.jl) confirms cross-phase
+modulation is exactly **twice** self-phase modulation at equal intensity (the χ⁽³⁾
+degeneracy factor of 2, `Δn_XPM = 2 n₂ I_pump`); the computed ratio is 2.0000.
+[`examples/perturbation_tpa_loss.jl`](../examples/perturbation_tpa_loss.jl) computes the
+intensity-dependent two-photon-absorption modal loss of a 450×220 nm silicon wire
+(β_TPA = 0.8 cm/GW), growing linearly with power into the dB/cm regime.
+
+![xpm](../examples/perturbation_output/xpm_Si3N4.png)
+![tpa](../examples/perturbation_output/tpa_loss_Si.png)
+
+## Worked reproduction: dispersion-engineered PPLN (Jankowski et al., Optica 2020)
+
+[`examples/tfln_ppln_jankowski2020.jl`](../examples/tfln_ppln_jankowski2020.jl) reproduces
+the nanophotonic PPLN waveguide of *M. Jankowski et al., "Ultrabroadband nonlinear optics in
+nanophotonic periodically poled lithium niobate waveguides," Optica 7, 40 (2020)* — an x-cut
+TFLN ridge (1850 nm top width, 340 nm etch, 700 nm film) engineered for broadband SHG of
+2050 → 1025 nm. Selecting the ridge-confined quasi-TE₀₀ mode (over the thick-slab
+lateral-leakage modes) and computing the dispersion and χ²-overlap with the package
+machinery reproduces the paper's design-point figures of merit:
+
+| quantity | OptiMode | Jankowski 2020 |
+|---|---|---|
+| poling period Λ = λ/(2(n₂ω−nω)) | 4.99 μm | 5.11 μm |
+| normalized efficiency η₀ | 1240 %/W·cm² | 1100 %/W·cm² |
+| effective area A_eff | 1.36 μm² | 1.6 μm² |
+| group-velocity mismatch Δk′ = (n_g,2ω−n_g,ω)/c | **+4.9 fs/mm** | **5 fs/mm** |
+| GVD k″_ω | −12.4 fs²/mm | −15 fs²/mm |
+
+The engineered group-velocity mismatch — the crux of the paper's dispersion engineering —
+matches to <2%. The Fig. 1(a) modal fields and the Fig. 3(d) broadband SHG transfer
+function `sinc²(Δk(Ω)L/2)` (dispersion-engineered vs conventional GVM-dominated) are
+reproduced:
+
+![jankowski fields](../examples/perturbation_output/jankowski_modal_fields.png)
+![jankowski transfer](../examples/perturbation_output/jankowski_shg_transfer_function.png)
+
+The Fig. 1(d,e) dispersion engineering is already visible across two computed geometries —
+`Δk′` swings toward zero and `k″_ω` changes sign as the waveguide is widened/deepened:
+
+| (top width, etch) | Λ | η₀ | Δk′ | k″_ω |
+|---|---|---|---|---|
+| (1800 nm, 320 nm) | 4.99 μm | 1229 %/W·cm² | +16 fs/mm | +15 fs²/mm |
+| (1850 nm, 340 nm) | 4.99 μm | 1240 %/W·cm² | +4.9 fs/mm | −12.4 fs²/mm |
+
+The *full* Fig. 1(b–e) maps of Λ, η₀, Δk′ and k″_ω over the whole (top width × etch depth)
+plane deploy as a `ModeSweeps`/SLURM batch
+([`tfln_ppln_geometry_sweep_setup.jl`](../examples/tfln_ppln_geometry_sweep_setup.jl) +
+[`tfln_ppln_geometry_sweep_deploy.jl`](../examples/tfln_ppln_geometry_sweep_deploy.jl)):
+each grid point is one well-converged, large-cell solve of the weakly-guided 2-µm
+fundamental, so the dozens of solves needed for the fs/mm-resolved Δk′ = 0 contour are a
+cluster-scale job — exactly what ModeSweeps deploys (one SLURM array task per geometry,
+gathered into the maps).
+
 ## Automatic differentiation
 
 Every quantity is differentiable in **forward and reverse mode**, validated against
