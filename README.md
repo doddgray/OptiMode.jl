@@ -273,7 +273,27 @@ and the `examples/perturbation_*.jl` scripts, each of which saves a matching plo
 Group-index and GVD shifts come from `perturbation_ng_gvd` (frequency derivatives of `Δk`
 across a small unperturbed-mode stencil). For full-resolution, literature-precision runs the
 examples deploy as `ModeSweeps`/SLURM batches; reduced-grid smoke versions live in
-`lib/ModePerturbations/test/runtests.jl`.
+`lib/ModePerturbations/test/runtests.jl`. Standalone χ⁽³⁾ examples:
+[`examples/perturbation_xpm.jl`](examples/perturbation_xpm.jl) (XPM is exactly 2× SPM) and
+[`examples/perturbation_tpa_loss.jl`](examples/perturbation_tpa_loss.jl) (silicon TPA loss).
+
+### Worked reproduction: dispersion-engineered nanophotonic PPLN (Jankowski 2020)
+
+[`examples/tfln_ppln_jankowski2020.jl`](examples/tfln_ppln_jankowski2020.jl) reproduces the
+dispersion-engineered thin-film PPLN waveguide of *M. Jankowski et al., "Ultrabroadband
+nonlinear optics in nanophotonic periodically poled lithium niobate waveguides," Optica 7,
+40 (2020)* — an x-cut TFLN ridge (1850 nm width, 340 nm etch, 700 nm film) for broadband SHG
+of 2050 → 1025 nm. It reproduces the Fig. 1(a) quasi-TE₀₀ fundamental/second-harmonic modal
+fields (selecting the ridge-confined mode over the thick-slab lateral-leakage modes), the
+design-point poling period `Λ = λ/(2(n_2ω − n_ω))` (computed ≈ 5.0 µm vs the paper's 5.11 µm),
+the normalized efficiency `η₀`, the group-velocity mismatch `Δk′ = (n_g,2ω − n_g,ω)/c` and
+GVD `k″_ω` (computed ≈ −12 fs²/mm vs −15), and the Fig. 3(d) broadband SHG transfer function
+`sinc²(Δk(Ω)L/2)`. The full Fig. 1(b–e) geometry maps (`Λ`, `η₀`, `Δk′`, `k″_ω` vs top width
+and etch depth) deploy as a `ModeSweeps`/SLURM batch via
+[`tfln_ppln_geometry_sweep_setup.jl`](examples/tfln_ppln_geometry_sweep_setup.jl) +
+[`tfln_ppln_geometry_sweep_deploy.jl`](examples/tfln_ppln_geometry_sweep_deploy.jl) — the
+weakly-guided 2-µm fundamental's fs/mm-level engineered dispersion needs a large, fully
+converged cell, exactly the cluster-scale job `ModeSweeps` is built for.
 
 ### Forced grid convergence
 
