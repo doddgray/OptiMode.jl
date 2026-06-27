@@ -35,7 +35,9 @@ MaxwellEigenmodesMooncakeExt = "Mooncake"
 MaxwellEigenmodesPythonCallExt = "PythonCall"
 
 [compat]
-julia = "1.10"
+Enzyme = "0.13"
+Mooncake = "0.4"
+julia = "1.11"
 
 [extras]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"

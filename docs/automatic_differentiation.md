@@ -54,9 +54,19 @@ points; see `lib/*/test/runtests.jl` and `examples/ad_backend_benchmarks.jl`):
 | `solve_k_periodic(ω, ε⁻¹, Λ)` | ✗ | ✓ | ✓ | ✓ (∂Λ 1e-8, ∂ω 4e-11) | ✓ frule |
 | `group_index` | ✓ | ✓ | ✓ | ✓ (1e-14) | ✓ frule (1e-14) |
 | `sliceinv_3x3` (ε ⇄ ε⁻¹) | ✓ | ✓ | ✓ | ✓ (4e-16) | ✓ (4e-16) |
-| `smooth_ε` (Kottke, material data) | ✓ | ✓ (3e-16) | ✓ (3e-16) | ✓ (3e-16) | ✓ (3e-16) |
+| `smooth_ε` (Kottke, material data) | ✓ | ✓ (3e-16) | ✓ (3e-16) | ✓ real materials¹ | ✓ real materials¹ |
 | **ε field → `sliceinv` → `solve_k` → `group_index`** | ✗ | ✓ | — | ✓ (3e-8) | ✓ frule |
 | **full pipeline** (material/geometry → smoothing → eigensolve → analysis) | ✗ | ✓ (2e-10) | ✗ | ε-field onward | ε-field onward |
+
+¹ On Julia 1.11 with Enzyme 0.13.168 (the pinned versions), Enzyme forward & reverse
+differentiate `smooth_ε` exactly for every **real material**. They mis-accumulate only the
+gradient w.r.t. the *vacuum background* column's frequency-dispersion entries
+(`∂ωε`/`∂²ωε`, which are structurally zero and never optimization variables) — an upstream
+Enzyme regression (ForwardDiff/Zygote/Mooncake are exact there). This is tracked as a
+`@test_broken` in `lib/DielectricSmoothing/test/runtests.jl`. The heterogeneous shape-tuple
+index that Enzyme's strict type analysis rejected (`IllegalTypeAnalysisException`) is
+isolated in the `EnzymeRules.inactive` helper `_interface_geometry`, so Enzyme compiles and
+runs on the preallocated `smooth_ε` assembly. See *Dependency versions* below.
 
 Two complementary forward-mode paths exist: **ForwardDiff** for everything *up to* the
 eigensolve (geometry/material → smoothing → `ε⁻¹`), and **Enzyme forward** (via the
@@ -140,11 +150,14 @@ reverse mode is therefore Mooncake. Material-data Zygote gradients are unaffecte
 geometry queries are marked `@non_differentiable` for ChainRules, which ForwardDiff and
 Mooncake bypass.)
 
-The geometry-AD capability comes from the
-[`claude/geometry-gradient-ad-no6zct`](https://github.com/doddgray/GeometryPrimitives.jl/tree/claude/geometry-gradient-ad-no6zct)
-branch of `doddgray/GeometryPrimitives.jl` (referenced from each component's
-`[sources]`), which gives the shapes a parametric element type and makes the geometric
-queries AD-compatible.
+The geometry-AD capability comes from
+[`doddgray/GeometryPrimitives.jl`](https://github.com/doddgray/GeometryPrimitives.jl)
+**v0.6** (`master`, referenced from each component's `[sources]`), which gives the shapes a
+parametric element type (`Cuboid{N,N²,T}`, `Polygon{K,K2,T}`) and makes the geometric
+queries (`surfpt_nearby`, `volfrac`) accept any `<:Number` — so AD number types flow
+through shape construction. This is validated on Julia 1.11: the geometry-parameter
+gradient testset passes with ForwardDiff (full pipeline) and Mooncake (per-interface
+kernel). **No further GeometryPrimitives changes are needed** for the current AD matrix.
 
 ### Geometry sensitivities of mode quantities (n_eff, n_g, GVD, fields)
 
@@ -274,3 +287,22 @@ gradient/primal cost ratios. Known limitations (also listed in the main README):
   frequency finite difference because `ng_gvd`'s adjoint is not reverse-differentiable;
 - directional FD checks of the `solve_k` adjoint run on a **non-square** test grid;
   this guards the `ε⁻¹_bar` index arithmetic against x/y mix-ups.
+
+### Dependency versions
+
+The packages require **Julia ≥ 1.11** and pin the AD stack to **GeometryPrimitives 0.6**
+(`doddgray` fork `master`), **Enzyme 0.13**, and **Mooncake 0.4**. The AD matrix above was
+re-validated on Julia 1.11.9 with GeometryPrimitives 0.6.0, Enzyme 0.13.168, Mooncake
+0.4.203, ForwardDiff 1.4.1, and Zygote 0.7.11. Findings from that upgrade:
+
+- **GeometryPrimitives 0.6 fixes geometry-parameter AD** that failed on the registered
+  0.5.0 (whose `Cuboid`/`Polygon` constructors forced `Float64`, raising
+  `MethodError: Float64(::ForwardDiff.Dual)`). No fork-side changes are required.
+- **Enzyme 0.13.168 needed one package-side change**: the preallocated `smooth_ε` assembly
+  indexes a heterogeneous `shapes` tuple, and the newer Enzyme's strict type analysis
+  rejected the resulting `Union` (`IllegalTypeAnalysisException`). Isolating that index in
+  the `@noinline`, `EnzymeRules.inactive` helper `_interface_geometry` (it is constant
+  w.r.t. material data) keeps the `Union` out of Enzyme's type analysis; Enzyme then
+  compiles and is exact for every real material (see footnote ¹ for the residual
+  vacuum-dispersion entry).
+- **Mooncake 0.4.203** and **ForwardDiff/Zygote** are unaffected and exact across the suite.
