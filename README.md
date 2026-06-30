@@ -33,13 +33,12 @@ A **Python interface** exposing the same pipeline with NumPy-native APIs lives i
 OptiMode is organized as a monorepo of six component packages living in `lib/`, with
 the top-level `OptiMode` module acting as a thin umbrella that re-exports all of them:
 
-> **Requirements.** The packages declare `julia = "1.10"` (Julia ≥ 1.10). The component
+> **Requirements.** The packages require **Julia ≥ 1.11** (`julia = "1.11"`). The component
 > projects wire the `lib/*` sub-packages and the [`doddgray/GeometryPrimitives.jl`](https://github.com/doddgray/GeometryPrimitives.jl)
-> fork (`master`, v0.6) through the `[sources]` table, which Pkg only honours on **Julia ≥
-> 1.11** — there `]instantiate` resolves everything automatically. On Julia 1.10 `[sources]`
-> is ignored, so add those deps manually (`Pkg.develop` each `lib/*` by path and
-> `Pkg.add(url=".../GeometryPrimitives.jl", rev="master")`). The AD stack is validated on
-> Julia 1.11.9 (GeometryPrimitives 0.6.0, Enzyme 0.13, Mooncake 0.4, ForwardDiff, Zygote).
+> fork (`master`, v0.6) through the `[sources]` table, which Pkg only honours on Julia ≥ 1.11;
+> there `]instantiate` resolves the fork and the sibling packages automatically. The AD stack
+> is validated on Julia 1.11.9 (GeometryPrimitives 0.6.0, Enzyme 0.13, Mooncake 0.4,
+> ForwardDiff, Zygote).
 
 | Package | Purpose |
 |---|---|
