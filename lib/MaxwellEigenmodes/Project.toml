@@ -40,7 +40,7 @@ MaxwellEigenmodesPythonCallExt = "PythonCall"
 Enzyme = "0.13"
 ForwardDiff = "0.10, 1"
 Mooncake = "0.4"
-julia = "1.11"
+julia = "1.10"
 
 [extras]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
