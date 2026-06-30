@@ -33,6 +33,13 @@ A **Python interface** exposing the same pipeline with NumPy-native APIs lives i
 OptiMode is organized as a monorepo of six component packages living in `lib/`, with
 the top-level `OptiMode` module acting as a thin umbrella that re-exports all of them:
 
+> **Requirements.** The packages require **Julia ≥ 1.11** (`julia = "1.11"`). The component
+> projects wire the `lib/*` sub-packages and the [`doddgray/GeometryPrimitives.jl`](https://github.com/doddgray/GeometryPrimitives.jl)
+> fork (`master`, v0.6) through the `[sources]` table, which Pkg only honours on Julia ≥ 1.11;
+> there `]instantiate` resolves the fork and the sibling packages automatically. The AD stack
+> is validated on Julia 1.11.9 (GeometryPrimitives 0.6.0, Enzyme 0.13, Mooncake 0.4,
+> ForwardDiff, Zygote).
+
 | Package | Purpose |
 |---|---|
 | [`MaterialDispersion`](lib/MaterialDispersion) | Symbolic dielectric material dispersion models (Sellmeier, thermo-optic, χ⁽²⁾, Kerr `n₂`), a material library (LiNbO₃, Si₃N₄, SiO₂, Si, Ge, …), and fast generated functions for ε(ω,T) and its frequency derivatives. |
@@ -127,9 +134,10 @@ Known limitations:
   via Zygote; Mooncake/Enzyme cover the per-voxel Kottke kernels (compiling their
   reverse rules for the full pipeline takes impractically long).
 - Geometry-*parameter* gradients (widths, thicknesses, sidewall angles, positions) are
-  supported via the [`claude/geometry-gradient-ad-no6zct`](https://github.com/doddgray/GeometryPrimitives.jl/tree/claude/geometry-gradient-ad-no6zct)
-  branch of `doddgray/GeometryPrimitives.jl` (parametric shape eltype, AD-compatible
-  `surfpt_nearby`/`volfrac`): forward mode (ForwardDiff) through the full
+  supported via the [`master`](https://github.com/doddgray/GeometryPrimitives.jl/tree/master)
+  branch of `doddgray/GeometryPrimitives.jl` (v0.6; parametric shape eltype, AD-compatible
+  `surfpt_nearby`/`volfrac`), wired in through each component's `[sources]`: forward mode
+  (ForwardDiff) through the full
   geometry→smoothing pipeline, and reverse mode (Mooncake) at the per-interface-pixel
   Kottke kernel. (Enzyme segfaults on the StaticArrays inverse in Cuboid
   `surfpt_nearby`; Zygote hits a non-`SVector` normal in `volfrac`.)

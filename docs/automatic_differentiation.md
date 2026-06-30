@@ -293,10 +293,19 @@ gradient/primal cost ratios. Known limitations (also listed in the main README):
 
 ### Dependency versions
 
-The packages require **Julia ≥ 1.11** and pin the AD stack to **GeometryPrimitives 0.6**
-(`doddgray` fork `master`), **Enzyme 0.13**, and **Mooncake 0.4**. The AD matrix above was
-re-validated on Julia 1.11.9 with GeometryPrimitives 0.6.0, Enzyme 0.13.168, Mooncake
-0.4.203, ForwardDiff 1.4.1, and Zygote 0.7.11. Findings from that upgrade:
+The packages require **Julia ≥ 1.11** (`julia = "1.11"`) and pin the AD stack to
+**GeometryPrimitives 0.6** (`doddgray` fork `master`, referenced from each component's
+`[sources]`), **Enzyme 0.13**, and **Mooncake 0.4**. The AD matrix above was re-validated on
+Julia 1.11.9 with GeometryPrimitives 0.6.0, Enzyme 0.13.168, Mooncake 0.4.203, ForwardDiff
+1.4.1, and Zygote 0.7.11.
+
+> **Why ≥ 1.11.** The umbrella and component projects wire the eight path sub-packages **and**
+> the GeometryPrimitives fork through the `[sources]` table, which Pkg only honours on Julia ≥
+> 1.11. There `]instantiate` resolves the fork and the sibling packages automatically; on
+> older Julia the entries are ignored (Pkg reports the unregistered path packages as
+> “expected … to be registered”), which is why 1.11 is the floor.
+
+Findings from the dependency upgrade:
 
 - **GeometryPrimitives 0.6 fixes geometry-parameter AD** that failed on the registered
   0.5.0 (whose `Cuboid`/`Polygon` constructors forced `Float64`, raising
