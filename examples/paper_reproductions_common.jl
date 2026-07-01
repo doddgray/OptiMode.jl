@@ -63,6 +63,13 @@ function matvals_builder(mats; air=false)
     air ? (ω -> hcat(fε([ω]), AIR_COL)) : (ω -> fε([ω]))
 end
 
+"Temperature-aware `matvals(ω, T)` (T in °C) for materials carrying a thermo-optic (dn/dT)
+term (LiNbO₃, SiO₂, Si₃N₄, Si, …). Used for electro-thermal QPM tuning."
+function matvals_builder_T(mats; air=false)
+    fε, _ = _f_ε_mats(mats, (:ω, :T))
+    air ? ((ω, T) -> hcat(fε([ω, T]), AIR_COL)) : ((ω, T) -> fε([ω, T]))
+end
+
 # ---------------------------------------------------------------------------------------
 # Mode solving + selection
 # ---------------------------------------------------------------------------------------
@@ -114,6 +121,15 @@ end
 # Dispersion sweep
 # ---------------------------------------------------------------------------------------
 
+"Linear-interpolate `y(xq)` from samples (x, y) with x monotonically increasing."
+function interp1(x, y, xq)
+    xq <= x[1] && return y[1]
+    xq >= x[end] && return y[end]
+    j = searchsortedlast(x, xq)
+    t = (xq - x[j]) / (x[j+1] - x[j])
+    y[j] * (1 - t) + y[j+1] * t
+end
+
 "GVD β₂ in fs²/mm from OptiMode's `gvd` (= ∂²|k|/∂ω²):  β₂ = gvd/(2π c²)."
 gvd_fs2_per_mm(gvd_OM) = 1e3 * gvd_OM / (2π * C_UM_FS^2)
 
@@ -143,6 +159,7 @@ function sweep_dispersion(shapes, minds, matvals, λs, grid, solver;
         β2[j] = gvd_fs2_per_mm(gv); D[j] = D_ps_nm_km(β2[j], λ)
         @printf("  λ=%.3f µm  n_eff=%.4f  n_g=%.4f  β₂=%+.1f fs²/mm  (%s %.2f, conf %.2f)\n",
                 λ, neff[j], g, β2[j], pol, m.pol_frac, m.conf)
+        flush(stdout)
     end
     (; λ=collect(λs), ω=1 ./ λs, neff, ng, β2, D, kmag)
 end
