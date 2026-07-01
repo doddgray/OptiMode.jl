@@ -15,7 +15,11 @@
 #   (3) the χ² nonlinear coupling: normalized efficiency η₀ and SHG effective area A_eff;
 #   (4) the FH (1064 nm) and SH (532 nm) fundamental-mode profiles (Fig. 1c).
 #
+# Settings (see examples/README.md): --n-freqs (dispersion-sweep points, default 5), --n-dense
+# (χ² gain-spectrum resolution, default 601), --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/ppln_reconfigurable_opa_han2026.jl   (needs CairoMakie)
+#       julia --project=. examples/ppln_reconfigurable_opa_han2026.jl --n-freqs=9 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "paper_reproductions_common.jl"))
 using OptiMode: rotate
@@ -23,6 +27,7 @@ using OptiMode.MaterialDispersion: LiNbO₃
 using OptiMode.ModePerturbations: shg_normalized_efficiency, shg_effective_area
 using CairoMakie
 
+cfg = example_settings(n_freqs=5, n_dense=601)
 solver = KrylovKitEigsolve()
 λF = 1.064; λS = λF/2                        # 1064 nm FH → 532 nm SH
 w, etch, film = 1.40, 0.35, 0.70            # x-cut TFLN ridge (representative near-zero-β₂ design)
@@ -33,12 +38,12 @@ LiNbO₃_xcut = rotate(LiNbO₃, _RY; name=:LiNbO₃_xcut)
 mv = matvals_builder([LiNbO₃_xcut, SiO₂]; air=true)     # columns: LN, SiO₂, air
 shapes, minds = ridge_on_slab(w, etch, film)
 slab = film - etch
-grid = Grid(6.0, 4.0, 116, 78)
+grid = mk_grid(cfg, 6.0, 4.0, 116, 78)
 D33 = 20.5; deff = (2/π) * D33 * 1e-12       # first-order-QPM d_eff (m/V), LiNbO₃ d₃₃≈20.5 pm/V
 
 # --- (1) FH-band modal dispersion -------------------------------------------------------
 println("== TFLN x-cut ridge: fundamental (1064 nm band) dispersion ==")
-λFH = range(1.01, 1.13; length=5)
+λFH = range(1.01, 1.13; length=cfg.n_freqs)
 swF = sweep_dispersion(shapes, minds, mv, λFH, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=6)
 β2F, β4F = dispersion_betas(swF, λF)
 @printf("β₂(1064) = %+.1f fs²/mm,  β₄(1064) = %+.0f fs⁴/mm   (paper: −3.6, 543)\n", β2F, β4F)
@@ -62,7 +67,7 @@ qpm = qpm_mismatch_spectrum(swF.neff, swS.neff, swF.λ, Λ)
 # --- χ² OPA gain bandwidth near degeneracy (SH-pumped) ----------------------------------
 P_SH = 0.05                                   # 50 mW SH pump
 Γ = sqrt((η0/100*1e4) * P_SH)                 # drive √(η₀ P_SH), 1/m
-gn = chi2_opa_gain_spectrum(swF, λF, Γ; L=0.01, Ω_THz=range(-150, 150; length=601))
+gn = chi2_opa_gain_spectrum(swF, λF, Γ; L=0.01, Ω_THz=range(-150, 150; length=cfg.n_dense))
 @printf("χ² OPA drive Γ=%.1f /m,  peak gain %.1f dB,  3-dB BW %.0f THz\n",
         Γ, maximum(gn.gain_dB), gn.bw3_THz)
 

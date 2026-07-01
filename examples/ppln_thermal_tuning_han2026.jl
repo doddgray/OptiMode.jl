@@ -12,13 +12,18 @@
 #   (2) the phase-matched FH wavelength λ_PM vs ΔT (the electro-thermal tuning curve);
 #   (3) the effective-index thermo-optic coefficients dn_eff/dT of the FH and SH modes.
 #
+# Settings (see examples/README.md): --n-freqs (dispersion-sweep points, default 3), --n-dense
+# (Δk(λ) curve resolution, default 300), --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/ppln_thermal_tuning_han2026.jl   (needs CairoMakie)
+#       julia --project=. examples/ppln_thermal_tuning_han2026.jl --n-freqs=7 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "paper_reproductions_common.jl"))
 using OptiMode: rotate
 using OptiMode.MaterialDispersion: LiNbO₃
 using CairoMakie
 
+cfg = example_settings(n_freqs=3, n_dense=300)
 solver = KrylovKitEigsolve()
 λF = 1.064; λS = λF/2
 w, etch, film = 1.40, 0.35, 0.70
@@ -30,11 +35,11 @@ mvT = matvals_builder_T([LiNbO₃_xcut, SiO₂]; air=true)   # (ω, T) → mater
 mv_at(T) = (ω -> mvT(ω, T))                               # freeze temperature for a mode solve
 shapes, minds = ridge_on_slab(w, etch, film)
 slab = film - etch
-grid = Grid(6.0, 4.0, 96, 64)
+grid = mk_grid(cfg, 6.0, 4.0, 96, 64)
 
 # --- FH & SH band dispersion at the reference temperature -------------------------------
 println("== TFLN QPM thermal tuning: dispersion at T₀ = $(T0) °C ==")
-λFH = range(1.02, 1.12; length=3)
+λFH = range(1.02, 1.12; length=cfg.n_freqs)
 swF = sweep_dispersion(shapes, minds, mv_at(T0), λFH, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=6)
 swS = sweep_dispersion(shapes, minds, mv_at(T0), λFH ./ 2, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=9)
 mF0 = solve_fundamental(shapes, minds, mv_at(T0), 1/λF, grid, solver; nev=6, pol=:TE, w=w, h=film, yc=slab)
@@ -74,7 +79,7 @@ dλ_dT = (λpms[end]-λpms[1])/(ΔTs[end]-ΔTs[1])
 @printf("thermal tuning slope dλ_PM/dT ≈ %.2f nm/K\n", 1e3*dλ_dT)
 
 # --- plots ------------------------------------------------------------------------------
-λdense = range(λFH[1], λFH[end]; length=300)
+λdense = range(λFH[1], λFH[end]; length=cfg.n_dense)
 
 fig1 = Figure(size=(920, 340))
 ax1 = Axis(fig1[1, 1], xlabel="FH wavelength (µm)", ylabel="QPM Δk (rad/mm)",

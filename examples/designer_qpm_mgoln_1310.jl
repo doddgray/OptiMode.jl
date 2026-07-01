@@ -12,12 +12,17 @@
 # dΔn/dw = dn_SH/dw − dn_FF/dw is the hybrid ForwardDiff(geometry)∘Zygote(adjoint eigensolve)
 # gradient (designer_common.jl), driving an Adam optimizer. No finite-difference geometry sweep.
 #
+# Settings (see examples/README.md): --n-freqs (post-optimization Δn(w) landscape sweep,
+# default 15), --resolution-scale / --domain-scale (grid — kept small by default for fast AD).
+#
 # Run:  julia --project=. examples/designer_qpm_mgoln_1310.jl   (needs CairoMakie)
+#       julia --project=. examples/designer_qpm_mgoln_1310.jl --resolution-scale=2
 
 include(joinpath(@__DIR__, "designer_common.jl"))
 using OptiMode.MaterialDispersion: MgO_LiNbO₃
 using CairoMakie
 
+cfg = example_settings(n_freqs=15)
 solver = KrylovKitEigsolve()
 λF = 1.31; λS = λF/2                          # NEW target: 1310 nm FH → 655 nm SH
 Λ_target = 4.0                                # fabrication-preferred poling period (µm)
@@ -26,7 +31,7 @@ film, slab, etch = 0.70, 0.30, 0.40          # 700-nm MgO:LiNbO₃, 400-nm etch 
 
 mats = [MgO_LiNbO₃, SiO₂]
 mv = matvals_builder(mats; air=true)         # MgO:LiNbO₃ core, SiO₂ box, air background
-grid = Grid(6.0, 3.6, 40, 30)                # small grid → fast AD optimization
+grid = mk_grid(cfg, 6.0, 3.6, 40, 30)        # small grid by default → fast AD optimization
 # rib of top width w[1] on the unetched slab, over a SiO₂ substrate; air above
 geomfn(w) = (
     MaterialShape(Cuboid([0.0, slab + etch/2], [w[1], etch], [1.0 0.0; 0.0 1.0]), 1),
@@ -56,7 +61,7 @@ w★ = res.p[1]
 @printf("optimized w=%.3f µm: Δn=%.4f  → Λ=%.3f µm (target %.1f)\n", w★, Δn★, Λ★, Λ_target)
 
 # --- Δn(w) landscape + poling period, marking start/optimum ------------------------------
-ws = collect(range(0.7, 2.1; length=15))
+ws = collect(range(0.7, 2.1; length=cfg.n_freqs))
 Δns = [Δn_of([w]) for w in ws]
 Λs = [λF/(2d) for d in Δns]
 

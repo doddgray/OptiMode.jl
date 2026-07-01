@@ -13,18 +13,34 @@
 # Following the MEOW-fork example (examples/papers/kwolek2026_faquad.py) but with OptiMode:
 #   (1) MODE SOLVING + DISPERSION: even/odd supermode indices of the two-ridge coupler across
 #       > 1 octave (0.70–1.65 µm), and the coupling length L_c(λ)=λ/(2Δn_super).
-#   (2) DENSE >1-OCTAVE TRANSMISSION SPECTRUM: directional-coupler bar/cross transmission
-#       T_cross(λ)=sin²(πL·Δn_super(λ)/λ) — strong FH coupling (→ cross) vs weak SH coupling
+#   (2) DENSE >1-OCTAVE TRANSMISSION SPECTRUM: two curves overlaid —
+#         (a) a cheap analytic curve T_cross(λ)=sin²(πL·Δn_super(λ)/λ), with Δn_super(λ)
+#             linearly interpolated from the (1) sparse mode-solve dispersion, sampled at
+#             `cfg.n_dense` points for a smooth plot;
+#         (b) a genuinely EME-solved curve: OptiMode's actual `eme` scattering matrix
+#             (`directional_coupler_transmission`, no hand-applied formula) evaluated at
+#             `cfg.n_eme_freqs` real (mode-solved, uninterpolated) wavelengths.
+#       (a) and (b) agree wherever they overlap — (a) is only interpolating what (b) computes
+#       exactly — and (b) shows the true device response between the (1) dispersion nodes
+#       without relying on interpolation. Strong FH coupling (→ cross) vs weak SH coupling
 #       (→ bar) gives the wavelength combiner response.
-#   (3) EME validation: cascade the uniform coupler with OptiMode's `eme` (cross-section dedup
-#       makes this cheap) and confirm the supermode S-matrix.
+#   (3) EME cascade validation: cascade `cfg.n_cells` identical cells of the uniform coupler
+#       with OptiMode's `eme` (cross-section dedup makes this cheap) and confirm the cascaded
+#       S-matrix agrees with the single-cell result of (2b).
 #   (4) even/odd supermode |E| profiles at FH and SH.
 #
+# Settings (see examples/README.md): --n-freqs (sparse dispersion nodes, default 7),
+# --n-dense (interpolated curve resolution, default 400), --n-eme-freqs (true EME overlay
+# resolution, default 15), --n-cells (cascade validation cell count, default 6),
+# --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/tfln_combiner_kwolek2026.jl   (needs CairoMakie)
+#       julia --project=. examples/tfln_combiner_kwolek2026.jl --n-eme-freqs=30 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "eme_reproductions_common.jl"))
 using CairoMakie
 
+cfg = example_settings(n_freqs=7, n_dense=400, n_eme_freqs=15, n_cells=6)
 solver = KrylovKitEigsolve()
 film, slab, w = 0.30, 0.20, 1.20            # 300-nm film, 200-nm slab (100-nm etch), 1.2-µm width
 etch = film - slab                           # 0.10 µm rib height
@@ -35,7 +51,7 @@ const _RY = [0.0 0.0 1.0; 0.0 1.0 0.0; -1.0 0.0 0.0]
 LiNbO₃_xcut = rotate(LiNbO₃, _RY; name=:LiNbO₃_xcut)
 mats = [LiNbO₃_xcut, SiO₂, Vacuum]
 mv = matvals_builder(mats; air=false)        # LN, SiO₂ box, Vacuum background (air top)
-grid = Grid(7.0, 3.0, 112, 58)
+grid = mk_grid(cfg, 7.0, 3.0, 112, 58)
 
 rib(cx) = MaterialShape(Cuboid([cx, slab + etch/2], [w, etch], [1.0 0.0; 0.0 1.0]), 1)
 slabsh  = MaterialShape(Cuboid([0.0, slab/2], [200.0, slab], [1.0 0.0; 0.0 1.0]), 1)
@@ -46,7 +62,7 @@ minds   = (1, 1, 1, 2, 3)
 
 # --- (1) even/odd supermode dispersion over > 1 octave ---------------------------------
 println("== TFLN combiner: even/odd supermode dispersion (0.70–1.65 µm) ==")
-λs = collect(range(0.74, 1.60; length=7))    # 1.17 octave
+λs = collect(range(0.74, 1.60; length=cfg.n_freqs))    # 1.17 octave
 Δn = zero(λs); Lc = zero(λs)
 for (j, λ) in enumerate(λs)
     sup = supermodes(coupler, minds, mv, 1/λ, grid, solver; nev=4)   # sorted by n_eff desc
@@ -54,30 +70,43 @@ for (j, λ) in enumerate(λs)
     Δn[j] = ne - no
     Lc[j] = λ / (2*abs(Δn[j]))                                        # half-beat coupling length (µm)
     @printf("  λ=%.3f µm  n_even=%.4f  n_odd=%.4f  Δn=%.2e  L_c=%.1f µm\n", λ, ne, no, Δn[j], Lc[j])
+    flush(stdout)
 end
 
 # --- (2) dense directional-coupler combiner transmission -------------------------------
 Lc_FH = interp1(λs, Lc, λF)                   # set device length = one coupling length at FH
 L = Lc_FH                                       # → full cross-over at FH
-λdense = collect(range(λs[1], λs[end]; length=400))
+
+# (2a) cheap analytic curve — interpolated dispersion, dense for a smooth plot
+λdense = collect(range(λs[1], λs[end]; length=cfg.n_dense))
 Δn_d = [interp1(λs, Δn, λ) for λ in λdense]
 T_cross = [sin(π * L * abs(Δn_d[i]) / λdense[i])^2 for i in eachindex(λdense)]
 T_bar = 1 .- T_cross
-@printf("device length L = L_c(FH) = %.1f µm;  T_cross(FH)=%.2f  T_cross(SH)=%.2f\n",
+@printf("device length L = L_c(FH) = %.1f µm;  T_cross(FH)=%.2f  T_cross(SH)=%.2f  (analytic, interpolated)\n",
         L, sin(π*L*abs(interp1(λs,Δn,λF))/λF)^2, sin(π*L*abs(interp1(λs,Δn,λS))/λS)^2)
 
-# --- (3) EME validation of the uniform coupler (dedup-cheap) ---------------------------
-println("== EME validation (uniform coupler, cross-section dedup) ==")
-Ncell = 6
-s_edges = collect(range(0.0, L; length=Ncell+1))
-cell_shapes = fill(coupler, Ncell)
+# (2b) true EME curve — OptiMode's actual eme()/S-matrix at real, uninterpolated wavelengths
+println("== EME-calculated combiner transmission (real mode solves, no interpolation) ==")
+λeme = collect(range(λs[1], λs[end]; length=cfg.n_eme_freqs))
+T_cross_eme = zero(λeme); T_bar_eme = zero(λeme)
+for (j, λ) in enumerate(λeme)
+    dc = directional_coupler_transmission(coupler, minds, mats, 1/λ, grid, L, solver; nev=4)
+    T_cross_eme[j], T_bar_eme[j] = dc.T_cross, dc.T_bar
+    @printf("  λ=%.3f µm  EME k_even=%.4f k_odd=%.4f → T_cross=%.2f  T_bar=%.2f\n",
+            λ, dc.k_even, dc.k_odd, dc.T_cross, dc.T_bar)
+    flush(stdout)
+end
+
+# --- (3) EME cascade validation: cfg.n_cells identical cells vs. the single-cell result -----
+println("== EME cascade validation ($(cfg.n_cells) identical cells, cross-section dedup) ==")
+s_edges = collect(range(0.0, L; length=cfg.n_cells + 1))
+cell_shapes = fill(coupler, cfg.n_cells)
 try
     for λ in (λF, λS)
         res = eme_transmission(cell_shapes, minds, mats, 1/λ, grid, s_edges, solver; nev=4)
-        # bar/cross from the two supermode propagation phases k_even, k_odd
-        ke, ko = res.modes[1][1].k, res.modes[1][2].k
-        tc = sin(π * L * abs(ke - ko))^2
-        @printf("  λ=%.3f µm  EME supermodes k_even=%.4f k_odd=%.4f → T_cross=%.2f\n", λ, ke, ko, tc)
+        pt = port_transmission(res.S)
+        @printf("  λ=%.3f µm  %d-cell cascade → T_cross=%.4f  T_bar=%.4f\n", λ, cfg.n_cells, pt.T_cross, pt.T_bar)
+        flush(stdout)
     end
 catch err
     @warn "EME cascade validation skipped" exception = (err, catch_backtrace())
@@ -96,9 +125,11 @@ vlines!(ax1, [λS, λF], color=:gray, linestyle=:dash)
 text!(ax1, λS, minimum(abs.(Δn)); text="SH", align=(:center,:bottom)); text!(ax1, λF, minimum(abs.(Δn)); text="FH", align=(:center,:bottom))
 ax1b = Axis(fig1[1, 2], xlabel="wavelength (µm)", ylabel="transmission",
     title=@sprintf("combiner response (L=%.0f µm)", L))
-lines!(ax1b, λdense, T_cross, color=:crimson, linewidth=2, label="cross port")
-lines!(ax1b, λdense, T_bar, color=:dodgerblue, linewidth=2, label="bar port")
-vlines!(ax1b, [λS, λF], color=:gray, linestyle=:dash); axislegend(ax1b, position=:rc)
+lines!(ax1b, λdense, T_cross, color=:crimson, linewidth=2, label="cross port (analytic, interpolated)")
+lines!(ax1b, λdense, T_bar, color=:dodgerblue, linewidth=2, label="bar port (analytic, interpolated)")
+scatter!(ax1b, λeme, T_cross_eme, color=:crimson, marker=:circle, markersize=9, strokewidth=1, strokecolor=:black, label="cross port (EME, exact)")
+scatter!(ax1b, λeme, T_bar_eme, color=:dodgerblue, marker=:circle, markersize=9, strokewidth=1, strokecolor=:black, label="bar port (EME, exact)")
+vlines!(ax1b, [λS, λF], color=:gray, linestyle=:dash); axislegend(ax1b, position=:rc, labelsize=10)
 save(joinpath(OUTDIR, "kwolek_combiner_dispersion_transmission.png"), fig1)
 
 fig2 = Figure(size=(1000, 620))

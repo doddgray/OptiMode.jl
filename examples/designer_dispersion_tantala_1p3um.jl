@@ -12,16 +12,21 @@
 # n_g) and finite-differences only the scalar ω-derivative (β₂ = ∂n_g/∂ω), per Gray, West & Ram
 # (2024). Adam then drives β₂ → 0 at 1.3 µm and the ZDW onto the target.
 #
+# Settings (see examples/README.md): --n-freqs (post-optimization β₂(λ) sweep, default 9),
+# --resolution-scale / --domain-scale (grid — kept small by default for fast AD).
+#
 # Run:  julia --project=. examples/designer_dispersion_tantala_1p3um.jl   (needs CairoMakie)
+#       julia --project=. examples/designer_dispersion_tantala_1p3um.jl --resolution-scale=2
 
 include(joinpath(@__DIR__, "designer_common.jl"))
 using CairoMakie
 
+cfg = example_settings(n_freqs=9)
 solver = KrylovKitEigsolve()
 λ0 = 1.30                                      # NEW target: zero-GVD at 1.30 µm
 mats = [Ta₂O₅, SiO₂]
 mv = matvals_builder(mats; air=true)           # tantala core on SiO₂ substrate, air-clad
-grid = Grid(5.0, 4.0, 40, 32)
+grid = mk_grid(cfg, 5.0, 4.0, 40, 32)
 # tantala core (w, h) sitting on a SiO₂ substrate (core bottom at y=0), air top + sides
 geomfn(p) = (MaterialShape(Cuboid([0.0, p[2]/2], [p[1], p[2]], [1.0 0.0; 0.0 1.0]), 1),
              MaterialShape(Cuboid([0.0, -1.5], [100.0, 3.0], [1.0 0.0; 0.0 1.0]), 2))
@@ -43,7 +48,7 @@ p★ = res.p
 @printf("optimized (w,h)=(%.3f,%.3f) µm: β₂=%+.1f fs²/mm (target 0)\n", p★[1], p★[2], β2_grad(p★)[1])
 
 # --- β₂(λ) before / after: the ZDW moves to the target ---------------------------------
-λs = collect(range(1.0, 1.7; length=9))
+λs = collect(range(1.0, 1.7; length=cfg.n_freqs))
 disp(p) = [gvd_value_grad(geomfn, mv, minds, grid, p, 1/λ, solver)[1] for λ in λs]
 β2_0 = disp(p0); β2_★ = disp(p★)
 zdw(b) = (for i in 1:length(λs)-1; sign(b[i]) != sign(b[i+1]) && return λs[i]-b[i]*(λs[i+1]-λs[i])/(b[i+1]-b[i]); end; NaN)

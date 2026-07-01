@@ -16,7 +16,11 @@
 #       n₂,eff(Δk) (sign-changing across phase matching — the amplifier's working nonlinearity);
 #   (4) the FH (1550 nm) and SH (775 nm) quasi-TE₀₀ mode profiles.
 #
+# Settings (see examples/README.md): --n-freqs (dispersion-sweep points, default 5), --n-dense
+# (cascaded-n₂ curve resolution, default 401), --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/pplt_allband_opa_kuznetsov2026.jl   (needs CairoMakie)
+#       julia --project=. examples/pplt_allband_opa_kuznetsov2026.jl --n-freqs=9 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "paper_reproductions_common.jl"))
 using OptiMode: rotate
@@ -24,6 +28,7 @@ using OptiMode.MaterialDispersion: LiTaO₃
 using OptiMode.ModePerturbations: shg_normalized_efficiency, shg_effective_area, cascaded_chi2_n2_eff
 using CairoMakie
 
+cfg = example_settings(n_freqs=5, n_dense=401)
 solver = KrylovKitEigsolve()
 λF = 1.55; λS = λF/2                          # 1550 nm FH → 775 nm SH (telecom pump)
 w, etch, film = 1.80, 0.59, 0.69            # 690 nm LiTaO₃, ~100 nm slab, 1.8 µm top width
@@ -34,12 +39,12 @@ LiTaO₃_xcut = rotate(LiTaO₃, _RY; name=:LiTaO₃_xcut)
 mv = matvals_builder([LiTaO₃_xcut, SiO₂]; air=true)      # columns: LiTaO₃, SiO₂, air
 shapes, minds = ridge_on_slab(w, etch, film)
 slab = film - etch
-grid = Grid(8.0, 5.0, 116, 76)
+grid = mk_grid(cfg, 8.0, 5.0, 116, 76)
 D33 = 10.7; deff = (2/π) * D33 * 1e-12       # first-order-QPM d_eff (m/V), LiTaO₃ d₃₃≈10.7 pm/V
 
 # --- (1) telecom-band modal dispersion --------------------------------------------------
 println("== PPLT x-cut ridge: telecom (1550 nm) band dispersion ==")
-λFH = range(1.48, 1.62; length=5)
+λFH = range(1.48, 1.62; length=cfg.n_freqs)
 swF = sweep_dispersion(shapes, minds, mv, λFH, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=6)
 β2F, β4F = dispersion_betas(swF, λF)
 @printf("β₂(1550) = %+.1f fs²/mm,  β₄(1550) = %+.0f fs⁴/mm\n", β2F, β4F)
@@ -62,7 +67,7 @@ Aeff = shg_effective_area(mF.E, mS.E, grid)
 qpm = qpm_mismatch_spectrum(swF.neff, swS.neff, swF.λ, Λ)
 
 # --- (3) cascaded-χ² effective Kerr n₂,eff(Δk) ------------------------------------------
-Δk_range = range(-4000, 4000; length=401)     # phase mismatch (rad/m)
+Δk_range = range(-4000, 4000; length=cfg.n_dense)     # phase mismatch (rad/m)
 n2c = [cascaded_chi2_n2_eff(; deff=deff, λ1=λF*1e-6, n1=nF, n2=nS, Δk=Δk) for Δk in Δk_range]
 
 # --- plots ------------------------------------------------------------------------------
