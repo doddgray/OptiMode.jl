@@ -9,8 +9,9 @@
 # The design degree of freedom is the rib top width w. First-order QPM needs
 #     n_SH(w) − n_FF(w) = λ_FF / (2 Λ_target).
 # We minimise  L(w) = (Δn(w) − λ_FF/(2Λ_target))²  with **OptiMode's automatic differentiation**:
-# dΔn/dw = dn_SH/dw − dn_FF/dw is the hybrid ForwardDiff(geometry)∘Zygote(adjoint eigensolve)
-# gradient (designer_common.jl), driving an Adam optimizer. No finite-difference geometry sweep.
+# dΔn/dw = dn_SH/dw − dn_FF/dw is a single Enzyme reverse-mode gradient across the whole
+# geometry→dielectric→eigensolve pipeline (`geom_value_grad`, designer_common.jl), driving an
+# Adam optimizer. No finite-difference geometry sweep.
 #
 # Settings (see examples/README.md): --n-freqs (post-optimization Δn(w) landscape sweep,
 # default 15), --resolution-scale / --domain-scale (grid — kept small by default for fast AD).

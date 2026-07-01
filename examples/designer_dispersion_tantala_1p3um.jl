@@ -8,9 +8,9 @@
 #
 # The design DOF is the core cross-section (width, height) p = (w, h). We minimise
 # L(p) = β₂(p; 1.3 µm)²  with **OptiMode's automatic differentiation**: the geometry gradient of
-# β₂ keeps the high-dimensional geometry sensitivity as exact AD (hybrid ForwardDiff∘Zygote on
-# n_g) and finite-differences only the scalar ω-derivative (β₂ = ∂n_g/∂ω), per Gray, West & Ram
-# (2024). Adam then drives β₂ → 0 at 1.3 µm and the ZDW onto the target.
+# β₂ keeps the high-dimensional geometry sensitivity as exact Enzyme reverse-mode AD on n_g and
+# finite-differences only the scalar ω-derivative (β₂ = ∂n_g/∂ω), per Gray, West & Ram (2024).
+# Adam then drives β₂ → 0 at 1.3 µm and the ZDW onto the target.
 #
 # Settings (see examples/README.md): --n-freqs (post-optimization β₂(λ) sweep, default 9),
 # --resolution-scale / --domain-scale (grid — kept small by default for fast AD).

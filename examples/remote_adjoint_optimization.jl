@@ -13,8 +13,9 @@
 # background processes on one machine.
 
 using OptiMode
+using OptiMode.DielectricSmoothing.GeometryPrimitives: Cuboid
 using ModeSweeps
-using ForwardDiff
+using Enzyme
 using LinearAlgebra: dot
 
 const SETUP = joinpath(@__DIR__, "ridge_wg_setup.jl")
@@ -57,11 +58,26 @@ r = remote_value_and_gradient(SETUP, p, [1 / p.ω]; nev=1, name="adjoint_oneshot
 # `ε⁻¹_bar` is the sensitivity of the objective to every inverse-dielectric tensor entry
 # at every pixel. Chaining it with the (cheap, FFT-free) forward-mode geometry Jacobian
 # ∂ε⁻¹/∂(geometry) gives the exact geometry gradient — the eigensolve and its adjoint
-# stay on the cluster, only the smoothing Jacobian is differentiated locally.
+# stay on the cluster, only the smoothing Jacobian is differentiated locally (with Enzyme,
+# now that geometry-parameter gradients through `smooth_ε` are Enzyme-differentiable).
 #
 #   ∂neff/∂w_top = vec(ε⁻¹_bar) · ∂vec(ε⁻¹)/∂w_top
-geom_to_epsinv(w) = vec(make_problem((; p.ω, w_top=w, p.h_core)).ε⁻¹)   # ForwardDiff-friendly
-J = ForwardDiff.derivative(geom_to_epsinv, p.w_top)                     # ∂vec(ε⁻¹)/∂w_top
+#
+# `make_problem` itself calls `_f_ε_mats` (SymbolicUtils-backed) on every invocation, and
+# SymbolicUtils' internal expression cache is not Enzyme-differentiable (forward mode has no
+# rule for its `IdDict`-based memoization) — so unlike the designer scripts (which build the
+# material-value function *once*, outside the differentiated closure, via `matvals_builder`),
+# here we mirror `make_problem`'s geometry with the materials function precomputed the same way
+# before differentiating, keeping only the genuinely geometry-dependent part (shape → smooth_ε)
+# inside the Enzyme trace.
+const _fε_ridge, _ = _f_ε_mats([Si₃N₄, SiO₂], (:ω,))
+function geom_to_epsinv(w)
+    mat_vals = _fε_ridge([p.ω])
+    core = MaterialShape(Cuboid([0.0, 0.0], [w, p.h_core], [1.0 0.0; 0.0 1.0]), 1)
+    sm = smooth_ε((core,), mat_vals, (1, 2), Grid(6.0, 4.0, 128, 96))
+    vec(sliceinv_3x3(copy(selectdim(sm, 3, 1))))
+end
+J = Enzyme.jacobian(Enzyme.Forward, geom_to_epsinv, p.w_top)[1]         # ∂vec(ε⁻¹)/∂w_top
 ∂neff_∂w_top = dot(vec(g.ε⁻¹_bar), J)
 @info "geometry gradient (remote adjoint × local forward Jacobian)" ∂neff_∂w_top
 
