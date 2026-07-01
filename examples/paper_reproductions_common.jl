@@ -100,9 +100,12 @@ function solve_fundamental(shapes, minds, matvals, ω, grid, solver;
     rp = [E_relpower_xyz(ε, Es[i]) for i in eachindex(ev)]
     pf = pol === :TE ? [r[1] for r in rp] : [r[2] for r in rp]   # x- or y-fraction
     conf = [core_confinement(Es[i], grid, w, h; yc=yc) for i in eachindex(ev)]
-    # rank: right-polarization modes first (birefringence can push several wrong-pol modes
-    # above the target fundamental), then most core-confined, then highest polarization purity.
-    score = [(pf[i] > 0.5 ? 100.0 : 0.0) + 10 * conf[i] + pf[i] for i in eachindex(ev)]
+    # rank the fundamental of the requested polarization: (1) right polarization first
+    # (birefringence can push several wrong-pol modes above the target); (2) among those, the
+    # highest effective index km — for a given polarization the fundamental (TE₀₀/TM₀₀) has the
+    # largest neff, so this rejects the confined-but-higher-order modes (e.g. two-lobe TE₁₀);
+    # (3) core confinement as a final tiebreak.
+    score = [(pf[i] > 0.5 ? 1e4 : 0.0) + 100 * km[i] + conf[i] for i in eachindex(ev)]
     i = argmax(score)
     return (; k=km[i], ev=ev[i], εi, ∂ωε, ∂²ωε, E=Es[i], pol_frac=pf[i], conf=conf[i], neff=km[i]/ω)
 end
