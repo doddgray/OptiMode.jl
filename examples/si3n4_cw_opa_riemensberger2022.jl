@@ -14,25 +14,30 @@
 #   (3) the degenerate-FWM parametric-gain spectrum g(Ω) vs signal wavelength (Eq. 2); and
 #   (4) the fundamental quasi-TE₀₀ mode profile (Fig. 1d inset).
 #
+# Settings (see examples/README.md): --n-freqs (dispersion-sweep points, default 13), --n-dense
+# (FWM gain-spectrum resolution, default 321), --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/si3n4_cw_opa_riemensberger2022.jl
 # (needs CairoMakie in the active environment; grid is moderate so it runs in a few minutes —
 #  the converged design sweep deploys via ModeSweeps/SLURM.)
+#       julia --project=. examples/si3n4_cw_opa_riemensberger2022.jl --n-freqs=25 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "paper_reproductions_common.jl"))
 using OptiMode.MaterialDispersion: kerr_n2
 using CairoMakie
 
+cfg = example_settings(n_freqs=13, n_dense=321)
 solver = KrylovKitEigsolve()
 w, h = 2.45, 0.91                       # 2450 nm width × 910 nm height (Riemensberger 2022)
 λp = 1.55                                # C-band pump
 mats = [Si₃N₄, SiO₂]
 mv = matvals_builder(mats; air=false)   # Si₃N₄ core fully buried in SiO₂
 shapes, minds = buried_core(w, h)
-grid = Grid(6.0, 4.0, 128, 96)
+grid = mk_grid(cfg, 6.0, 4.0, 128, 96)
 
 # --- (1) modal dispersion spectra -------------------------------------------------------
 println("== Si₃N₄ 910×2450 nm: modal dispersion sweep ==")
-λs = range(1.40, 1.70; length=13)
+λs = range(1.40, 1.70; length=cfg.n_freqs)
 sw = sweep_dispersion(shapes, minds, mv, λs, grid, solver; pol=:TE, w=w, h=h, nev=4)
 β2_p = sw.β2[argmin(abs.(sw.λ .- λp))]
 @printf("β₂(1.55 µm) ≈ %.0f fs²/mm   (paper: −124 fs²/mm)\n", β2_p)
@@ -46,7 +51,7 @@ n2 = kerr_n2(Si₃N₄, λp)                  # µm²/W
 
 # --- (3) degenerate-FWM parametric-gain spectrum ---------------------------------------
 P, L = 2.0, 1.0                          # 2 W on-chip pump, 1 m waveguide (metre-scale spiral)
-fw = fwm_gain_spectrum(sw, λp, P, γ; L=L, Ω_THz=range(-8, 8; length=321))
+fw = fwm_gain_spectrum(sw, λp, P, γ; L=L, Ω_THz=range(-8, 8; length=cfg.n_dense))
 β2_fit = fw.β2 * 1e27      # s²/m → fs²/mm
 β4_fit = fw.β4 * 1e57      # s⁴/m → fs⁴/mm
 @printf("fit β₂ = %+.1f fs²/mm, β₄ = %+.0f fs⁴/mm;  peak gain %.1f dB,  3-dB BW %.2f THz\n",

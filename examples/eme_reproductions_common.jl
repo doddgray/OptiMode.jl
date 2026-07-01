@@ -21,8 +21,8 @@
 # Grids are moderate so the plots generate on a workstation; the dense EME sweep deploys to a
 # cluster via `deploy_eme`/`gather_eme` (as the MEOW fork's *_slurm.py designers do).
 
-include(joinpath(@__DIR__, "paper_reproductions_common.jl"))   # Grid, solve_fundamental, matvals_builder, grid_coords, absE_norm, OUTDIR, C_MS
-using OptiMode.EigenmodeExpansion: CrossSection, Cell, eme, power_coupling
+include(joinpath(@__DIR__, "paper_reproductions_common.jl"))   # Grid, solve_fundamental, matvals_builder, grid_coords, absE_norm, OUTDIR, C_MS, ExampleSettings, example_settings, mk_grid
+using OptiMode.EigenmodeExpansion: CrossSection, Cell, eme, power_coupling, transmission
 using OptiMode.MaterialDispersion: Vacuum
 using OptiMode: E⃗, E_relpower_xyz, solve_k, sliceinv_3x3, smooth_ε, MaterialShape
 using OptiMode.DielectricSmoothing.GeometryPrimitives: Cuboid
@@ -105,4 +105,41 @@ function eme_transmission(cell_shapes, minds, materials, ω, grid, s_edges, solv
         push!(cells, Cell(i, sc, L, CrossSection(collect(MaterialShape, cell_shapes[i]), copy(mind_vec))))
     end
     eme(cells, materials, ω, grid, solver; nev=nev, k_tol=1e-7)
+end
+
+# ---------------------------------------------------------------------------------------
+# True EME bar/cross transmission of a two-waveguide directional coupler
+# ---------------------------------------------------------------------------------------
+
+"""
+    port_transmission(S) -> (; T_bar, T_cross)
+
+Bar/cross transmission from the 2×2 (even,odd)-supermode transmission block of an EME
+scattering matrix `S`, by projecting onto the launch/detection port vectors
+`v_bar=[1,1]/√2`, `v_cross=[1,-1]/√2` — the exact symmetric/antisymmetric decomposition of a
+single-waveguide excitation into the even/odd supermodes for a laterally mirror-symmetric
+coupler. This is OptiMode's actual EME scattering matrix, not a hand-applied sin²(πLΔn/λ)
+formula (though for a *uniform* single-cell coupler the two are identical by construction —
+see module docs)."""
+function port_transmission(S)
+    Tblock = transmission(S)[1:2, 1:2]
+    v_bar, v_cross = [1, 1] ./ sqrt(2), [1, -1] ./ sqrt(2)
+    a_out = Tblock * v_bar                               # launch ≈ (even+odd)/√2 (left waveguide)
+    (; T_bar=abs2(v_bar ⋅ a_out), T_cross=abs2(v_cross ⋅ a_out))
+end
+
+"""
+    directional_coupler_transmission(coupler_shapes, minds, materials, ω, grid, L, solver; nev=4)
+        -> (; T_bar, T_cross, k_even, k_odd)
+
+Bar/cross transmission of a *uniform* (constant cross-section) two-waveguide directional
+coupler of length `L`, from a single-cell EME solve (`eme` on the coupled cross-section, so
+`result.S` is exactly the propagation matrix `diag(exp(2πi k_even L), exp(2πi k_odd L), …)`)
+projected through [`port_transmission`](@ref). Assumes the two lowest-`k` modes returned are
+the TE-like even/odd supermode pair (as elsewhere in this file)."""
+function directional_coupler_transmission(coupler_shapes, minds, materials, ω, grid, L, solver; nev=4)
+    mind_vec = collect(Int, minds)
+    cell = Cell(1, L/2, L, CrossSection(collect(MaterialShape, coupler_shapes), mind_vec))
+    res = eme([cell], materials, ω, grid, solver; nev=nev, k_tol=1e-7)
+    (; port_transmission(res.S)..., k_even=res.modes[1][1].k, k_odd=res.modes[1][2].k)
 end

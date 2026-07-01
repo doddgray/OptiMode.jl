@@ -17,11 +17,17 @@
 #       the ideal adiabatic mode-evolution short-pass (WGA) / long-pass (WGB) response.
 #   (4) supermode |E| profiles below / at / above cutoff (Fig. 1d: field shifts WGA → WGB).
 #
+# Settings (see examples/README.md): --n-freqs (dispersion/crossing sweep points, default 6),
+# --n-dense (interpolated transmission-curve resolution, default 400), --resolution-scale /
+# --domain-scale (grid).
+#
 # Run:  julia --project=. examples/dichroic_filter_magden2018.jl   (needs CairoMakie)
+#       julia --project=. examples/dichroic_filter_magden2018.jl --n-freqs=10 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "eme_reproductions_common.jl"))
 using CairoMakie
 
+cfg = example_settings(n_freqs=6, n_dense=400)
 solver = KrylovKitEigsolve()
 H = 0.22                                   # 220-nm SOI silicon thickness
 wA = 0.318                                  # WGA solid-Si strip width
@@ -33,7 +39,7 @@ xB = +(edge_gap/2 + wB/2)
 x_split = (xA + wA/2 + xB - wB/2)/2          # WGA|WGB divider (gap midpoint)
 mats = [silicon, SiO₂]
 mv = matvals_builder(mats; air=false)        # Si core, SiO₂ background (buried)
-grid = Grid(4.4, 2.2, 124, 62)
+grid = mk_grid(cfg, 4.4, 2.2, 124, 62)
 
 rect(cx, w) = MaterialShape(Cuboid([cx, 0.0], [w, H], [1.0 0.0; 0.0 1.0]), 1)
 shapes_A = (rect(xA, wA),)                                        # WGA alone
@@ -43,7 +49,7 @@ minds_A = (1, 2); minds_B = (1, 1, 1, 2); minds_AB = (1, 1, 1, 1, 2)
 
 # --- (1,2) isolated dispersion + mode crossing (cutoff) ---------------------------------
 println("== Si dichroic filter: isolated WGA / WGB dispersion (>1 octave) ==")
-λs = collect(range(1.40, 2.60; length=6))       # 1.35–2.65 µm ≈ 0.97 octave (moderate grid; scale via SLURM)
+λs = collect(range(1.40, 2.60; length=cfg.n_freqs))   # 1.35–2.65 µm ≈ 0.97 octave (moderate grid; scale via SLURM)
 nA = zero(λs); nB = zero(λs); fracA = zero(λs)
 for (j, λ) in enumerate(λs)
     ω = 1/λ
@@ -57,7 +63,7 @@ end
 @printf("cutoff λ_C (β_A = β_B): %s µm\n", isnan(λC) ? "none in range" : string(round(λC; digits=3)))
 
 # --- (3) dense >1-octave transmission spectrum -----------------------------------------
-λdense = collect(range(λs[1], λs[end]; length=400))
+λdense = collect(range(λs[1], λs[end]; length=cfg.n_dense))
 T_short, T_long = dichroic_spectrum(λs, fracA, λdense)
 
 # --- (4) supermode profiles below / at / above cutoff ----------------------------------

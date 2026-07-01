@@ -12,13 +12,18 @@
 #   (3) the degenerate-FWM parametric-gain spectrum (tantala is a χ³ platform); and
 #   (4) the fundamental quasi-TE₀₀ mode profile (Fig. 1b inset).
 #
+# Settings (see examples/README.md): --n-freqs (dispersion-sweep points, default 13), --n-dense
+# (FWM gain-spectrum resolution, default 401), --resolution-scale / --domain-scale (grid).
+#
 # Run:  julia --project=. examples/tantala_gvd_black2021.jl   (needs CairoMakie)
+#       julia --project=. examples/tantala_gvd_black2021.jl --n-freqs=25 --resolution-scale=1.5
 
 include(joinpath(@__DIR__, "paper_reproductions_common.jl"))
 using OptiMode.MaterialDispersion: kerr_n2
 using OptiMode.DielectricSmoothing.GeometryPrimitives: Cuboid
 using CairoMakie
 
+cfg = example_settings(n_freqs=13, n_dense=401)
 solver = KrylovKitEigsolve()
 t, w = 1.0, 1.25                          # thickness 1 µm, width 1.25·t (Black 2021, Fig. 1b)
 λp = 1.55
@@ -29,12 +34,12 @@ mv = matvals_builder(mats; air=true)     # columns: Ta₂O₅, SiO₂, air
 shapes = ( MaterialShape(Cuboid([0.0, t/2], [w, t], [1.0 0.0; 0.0 1.0]), 1),          # core (Ta₂O₅)
            MaterialShape(Cuboid([0.0, -1.5], [100.0, 3.0], [1.0 0.0; 0.0 1.0]), 2) )  # SiO₂ substrate
 minds = (1, 2, 3)                        # core→Ta₂O₅, substrate→SiO₂, background→air
-grid = Grid(5.0, 4.0, 128, 100)
+grid = mk_grid(cfg, 5.0, 4.0, 128, 100)
 yc = t/2                                  # core center height for confinement mask
 
 # --- (1) modal dispersion spectra -------------------------------------------------------
 println("== Ta₂O₅ 1.0×1.25 µm on SiO₂ (air clad): dispersion sweep ==")
-λs = range(0.9, 2.3; length=13)
+λs = range(0.9, 2.3; length=cfg.n_freqs)
 sw = sweep_dispersion(shapes, minds, mv, λs, grid, solver; pol=:TE, w=w, h=t, yc=yc, nev=4)
 # zero-dispersion wavelengths (β₂ sign changes)
 zdw = Float64[]
@@ -54,7 +59,7 @@ n2 = kerr_n2(Ta₂O₅, λp)
 
 # --- (3) degenerate-FWM parametric-gain spectrum ---------------------------------------
 P, L = 5.0, 0.1                           # 5 W, 10 cm (tantala nonlinear waveguide)
-fw = fwm_gain_spectrum(sw, λp, P, γ; L=L, Ω_THz=range(-30, 30; length=401))
+fw = fwm_gain_spectrum(sw, λp, P, γ; L=L, Ω_THz=range(-30, 30; length=cfg.n_dense))
 @printf("fit β₂ = %+.1f fs²/mm, β₄ = %+.0f fs⁴/mm;  peak gain %.1f dB,  3-dB BW %.1f THz\n",
         fw.β2*1e27, fw.β4*1e57, maximum(fw.gain_dB), fw.bw3_THz)
 

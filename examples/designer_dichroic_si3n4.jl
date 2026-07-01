@@ -12,18 +12,23 @@
 # Zygote(adjoint eigensolve) gradient, driving Adam. The optimum places β_A = β_B exactly at
 # the 1000-nm target.
 #
+# Settings (see examples/README.md): --n-freqs (post-optimization crossing sweep, default 11),
+# --resolution-scale / --domain-scale (grid — kept small by default for fast AD).
+#
 # Run:  julia --project=. examples/designer_dichroic_si3n4.jl   (needs CairoMakie)
+#       julia --project=. examples/designer_dichroic_si3n4.jl --resolution-scale=2
 
 include(joinpath(@__DIR__, "designer_common.jl"))
 using CairoMakie
 
+cfg = example_settings(n_freqs=11)
 solver = KrylovKitEigsolve()
 λC_target = 1.00                              # NEW cutoff target (µm)
 tA, tB = 0.40, 0.20                           # WGA thick / WGB thin Si₃N₄ (thickness-contrast)
 wB = 1.10                                      # WGB fixed width (thin, wide)
 mats = [Si₃N₄, SiO₂]
 mv = matvals_builder(mats; air=false)         # Si₃N₄ cores buried in SiO₂
-grid = Grid(5.0, 3.0, 40, 30)
+grid = mk_grid(cfg, 5.0, 3.0, 40, 30)
 
 wgA(w) = (MaterialShape(Cuboid([0.0, 0.0], [w[1], tA], [1.0 0.0; 0.0 1.0]), 1),)
 wgB     = (MaterialShape(Cuboid([0.0, 0.0], [wB, tB], [1.0 0.0; 0.0 1.0]), 1),)
@@ -49,7 +54,7 @@ wA★ = res.p[1]
 @printf("optimized w_A=%.3f µm: n_A(λ_C)=%.4f  (n_B=%.4f)\n", wA★, nA_of([wA★], λC_target), nB_target)
 
 # --- dispersion crossing before / after + cutoff ---------------------------------------
-λs = collect(range(0.80, 1.30; length=11))
+λs = collect(range(0.80, 1.30; length=cfg.n_freqs))
 nB = [nB_of(λ) for λ in λs]
 nA0 = [nA_of(w0, λ) for λ in λs]
 nA★ = [nA_of([wA★], λ) for λ in λs]
