@@ -7,6 +7,11 @@
 #   * solve_k_periodic(Λ)     — z-periodic (Bragg) eigensolve, period derivative
 #   * group_index(ω)          — group-index post-processing (FFT/Tullio)
 #   * neff(ε field)           — sliceinv_3x3 → solve_k (the Enzyme-able sub-stack)
+#   * neff(w) — geometry      — Cuboid width → smooth_ε → sliceinv_3x3 → solve_k. Enzyme only
+#     differentiates this correctly since `DielectricSmoothingEnzymeExt.jl` stopped marking
+#     `surfpt_nearby`/`volfrac`/`_interface_geometry` as `EnzymeRules.inactive` (they carry the
+#     smoothed dielectric's actual geometry dependence; marking them inactive silently zeroed
+#     geometry gradients).
 #
 # Backends: ForwardDiff, Zygote, Mooncake, Enzyme (forward), Enzyme (reverse), and
 # FiniteDifferences as a reference. Each is also checked against the finite-difference
@@ -118,5 +123,14 @@ bench_scalar("ng(solve_k(ω)) end-to-end", ng_end_to_end, ω0, allb)
 # (rrule through the eigensolver); ForwardDiff cannot trace solve_k, so it is reported n/a.
 neff_eps(e) = solve_k(ω0, sliceinv_3x3(e), grid, solver; nev = 1)[1][1] / ω0
 bench_array("neff(ε field) — sliceinv→solve_k", neff_eps, εf, Zygote.gradient(neff_eps, εf)[1], allb)
+
+# geometry-parameter gradient: Cuboid width → smooth_ε → sliceinv_3x3 → solve_k.
+function neff_of_width(w)
+    core_w = MaterialShape(DielectricSmoothing.GeometryPrimitives.Cuboid([0.0, 0.0], [w, 0.7], [1.0 0.0; 0.0 1.0]), 1)
+    sm = smooth_ε((core_w,), mv0, minds, grid)
+    ei = sliceinv_3x3(copy(selectdim(sm, 3, 1)))
+    solve_k(ω0, ei, grid, solver; nev = 1)[1][1] / ω0
+end
+bench_scalar("neff(w) — geometry (Cuboid width) → smooth_ε → solve_k", neff_of_width, 1.6, allb)
 
 println("\nDone.")

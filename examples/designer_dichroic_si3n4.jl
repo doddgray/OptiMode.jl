@@ -8,9 +8,9 @@
 # dichroic cutoff — and the crossing wavelength is tuned by the WGA width.
 #
 # The design DOF is the WGA width w_A. We minimise  L(w_A) = (n_A(λ_C, w_A) − n_B(λ_C))²  with
-# **OptiMode's automatic differentiation**: dn_A/dw_A is the hybrid ForwardDiff(geometry) ∘
-# Zygote(adjoint eigensolve) gradient, driving Adam. The optimum places β_A = β_B exactly at
-# the 1000-nm target.
+# **OptiMode's automatic differentiation**: dn_A/dw_A is a single Enzyme reverse-mode gradient
+# across the whole geometry→dielectric→eigensolve pipeline (`geom_value_grad`,
+# designer_common.jl), driving Adam. The optimum places β_A = β_B exactly at the 1000-nm target.
 #
 # Settings (see examples/README.md): --n-freqs (post-optimization crossing sweep, default 11),
 # --resolution-scale / --domain-scale (grid — kept small by default for fast AD).

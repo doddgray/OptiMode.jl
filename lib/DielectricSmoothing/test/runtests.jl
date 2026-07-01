@@ -211,6 +211,20 @@ end
         @test any(!iszero, gp_ref)
         @test all(isfinite, gp_ref)
         @test DI.gradient(loss_p, AutoForwardDiff(), p_geom0) ≈ gp_ref rtol = 1e-4
+
+        # Enzyme (fwd & rev) geometry gradient, on `ridge_wg`'s *heterogeneous* shapes tuple
+        # (Polygon + 2×Cuboid) — the case `_interface_geometry`'s `shapes[sidx1]` indexing used
+        # to raise `IllegalTypeAnalysisException` for, before `surfpt_nearby`/`volfrac`/
+        # `_interface_geometry` stopped being marked `EnzymeRules.inactive` (that marking is
+        # only valid for material-data-only differentiation; it silently zeroed geometry
+        # gradients otherwise). Now exact, matching ForwardDiff/finite differences.
+        for (name, backend) in (
+                ("Enzyme(reverse)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Reverse), function_annotation=Enzyme.Const)),
+                ("Enzyme(forward)", AutoEnzyme(; mode=set_runtime_activity(Enzyme.Forward), function_annotation=Enzyme.Const)))
+            @testset "$name" begin
+                @test DI.gradient(loss_p, backend, p_geom0) ≈ gp_ref rtol = 1e-4
+            end
+        end
     end
 
     @testset "geometry-parameter gradients (Kottke kernel)" begin
@@ -240,6 +254,13 @@ end
         @test any(!iszero, gk_ref)                            # nonzero edge sensitivity
         @test DI.gradient(kernel_geom, AutoForwardDiff(), pk0) ≈ gk_ref rtol = 1e-4
         @test DI.gradient(kernel_geom, AutoMooncake(; config=nothing), pk0) ≈ gk_ref rtol = 1e-4
+        for (name, backend) in (
+                ("Enzyme(reverse)", AutoEnzyme(; mode=Enzyme.Reverse, function_annotation=Enzyme.Const)),
+                ("Enzyme(forward)", AutoEnzyme(; mode=Enzyme.Forward, function_annotation=Enzyme.Const)))
+            @testset "$name" begin
+                @test DI.gradient(kernel_geom, backend, pk0) ≈ gk_ref rtol = 1e-4
+            end
+        end
     end
 
     @testset "smoothing geometry cache (SmoothingPlan)" begin

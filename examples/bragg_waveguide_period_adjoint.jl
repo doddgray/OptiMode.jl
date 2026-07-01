@@ -12,12 +12,12 @@
 # at ≈one extra eigensolve.
 #
 # Run with a Julia environment that has OptiMode (or its MaxwellEigenmodes
-# component) plus Zygote and FiniteDifferences available.
+# component) plus Enzyme and FiniteDifferences available.
 
 using MaxwellEigenmodes
 using MaxwellEigenmodes.DielectricSmoothing            # Grid, x, y
 using LinearAlgebra, StaticArrays
-using Zygote, FiniteDifferences
+using Enzyme, FiniteDifferences
 
 const solver = KrylovKitEigsolve()
 
@@ -55,7 +55,7 @@ println("neff = $(round(neff, digits=5)),  kz·Λ = $(round(kmags[1]*Λ, digits=
 
 # Adjoint period derivative ∂kz/∂Λ (reverse mode, one extra eigensolve) ...
 kz_of_Λ(L) = solve_k_periodic(ω, epsi, L, grid, solver; nev=1)[1][1]
-dkz_dΛ_adj = Zygote.gradient(kz_of_Λ, Λ)[1]
+dkz_dΛ_adj = Enzyme.gradient(Enzyme.Reverse, kz_of_Λ, Λ)[1]
 # ... checked against a finite-difference reference
 dkz_dΛ_FD = central_fdm(5, 1)(kz_of_Λ, Λ)
 println("∂kz/∂Λ:  adjoint = $(dkz_dΛ_adj)")
