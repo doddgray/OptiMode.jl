@@ -33,7 +33,7 @@ xB = +(edge_gap/2 + wB/2)
 x_split = (xA + wA/2 + xB - wB/2)/2          # WGA|WGB divider (gap midpoint)
 mats = [silicon, SiO₂]
 mv = matvals_builder(mats; air=false)        # Si core, SiO₂ background (buried)
-grid = Grid(4.8, 2.4, 176, 88)
+grid = Grid(4.4, 2.2, 124, 62)
 
 rect(cx, w) = MaterialShape(Cuboid([cx, 0.0], [w, H], [1.0 0.0; 0.0 1.0]), 1)
 shapes_A = (rect(xA, wA),)                                        # WGA alone
@@ -43,7 +43,7 @@ minds_A = (1, 2); minds_B = (1, 1, 1, 2); minds_AB = (1, 1, 1, 1, 2)
 
 # --- (1,2) isolated dispersion + mode crossing (cutoff) ---------------------------------
 println("== Si dichroic filter: isolated WGA / WGB dispersion (>1 octave) ==")
-λs = collect(range(1.35, 2.65; length=9))       # 1.35–2.65 µm ≈ 0.97 octave (moderate grid; scale via SLURM)
+λs = collect(range(1.40, 2.60; length=6))       # 1.35–2.65 µm ≈ 0.97 octave (moderate grid; scale via SLURM)
 nA = zero(λs); nB = zero(λs); fracA = zero(λs)
 for (j, λ) in enumerate(λs)
     ω = 1/λ
@@ -61,7 +61,7 @@ end
 T_short, T_long = dichroic_spectrum(λs, fracA, λdense)
 
 # --- (4) supermode profiles below / at / above cutoff ----------------------------------
-λpix = isnan(λC) ? λs[8] : λC
+λpix = isnan(λC) ? λs[cld(length(λs),2)] : λC
 λ_show = (λpix - 0.35, λpix, λpix + 0.35)
 Efields = [supermodes(shapes_AB, minds_AB, mv, 1/λ, grid, solver; nev=4)[1].E for λ in λ_show]
 

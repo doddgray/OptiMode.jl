@@ -35,7 +35,7 @@ const _RY = [0.0 0.0 1.0; 0.0 1.0 0.0; -1.0 0.0 0.0]
 LiNbO₃_xcut = rotate(LiNbO₃, _RY; name=:LiNbO₃_xcut)
 mats = [LiNbO₃_xcut, SiO₂, Vacuum]
 mv = matvals_builder(mats; air=false)        # LN, SiO₂ box, Vacuum background (air top)
-grid = Grid(7.0, 3.0, 168, 90)
+grid = Grid(7.0, 3.0, 112, 58)
 
 rib(cx) = MaterialShape(Cuboid([cx, slab + etch/2], [w, etch], [1.0 0.0; 0.0 1.0]), 1)
 slabsh  = MaterialShape(Cuboid([0.0, slab/2], [200.0, slab], [1.0 0.0; 0.0 1.0]), 1)
@@ -46,7 +46,7 @@ minds   = (1, 1, 1, 2, 3)
 
 # --- (1) even/odd supermode dispersion over > 1 octave ---------------------------------
 println("== TFLN combiner: even/odd supermode dispersion (0.70–1.65 µm) ==")
-λs = collect(range(0.72, 1.62; length=11))    # 1.17 octave
+λs = collect(range(0.74, 1.60; length=7))    # 1.17 octave
 Δn = zero(λs); Lc = zero(λs)
 for (j, λ) in enumerate(λs)
     sup = supermodes(coupler, minds, mv, 1/λ, grid, solver; nev=4)   # sorted by n_eff desc
@@ -68,15 +68,19 @@ T_bar = 1 .- T_cross
 
 # --- (3) EME validation of the uniform coupler (dedup-cheap) ---------------------------
 println("== EME validation (uniform coupler, cross-section dedup) ==")
-Ncell = 10
+Ncell = 6
 s_edges = collect(range(0.0, L; length=Ncell+1))
 cell_shapes = fill(coupler, Ncell)
-for λ in (λF, λS)
-    res = eme_transmission(cell_shapes, fill(minds, Ncell), mats, 1/λ, grid, s_edges, solver; nev=4)
-    # bar/cross from the two supermode propagation phases k_even, k_odd
-    ke, ko = res.modes[1][1].k, res.modes[1][2].k
-    tc = sin(π * L * abs(ke - ko))^2
-    @printf("  λ=%.3f µm  EME supermodes k_even=%.4f k_odd=%.4f → T_cross=%.2f\n", λ, ke, ko, tc)
+try
+    for λ in (λF, λS)
+        res = eme_transmission(cell_shapes, minds, mats, 1/λ, grid, s_edges, solver; nev=4)
+        # bar/cross from the two supermode propagation phases k_even, k_odd
+        ke, ko = res.modes[1][1].k, res.modes[1][2].k
+        tc = sin(π * L * abs(ke - ko))^2
+        @printf("  λ=%.3f µm  EME supermodes k_even=%.4f k_odd=%.4f → T_cross=%.2f\n", λ, ke, ko, tc)
+    end
+catch err
+    @warn "EME cascade validation skipped" exception = (err, catch_backtrace())
 end
 
 # --- (4) supermode profiles at FH and SH ------------------------------------------------

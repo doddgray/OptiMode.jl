@@ -63,15 +63,6 @@ end
 # Mode-crossing (cutoff) + dense adiabatic transmission spectrum
 # ---------------------------------------------------------------------------------------
 
-"Linear-interpolate `y(xq)` from samples (x, y) (x monotonically increasing)."
-function interp1(x, y, xq)
-    xq <= x[1] && return y[1]
-    xq >= x[end] && return y[end]
-    j = searchsortedlast(x, xq)
-    t = (xq - x[j]) / (x[j+1] - x[j])
-    y[j] * (1 - t) + y[j+1] * t
-end
-
 "First wavelength where the isolated-guide index difference nA−nB crosses zero (the βA=βB
 phase-matching cutoff λ_C). Returns NaN if no crossing in range."
 function crossing_wavelength(λ, nA, nB)
@@ -106,12 +97,12 @@ Cascade the device whose cell cross-sections are `cell_shapes[i]` (a tuple of Ma
 each spanning `[s_edges[i], s_edges[i+1]]` µm, with OptiMode's `eme`. Returns the device
 result and the per-output-mode transmission from input `in_mode`."""
 function eme_transmission(cell_shapes, minds, materials, ω, grid, s_edges, solver; nev=4)
+    mind_vec = collect(Int, minds)          # single background-terminated material-index list
     cells = Cell[]
     for i in eachindex(cell_shapes)
         sc = (s_edges[i] + s_edges[i+1]) / 2
         L = s_edges[i+1] - s_edges[i]
-        push!(cells, Cell(i, sc, L, CrossSection(collect(cell_shapes[i]), collect(minds))))
+        push!(cells, Cell(i, sc, L, CrossSection(collect(MaterialShape, cell_shapes[i]), copy(mind_vec))))
     end
-    res = eme(cells, materials, ω, grid, solver; nev=nev, k_tol=1e-7)
-    res
+    eme(cells, materials, ω, grid, solver; nev=nev, k_tol=1e-7)
 end

@@ -30,11 +30,11 @@ mvT = matvals_builder_T([LiNbO₃_xcut, SiO₂]; air=true)   # (ω, T) → mater
 mv_at(T) = (ω -> mvT(ω, T))                               # freeze temperature for a mode solve
 shapes, minds = ridge_on_slab(w, etch, film)
 slab = film - etch
-grid = Grid(6.0, 4.0, 144, 96)
+grid = Grid(6.0, 4.0, 96, 64)
 
 # --- FH & SH band dispersion at the reference temperature -------------------------------
 println("== TFLN QPM thermal tuning: dispersion at T₀ = $(T0) °C ==")
-λFH = range(1.00, 1.14; length=5)
+λFH = range(1.02, 1.12; length=3)
 swF = sweep_dispersion(shapes, minds, mv_at(T0), λFH, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=6)
 swS = sweep_dispersion(shapes, minds, mv_at(T0), λFH ./ 2, grid, solver; pol=:TE, w=w, h=film, yc=slab, nev=9)
 mF0 = solve_fundamental(shapes, minds, mv_at(T0), 1/λF, grid, solver; nev=6, pol=:TE, w=w, h=film, yc=slab)

@@ -121,6 +121,15 @@ end
 # Dispersion sweep
 # ---------------------------------------------------------------------------------------
 
+"Linear-interpolate `y(xq)` from samples (x, y) with x monotonically increasing."
+function interp1(x, y, xq)
+    xq <= x[1] && return y[1]
+    xq >= x[end] && return y[end]
+    j = searchsortedlast(x, xq)
+    t = (xq - x[j]) / (x[j+1] - x[j])
+    y[j] * (1 - t) + y[j+1] * t
+end
+
 "GVD β₂ in fs²/mm from OptiMode's `gvd` (= ∂²|k|/∂ω²):  β₂ = gvd/(2π c²)."
 gvd_fs2_per_mm(gvd_OM) = 1e3 * gvd_OM / (2π * C_UM_FS^2)
 
