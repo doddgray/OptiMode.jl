@@ -122,11 +122,11 @@ the gap between them.
 - `ppln_thermal_tuning_han2026.jl` — electro-thermal QPM tuning companion to the above.
 
 ### EME reproductions + AD designers (share `eme_reproductions_common.jl` / `designer_common.jl`)
-- `dichroic_filter_magden2018.jl` — Si SOI thickness-contrast dichroic filter (Magden et al., Nat. Commun. 2018).
+- `dichroic_filter_magden2018.jl` — Si SOI solid-WGA/segmented-WGB dichroic filter (Magden et al., Nat. Commun. 2018).
 - `tfln_combiner_kwolek2026.jl` — TFLN >1-octave wavelength combiner (Kwolek et al., arXiv:2603.27034); see the dense-transmission note above.
 - `designer_qpm_mgoln_1310.jl` — AD-optimized χ² SHG QPM design, MgO:LiNbO₃ rib, new 1310→655 nm target.
 - `designer_dispersion_tantala_1p3um.jl` — AD-optimized zero-GVD design, Ta₂O₅ air-clad core, new 1.30 µm target.
-- `designer_dichroic_si3n4.jl` — AD-optimized EME dichroic cutoff, Si₃N₄ thickness-contrast coupler, new 1.00 µm target.
+- `designer_dichroic_si3n4.jl` — AD-optimized EME dichroic filter, Si₃N₄ solid-WGA/segmented-WGB coupler, new 1.00 µm target. Two-stage design: (1) AD-optimizes widths + rail gap for crossing at λ_C with maximum group-index mismatch (paper's sign), (2) EME search for the shortest adiabatic WGA–WGB gap-taper length.
 
 ### Dispersion-engineered PPLN (Jankowski et al., Optica 2020)
 - `tfln_ppln_jankowski2020.jl` / `tfln_ppln_jankowski2020_common.jl` — dispersion-engineered nanophotonic PPLN reproduction.

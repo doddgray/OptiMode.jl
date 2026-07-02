@@ -27,7 +27,8 @@ using OptiMode.ModePerturbations: effective_area_kerr, kerr_gamma,
 using LinearAlgebra
 using Printf
 
-include(joinpath(@__DIR__, "example_settings.jl"))   # ExampleSettings, example_settings, mk_grid
+isdefined(@__MODULE__, :example_settings) ||
+    include(joinpath(@__DIR__, "example_settings.jl"))   # ExampleSettings, example_settings, mk_grid
 
 const C_MS   = 299792458.0            # speed of light (m/s)
 const C_UM_FS = C_MS * 1e-9           # speed of light (µm/fs) = 0.299792458
