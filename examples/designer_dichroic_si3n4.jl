@@ -28,12 +28,14 @@
 # ── Thin-core caveat ──────────────────────────────────────────────────────────────────────────
 # As the Si₃N₄ core thins toward 40 nm, vertical confinement collapses: getting any usable
 # n_A/n_B and a significant Δn_g out of a sub-wavelength segmented WGB requires MUCH wider
-# lateral widths (3–10 µm, vs. ~0.1–0.4 µm at 400 nm) and correspondingly wider WGA–WGB and
+# lateral widths (2–7.5 µm, vs. ~0.1–0.4 µm at 400 nm) and correspondingly wider WGA–WGB and
 # rail-to-rail gaps, a wider simulation domain to fit them, and finer grid spacing to resolve the
 # thin core itself. `_si3n4_geometry_defaults`/`_si3n4_grid_baseline` below scale the design-space
-# bounds and grid with thickness accordingly, but — unlike the single-λ_C, single-thickness
-# version of this script — these per-thickness bounds/starting points are heuristic (not
-# individually feasibility-probed the way the original 400-nm point design was): rerun with
+# bounds and grid with thickness accordingly (grids are deliberately modest, not fully resolved,
+# so the 6-thickness × 11-λ_C sweep finishes in a practical amount of time by default) — but,
+# unlike the single-λ_C, single-thickness version of this script, these per-thickness
+# bounds/starting points are heuristic (not individually feasibility-probed the way the original
+# 400-nm point design was): rerun with
 # `--quality=high`/`--quality=ultra` (see example_settings.jl) for production-fidelity results,
 # and inspect each case's `*_report.png` for a genuine crossing with the correct Δn_g sign before
 # trusting a given thickness's summary grid.
@@ -71,26 +73,29 @@ see module header for why thinner cores need much wider structures."
 function si3n4_geometry_defaults(t)
     t >= 0.30 && return (p0=[0.28, 0.14, 0.12], lo=[0.20, 0.10, 0.10], hi=[0.40, 0.18, 0.18])
     t >= 0.15 && return (p0=[0.45, 0.22, 0.18], lo=[0.30, 0.15, 0.12], hi=[0.70, 0.32, 0.30])
-    t >= 0.09 && return (p0=[4.00, 2.00, 1.00], lo=[3.00, 1.20, 0.60], hi=[6.00, 3.20, 2.00])
-    t >= 0.07 && return (p0=[5.00, 2.40, 1.20], lo=[3.50, 1.40, 0.80], hi=[7.00, 3.80, 2.50])
-    t >= 0.05 && return (p0=[6.00, 3.00, 1.50], lo=[4.00, 1.80, 1.00], hi=[8.50, 4.50, 3.00])
-    return (p0=[7.50, 3.60, 2.00], lo=[5.00, 2.20, 1.20], hi=[10.00, 5.50, 3.80])
+    t >= 0.09 && return (p0=[3.00, 1.50, 0.80], lo=[2.20, 0.90, 0.50], hi=[4.50, 2.40, 1.50])
+    t >= 0.07 && return (p0=[3.60, 1.80, 1.00], lo=[2.60, 1.00, 0.60], hi=[5.50, 2.80, 1.80])
+    t >= 0.05 && return (p0=[4.20, 2.10, 1.20], lo=[3.00, 1.20, 0.70], hi=[6.50, 3.40, 2.20])
+    return (p0=[5.00, 2.50, 1.40], lo=[3.50, 1.50, 0.90], hi=[7.50, 4.00, 2.60])
 end
 
 "Baseline (Lx0, Ly0, nx0, ny0) at `cfg.resolution_scale=cfg.domain_scale=1` for one Si₃N₄
-thickness `t` (µm): wider Lx and finer ny for thinner, laterally-wider designs."
+thickness `t` (µm): wider Lx and finer ny for thinner, laterally-wider designs. Kept modest
+(rather than fully resolving these thin, wide structures) so the 6-thickness × 11-λC_C sweep
+finishes in a practical amount of time by default; rerun a given thickness with
+`--quality=high`/`--quality=ultra` for production-fidelity results."
 function si3n4_grid_baseline(t)
     t >= 0.30 && return (Lx0=6.0, Ly0=3.0, nx0=48, ny0=30)
     t >= 0.15 && return (Lx0=8.0, Ly0=3.0, nx0=64, ny0=36)
-    t >= 0.09 && return (Lx0=20.0, Ly0=3.0, nx0=160, ny0=48)
-    t >= 0.07 && return (Lx0=24.0, Ly0=3.0, nx0=180, ny0=56)
-    t >= 0.05 && return (Lx0=28.0, Ly0=3.0, nx0=200, ny0=64)
-    return (Lx0=34.0, Ly0=3.0, nx0=220, ny0=72)
+    t >= 0.09 && return (Lx0=12.0, Ly0=2.6, nx0=84, ny0=34)
+    t >= 0.07 && return (Lx0=14.0, Ly0=2.6, nx0=98, ny0=38)
+    t >= 0.05 && return (Lx0=16.0, Ly0=2.6, nx0=112, ny0=42)
+    return (Lx0=18.0, Ly0=2.6, nx0=126, ny0=46)
 end
 
 "Coupling-gap taper range (g_start, g_end) (µm): wider structures need wider separation gaps to
 reach the weakly-coupled output state."
-si3n4_taper_gaps(t) = t >= 0.15 ? (0.30, 2.00) : (1.00, 6.00)
+si3n4_taper_gaps(t) = t >= 0.15 ? (0.30, 2.00) : (0.80, 4.50)
 
 "Build the DichroicGeometry (buried strip WGA / 3-rail segmented WGB) for one Si₃N₄ thickness
 `t_nm` (nm)."
