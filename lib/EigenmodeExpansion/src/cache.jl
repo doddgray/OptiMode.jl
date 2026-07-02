@@ -20,23 +20,30 @@ export cross_section_key, dedup_groups
 # compare equal, while genuinely different cross-sections do not collide.
 _q(x::Real; atol::Float64=1e-9) = round(Int, x / atol)
 
+# Canonical, quantized key fragment for one shape's own geometry fields — dispatches per
+# `GeometryPrimitives.Shape` subtype since each stores its geometry differently (`Cuboid`'s
+# centre/half-widths/axes vs. `Polygon`'s vertex list — the latter is what a sidewall-angle
+# `Trapezoid`/`Isosceles` rib actually constructs, see designer_dichroic_linbo3_litao3.jl).
+# Add a new branch here for any further `GeometryPrimitives.Shape` subtype used in a
+# `CrossSection`; the generic fallback keys on the shape's own `Base.hash`, which is exact for
+# a bit-identical shape but won't dedup two structurally-equal-but-distinct shape instances.
+_shape_key(b::GeometryPrimitives.Cuboid; atol::Float64) =
+    (:Cuboid, Tuple(_q.(b.c; atol)), Tuple(_q.(2 .* b.r; atol)), Tuple(_q.(vec(Matrix(b.p)); atol)))
+_shape_key(b::GeometryPrimitives.Polygon; atol::Float64) =
+    (:Polygon, Tuple(_q.(vec(Matrix(b.v)); atol)))
+_shape_key(b; atol::Float64) = (:Other, hash(b))
+
 """
     cross_section_key(cs::CrossSection; atol=1e-9) -> key
 
-A hashable, `==`-comparable canonical key for a [`CrossSection`](@ref): two cells with
-equal keys have the same shapes (each `Cuboid`'s centre, half-widths and axes, quantised
-to `atol` μm) in the same order with the same material indices, hence an identical
-smoothed dielectric on a given grid. Used by [`dedup_groups`](@ref) to solve each unique
-cross-section's modes only once.
+A hashable, `==`-comparable canonical key for a [`CrossSection`](@ref): two cells with equal
+keys have the same shapes (geometry quantised to `atol` μm — see [`_shape_key`](@ref) for the
+per-shape-type field lists) in the same order with the same material indices, hence an
+identical smoothed dielectric on a given grid. Used by [`dedup_groups`](@ref) to solve each
+unique cross-section's modes only once.
 """
 function cross_section_key(cs::CrossSection; atol::Float64=1e-9)
-    shape_keys = map(cs.shapes) do ms
-        b = ms.shape                                   # GeometryPrimitives.Cuboid
-        c = Tuple(_q.(b.c; atol))                      # centre
-        r = Tuple(_q.(2 .* b.r; atol))                 # full widths (r = half-widths)
-        a = Tuple(_q.(vec(Matrix(b.p)); atol))         # axis matrix
-        (c, r, a)
-    end
+    shape_keys = map(ms -> _shape_key(ms.shape; atol), cs.shapes)
     return (Tuple(shape_keys), Tuple(cs.minds))
 end
 
