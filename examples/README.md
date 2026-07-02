@@ -30,10 +30,36 @@ accuracy/speed experiment without editing source.
 | `n_dense`            | `--n-dense=N`              | `OPTIMODE_N_DENSE`           | varies  | Number of points in a *cheap, closed-form* dense curve (interpolated transmission, analytic gain/QPM-mismatch spectra) — free to make large; only affects plot smoothness. |
 | `n_eme_freqs`        | `--n-eme-freqs=N`          | `OPTIMODE_N_EME_FREQS`       | `15`    | Number of wavelengths for a genuinely EME-solved (`eme`/`power_coupling`) dense transmission overlay, where an example provides one (currently `tfln_combiner_kwolek2026.jl`). |
 | `n_cells`            | `--n-cells=N`              | `OPTIMODE_N_CELLS`           | `6`     | Number of cells in an EME cascade. |
+| `quality`            | `--quality=X`              | `OPTIMODE_QUALITY`           | `medium` | Bundled `low`/`medium`/`high`/`ultra` preset for `resolution_scale`/`domain_scale`/`n_cells` together — see below. |
 | `run_mode`           | `--run-mode=local\|slurm`  | `OPTIMODE_RUN_MODE`          | `local` | See [Local vs. SLURM](#local-vs-slurm) below. |
 | `slurm`              | *(keyword only)*           | —                            | `nothing` | A `ModeSweeps.SlurmConfig`; only settable as an `example_settings(slurm=...)` keyword (it has too many sub-fields for a single flag/env var) — see `remote_mode_solve.jl`. |
 
 `--help` / `-h` on any of these scripts prints the same reference table and exits.
+
+#### Bundled `quality` presets
+
+`resolution_scale`, `domain_scale`, and `n_cells` — grid resolution, how far the simulation
+boundary sits from the waveguide core, and EME cascade cell count — can be set individually
+(the table above), or all at once with a `quality` preset:
+
+| `quality` | `resolution_scale` | `domain_scale` | `n_cells` |
+|-----------|---------------------|----------------|-----------|
+| `low`     | `0.5`               | `0.8`          | `3`       |
+| `medium`  | `1.0`               | `1.0`          | `6`       |
+| `high`    | `1.5`               | `1.2`          | `10`      |
+| `ultra`   | `2.5`               | `1.5`          | `16`      |
+
+Precedence for each of those three settings is (highest wins): CLI flag > env var > script's own
+`example_settings(...)` keyword > `quality` preset > built-in hardcoded default. So a script that
+passes its own tuned `resolution_scale`/`domain_scale`/`n_cells` keyword still wins over the
+preset (the preset only fills in values a script left unset), but any script can be bumped up or
+down from the command line with e.g. `--quality=high` or `OPTIMODE_QUALITY=ultra`, without
+touching source:
+
+```sh
+julia --project=. examples/designer_dichroic_si3n4.jl --quality=high
+OPTIMODE_QUALITY=low julia --project=. examples/designer_dichroic_linbo3_litao3.jl   # quick smoke test
+```
 
 Every script prints its resolved settings on startup, e.g.:
 
@@ -126,7 +152,9 @@ the gap between them.
 - `tfln_combiner_kwolek2026.jl` — TFLN >1-octave wavelength combiner (Kwolek et al., arXiv:2603.27034); see the dense-transmission note above.
 - `designer_qpm_mgoln_1310.jl` — AD-optimized χ² SHG QPM design, MgO:LiNbO₃ rib, new 1310→655 nm target.
 - `designer_dispersion_tantala_1p3um.jl` — AD-optimized zero-GVD design, Ta₂O₅ air-clad core, new 1.30 µm target.
-- `designer_dichroic_si3n4.jl` — AD-optimized EME dichroic filter, Si₃N₄ solid-WGA/segmented-WGB coupler, new 1.00 µm target. Two-stage design: (1) AD-optimizes widths + rail gap for crossing at λ_C with maximum group-index mismatch (paper's sign), (2) EME search for the shortest adiabatic WGA–WGB gap-taper length.
+- `dichroic_designer_common.jl` — shared two-stage AD+EME dichroic-filter driver (`DichroicGeometry`, `run_dichroic_case`, `run_dichroic_sweep`) used by both designer scripts below: per-`(geometry, λ_C target)` case, AD-optimizes widths (+ rail gap) for crossing at λ_C with maximum group-index mismatch (paper's sign), EME-searches the shortest adiabatic WGA–WGB gap-taper length, computes a dense broadband transmission spectrum and TE00 field profiles (red-detuned/cutoff/blue-detuned), and saves a combined per-case report PNG + trace CSV; `run_dichroic_sweep` then sweeps an array of λ_C targets and saves one summary grid PNG (matching wavelength axes, λ_C target as a vertical dashed line) + one sweep-summary CSV per geometry.
+- `designer_dichroic_si3n4.jl` — Si₃N₄ solid-WGA/segmented-WGB coupler (buried in SiO₂), swept over λ_C = 1.00–1.50 µm (11 targets, 50 nm step) × 6 core thicknesses (40/60/80/100/200/400 nm). Thin cores need much wider (3–10 µm) structures and a wider/finer grid to get a usable group-index mismatch — see the script header.
+- `designer_dichroic_linbo3_litao3.jl` — X-cut TFLN/TFLT rib-on-slab coupler (65° sidewalls via `GeometryPrimitives.Trapezoid`, fully encapsulated in SiO₂), swept over the same λ_C array × 3 (full thickness, slab thickness) stacks (400/100, 500/150, 600/200 nm) × {LiNbO₃, LiTaO₃}.
 
 ### Dispersion-engineered PPLN (Jankowski et al., Optica 2020)
 - `tfln_ppln_jankowski2020.jl` / `tfln_ppln_jankowski2020_common.jl` — dispersion-engineered nanophotonic PPLN reproduction.

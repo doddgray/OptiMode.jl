@@ -33,6 +33,14 @@ Resolved a-la-carte simulation settings for one example run.
 - `n_eme_freqs` — number of wavelengths for a genuinely EME-solved (`eme`/`power_coupling`) dense
   transmission overlay, where the example provides one (see `tfln_combiner_kwolek2026.jl`).
 - `n_cells` — number of cells in an EME cascade (`eme_transmission`/`Cell` count).
+- `quality` — `:low`/`:medium`/`:high`/`:ultra` bundled preset for `resolution_scale`,
+  `domain_scale`, and `n_cells` (see `_QUALITY_PRESETS` below). `:medium` reproduces the
+  pre-existing `1.0`/`1.0`/`6` defaults. This is a convenience layer under the a-la-carte knobs:
+  precedence for each of those three fields is (highest wins) CLI flag > env var > script kwarg >
+  `quality` preset > built-in hardcoded default — so a script that passes its own tuned
+  `resolution_scale`/`domain_scale`/`n_cells` keyword still wins over the preset, but a script
+  that leaves them unset can be bumped from the command line with e.g. `--quality=high` without
+  touching source.
 - `run_mode` — `:local` (default) or `:slurm`. These example scripts run their (few-point)
   mode-solve sweeps inline; `:slurm` is accepted and resolved consistently but only *acted on* by
   scripts that say so in their header. For cluster-scale sweeps use the dedicated ModeSweeps
@@ -48,6 +56,7 @@ Base.@kwdef struct ExampleSettings
     n_dense::Int = 400
     n_eme_freqs::Int = 15
     n_cells::Int = 6
+    quality::Symbol = :medium
     run_mode::Symbol = :local
     slurm::Any = nothing
 end
@@ -56,8 +65,17 @@ function Base.show(io::IO, cfg::ExampleSettings)
     print(io, "ExampleSettings(resolution_scale=", cfg.resolution_scale,
           ", domain_scale=", cfg.domain_scale, ", n_freqs=", cfg.n_freqs,
           ", n_dense=", cfg.n_dense, ", n_eme_freqs=", cfg.n_eme_freqs,
-          ", n_cells=", cfg.n_cells, ", run_mode=", cfg.run_mode, ")")
+          ", n_cells=", cfg.n_cells, ", quality=", cfg.quality,
+          ", run_mode=", cfg.run_mode, ")")
 end
+
+# Bundled resolution/boundary-distance/EME-cell-count presets (see `quality` docstring above).
+const _QUALITY_PRESETS = (
+    low    = (resolution_scale = 0.5, domain_scale = 0.8, n_cells = 3),
+    medium = (resolution_scale = 1.0, domain_scale = 1.0, n_cells = 6),
+    high   = (resolution_scale = 1.5, domain_scale = 1.2, n_cells = 10),
+    ultra  = (resolution_scale = 2.5, domain_scale = 1.5, n_cells = 16),
+)
 
 # ---------------------------------------------------------------------------------------
 # kwarg / CLI / ENV resolution
@@ -70,6 +88,7 @@ const _SETTINGS_SPEC = (
     (:n_dense,           400,     s -> parse(Int, s)),
     (:n_eme_freqs,       15,      s -> parse(Int, s)),
     (:n_cells,           6,       s -> parse(Int, s)),
+    (:quality,           :medium, s -> Symbol(lowercase(s))),
     (:run_mode,          :local,  s -> Symbol(lowercase(s))),
 )
 
@@ -98,9 +117,15 @@ function _print_settings_help()
                 _cli_flag(name), _env_key(name), string(name), string(default))
     end
     println("  --help / -h            (this message)")
+    println("\n`quality` bundles resolution_scale/domain_scale/n_cells (a-la-carte still wins):")
+    for (name, vals) in pairs(_QUALITY_PRESETS)
+        @printf("  %-8s  resolution_scale=%-4s domain_scale=%-4s n_cells=%s\n",
+                name, vals.resolution_scale, vals.domain_scale, vals.n_cells)
+    end
     println("\nExamples:")
     println("  julia --project=. examples/tantala_gvd_black2021.jl --resolution-scale=2 --n-freqs=25")
     println("  OPTIMODE_N_FREQS=25 julia --project=. examples/tantala_gvd_black2021.jl")
+    println("  julia --project=. examples/tantala_gvd_black2021.jl --quality=high")
     println("See examples/README.md for the full reference.")
 end
 
@@ -118,9 +143,21 @@ function example_settings(; kwargs...)
         exit(0)
     end
     kw = Dict{Symbol,Any}(kwargs)
-    vals = Dict{Symbol,Any}()
+
+    # `quality` resolves first (same kwarg > env > cli precedence as everything else) since it
+    # picks the preset that supplies the *defaults* for resolution_scale/domain_scale/n_cells.
+    qv = haskey(kw, :quality) ? kw[:quality] : :medium
+    qev = _env_value(:quality); qev === nothing || (qv = Symbol(lowercase(qev)))
+    qcv = _cli_value(:quality); qcv === nothing || (qv = Symbol(lowercase(qcv)))
+    haskey(_QUALITY_PRESETS, qv) ||
+        throw(ArgumentError("quality must be one of $(join(keys(_QUALITY_PRESETS), ", ")), got $(repr(qv))"))
+    preset = _QUALITY_PRESETS[qv]
+
+    vals = Dict{Symbol,Any}(:quality => qv)
     for (name, default, parse_fn) in _SETTINGS_SPEC
-        v = haskey(kw, name) ? kw[name] : default
+        name === :quality && continue
+        v = haskey(preset, name) ? preset[name] : default   # preset supplies the "default" tier
+        v = haskey(kw, name) ? kw[name] : v                 # script kwarg beats the preset
         ev = _env_value(name); ev === nothing || (v = parse_fn(ev))
         cv = _cli_value(name); cv === nothing || (v = parse_fn(cv))
         vals[name] = v
